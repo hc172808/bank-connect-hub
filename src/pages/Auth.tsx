@@ -117,30 +117,6 @@ const Auth = () => {
                       className="h-14 rounded-xl"
                     />
                   </div>
-
-                  <div className="space-y-2">
-                    <Label>Account Type</Label>
-                    <RadioGroup value={role} onValueChange={(v) => setRole(v as UserRole)}>
-                      <div className="flex items-center space-x-2 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors">
-                        <RadioGroupItem value="client" id="client" />
-                        <Label htmlFor="client" className="cursor-pointer flex-1">
-                          Client Account
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-2 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors">
-                        <RadioGroupItem value="agent" id="agent" />
-                        <Label htmlFor="agent" className="cursor-pointer flex-1">
-                          Agent Account
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-2 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors">
-                        <RadioGroupItem value="admin" id="admin" />
-                        <Label htmlFor="admin" className="cursor-pointer flex-1">
-                          Admin Account
-                        </Label>
-                      </div>
-                    </RadioGroup>
-                  </div>
                 </>
               )}
 
