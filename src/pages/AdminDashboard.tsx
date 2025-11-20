@@ -104,15 +104,25 @@ const AdminDashboard = () => {
               <CardTitle>System Management</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button className="w-full justify-start gap-3 h-14 rounded-xl">
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                onClick={() => navigate("/admin/users")}
+              >
                 <Users size={20} />
                 Manage Users
               </Button>
-              <Button className="w-full justify-start gap-3 h-14 rounded-xl" variant="secondary">
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl" 
+                variant="secondary"
+                onClick={() => navigate("/admin/agents")}
+              >
                 <Briefcase size={20} />
                 Manage Agents
               </Button>
-              <Button className="w-full justify-start gap-3 h-14 rounded-xl">
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                onClick={() => navigate("/admin/settings")}
+              >
                 <Settings size={20} />
                 System Settings
               </Button>
@@ -124,15 +134,25 @@ const AdminDashboard = () => {
               <CardTitle>Reports & Analytics</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button className="w-full justify-start gap-3 h-14 rounded-xl">
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                onClick={() => navigate("/admin/transactions")}
+              >
                 <BarChart3 size={20} />
                 Transaction Reports
               </Button>
-              <Button className="w-full justify-start gap-3 h-14 rounded-xl" variant="secondary">
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl" 
+                variant="secondary"
+                onClick={() => navigate("/admin/financial")}
+              >
                 <FileText size={20} />
                 Financial Reports
               </Button>
-              <Button className="w-full justify-start gap-3 h-14 rounded-xl">
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                onClick={() => navigate("/admin/analytics")}
+              >
                 <Users size={20} />
                 User Analytics
               </Button>
