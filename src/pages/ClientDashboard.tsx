@@ -76,14 +76,14 @@ const ClientDashboard = () => {
   };
 
   const services = [
-    { icon: Receipt, label: "Pay Bills" },
-    { icon: Send, label: "Send Money/MMO" },
-    { icon: Gift, label: "eGift Cards" },
-    { icon: ArrowUpFromLine, label: "Top-up" },
-    { icon: Store, label: "Pay Merchant" },
-    { icon: UserPlus, label: "Refer & Earn" },
-    { icon: Ticket, label: "Traffic Ticket" },
-    { icon: MoreHorizontal, label: "More" },
+    { icon: Receipt, label: "Pay Bills", path: "/pay-bills" },
+    { icon: Send, label: "Send Money", path: "/send-money" },
+    { icon: Gift, label: "Request Funds", path: "/request-funds" },
+    { icon: ArrowUpFromLine, label: "Top-up", path: "/top-up" },
+    { icon: Store, label: "Pay Merchant", path: "/pay-merchant" },
+    { icon: UserPlus, label: "Refer & Earn", path: "/refer" },
+    { icon: Ticket, label: "Transactions", path: "/transactions" },
+    { icon: QrCode, label: "My QR Code", path: "/my-qr" },
   ];
 
   return (
@@ -168,6 +168,7 @@ const ClientDashboard = () => {
             {services.map((service, index) => (
               <button
                 key={index}
+                onClick={() => service.path && navigate(service.path)}
                 className="flex flex-col items-center gap-2 p-3 rounded-2xl hover:bg-muted/50 transition-colors"
               >
                 <div className="w-14 h-14 bg-primary rounded-2xl flex items-center justify-center">

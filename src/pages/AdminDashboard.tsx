@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle } from "lucide-react";
 
 interface ProfileData {
   full_name: string;
@@ -98,7 +98,7 @@ const AdminDashboard = () => {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <Card>
             <CardHeader>
               <CardTitle>System Management</CardTitle>
@@ -155,6 +155,36 @@ const AdminDashboard = () => {
               >
                 <Users size={20} />
                 User Analytics
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Financial Management</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                onClick={() => navigate("/fee-management")}
+              >
+                <DollarSign size={20} />
+                Fee Management
+              </Button>
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl" 
+                variant="secondary"
+                onClick={() => navigate("/admin-deposit")}
+              >
+                <Wallet size={20} />
+                Add Funds to Users
+              </Button>
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                onClick={() => navigate("/approve-deposits")}
+              >
+                <CheckCircle size={20} />
+                Approve Agent Deposits
               </Button>
             </CardContent>
           </Card>

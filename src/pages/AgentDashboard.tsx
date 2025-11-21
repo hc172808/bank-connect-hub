@@ -127,8 +127,11 @@ const AgentDashboard = () => {
             <CardTitle>Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-4">
-            <Button className="h-20 rounded-xl bg-primary hover:bg-primary/90">
-              Register New Client
+            <Button 
+              className="h-20 rounded-xl bg-primary hover:bg-primary/90"
+              onClick={() => navigate("/agent-deposit")}
+            >
+              Add Funds to Client
             </Button>
             <Button className="h-20 rounded-xl bg-secondary hover:bg-secondary/90">
               Process Transaction
