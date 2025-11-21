@@ -14,6 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
+      fund_requests: {
+        Row: {
+          amount: number
+          completed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          payer_id: string
+          requester_id: string
+          status: string
+          verification_code: string
+        }
+        Insert: {
+          amount: number
+          completed_at?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          payer_id: string
+          requester_id: string
+          status?: string
+          verification_code: string
+        }
+        Update: {
+          amount?: number
+          completed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          payer_id?: string
+          requester_id?: string
+          status?: string
+          verification_code?: string
+        }
+        Relationships: []
+      }
+      pending_deposits: {
+        Row: {
+          agent_id: string
+          amount: number
+          approved_by: string | null
+          created_at: string
+          id: string
+          processed_at: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          agent_id: string
+          amount: number
+          approved_by?: string | null
+          created_at?: string
+          id?: string
+          processed_at?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string
+          amount?: number
+          approved_by?: string | null
+          created_at?: string
+          id?: string
+          processed_at?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -35,6 +104,72 @@ export type Database = {
           id?: string
           phone_number?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      transaction_fees: {
+        Row: {
+          fee_percentage: number
+          fixed_fee: number
+          id: string
+          transaction_type: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          fee_percentage?: number
+          fixed_fee?: number
+          id?: string
+          transaction_type: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          fee_percentage?: number
+          fixed_fee?: number
+          id?: string
+          transaction_type?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      transactions: {
+        Row: {
+          amount: number
+          completed_at: string | null
+          created_at: string
+          description: string | null
+          fee: number
+          id: string
+          receiver_id: string
+          sender_id: string
+          status: string
+          transaction_type: string
+        }
+        Insert: {
+          amount: number
+          completed_at?: string | null
+          created_at?: string
+          description?: string | null
+          fee?: number
+          id?: string
+          receiver_id: string
+          sender_id: string
+          status?: string
+          transaction_type: string
+        }
+        Update: {
+          amount?: number
+          completed_at?: string | null
+          created_at?: string
+          description?: string | null
+          fee?: number
+          id?: string
+          receiver_id?: string
+          sender_id?: string
+          status?: string
+          transaction_type?: string
         }
         Relationships: []
       }
@@ -88,12 +223,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_add_funds: {
+        Args: { _amount: number; _user_id: string }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      process_transaction: {
+        Args: {
+          _amount: number
+          _description?: string
+          _receiver_id: string
+          _sender_id: string
+          _transaction_type: string
+        }
+        Returns: Json
       }
     }
     Enums: {

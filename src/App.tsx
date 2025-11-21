@@ -14,6 +14,13 @@ import SystemSettings from "./pages/SystemSettings";
 import TransactionReports from "./pages/TransactionReports";
 import FinancialReports from "./pages/FinancialReports";
 import UserAnalytics from "./pages/UserAnalytics";
+import SendMoney from "./pages/SendMoney";
+import RequestFunds from "./pages/RequestFunds";
+import FeeManagement from "./pages/FeeManagement";
+import AdminDeposit from "./pages/AdminDeposit";
+import AgentDeposit from "./pages/AgentDeposit";
+import ApprovePendingDeposits from "./pages/ApprovePendingDeposits";
+import MyQRCode from "./pages/MyQRCode";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -77,6 +84,9 @@ const AppRoutes = () => {
     return (
       <Routes>
         <Route path="/client" element={<ClientDashboard />} />
+        <Route path="/send-money" element={<SendMoney />} />
+        <Route path="/request-funds" element={<RequestFunds />} />
+        <Route path="/my-qr" element={<MyQRCode />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -86,6 +96,7 @@ const AppRoutes = () => {
     return (
       <Routes>
         <Route path="/agent" element={<AgentDashboard />} />
+        <Route path="/agent-deposit" element={<AgentDeposit />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
     );
@@ -101,6 +112,9 @@ const AppRoutes = () => {
         <Route path="/admin/transactions" element={<ProtectedRoute allowedRoles={["admin"]}><TransactionReports /></ProtectedRoute>} />
         <Route path="/admin/financial" element={<ProtectedRoute allowedRoles={["admin"]}><FinancialReports /></ProtectedRoute>} />
         <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={["admin"]}><UserAnalytics /></ProtectedRoute>} />
+        <Route path="/fee-management" element={<FeeManagement />} />
+        <Route path="/admin-deposit" element={<AdminDeposit />} />
+        <Route path="/approve-deposits" element={<ApprovePendingDeposits />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     );
