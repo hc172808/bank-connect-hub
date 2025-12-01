@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, User, Phone, Mail, MapPin } from 'lucide-react';
+import { ArrowLeft, Save, User, Phone } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 export default function Profile() {
@@ -17,9 +17,6 @@ export default function Profile() {
   const [profile, setProfile] = useState({
     full_name: '',
     phone_number: '',
-    email: '',
-    address: '',
-    avatar_url: '',
   });
 
   useEffect(() => {
@@ -33,8 +30,8 @@ export default function Profile() {
 
     const { data, error } = await supabase
       .from('profiles')
-      .select('*')
-      .eq('user_id', user.id)
+      .select('full_name, phone_number')
+      .eq('id', user.id)
       .single();
 
     if (error) {
@@ -50,9 +47,6 @@ export default function Profile() {
       setProfile({
         full_name: data.full_name || '',
         phone_number: data.phone_number || '',
-        email: '',
-        address: '',
-        avatar_url: '',
       });
     }
   };
@@ -70,7 +64,7 @@ export default function Profile() {
         phone_number: profile.phone_number,
         updated_at: new Date().toISOString(),
       })
-      .eq('user_id', user.id);
+      .eq('id', user.id);
 
     if (error) {
       toast({
@@ -107,9 +101,8 @@ export default function Profile() {
           <CardContent className="space-y-6">
             <div className="flex justify-center">
               <Avatar className="w-24 h-24">
-                <AvatarImage src={profile.avatar_url} />
                 <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
-                  {profile.full_name.charAt(0)}
+                  {profile.full_name ? profile.full_name.charAt(0).toUpperCase() : 'U'}
                 </AvatarFallback>
               </Avatar>
             </div>
@@ -138,31 +131,6 @@ export default function Profile() {
                   onChange={(e) => setProfile({ ...profile, phone_number: e.target.value })}
                   placeholder="+1234567890"
                   required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <Mail className="w-4 h-4" />
-                  Email
-                </label>
-                <Input
-                  type="email"
-                  value={profile.email}
-                  onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-                  placeholder="john@example.com"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <MapPin className="w-4 h-4" />
-                  Address
-                </label>
-                <Input
-                  value={profile.address}
-                  onChange={(e) => setProfile({ ...profile, address: e.target.value })}
-                  placeholder="123 Main St, City, Country"
                 />
               </div>
 
