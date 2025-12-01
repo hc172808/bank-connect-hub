@@ -5,6 +5,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
 import Auth from "./pages/Auth";
+import Register from "./pages/Register";
+import ForgotPassword from "./pages/ForgotPassword";
+import Profile from "./pages/Profile";
+import ChangePassword from "./pages/ChangePassword";
+import Feedback from "./pages/Feedback";
 import ClientDashboard from "./pages/ClientDashboard";
 import AgentDashboard from "./pages/AgentDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -74,6 +79,8 @@ const AppRoutes = () => {
     return (
       <Routes>
         <Route path="/auth" element={<Auth />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="*" element={<Navigate to="/auth" replace />} />
       </Routes>
     );
@@ -87,6 +94,9 @@ const AppRoutes = () => {
         <Route path="/send-money" element={<SendMoney />} />
         <Route path="/request-funds" element={<RequestFunds />} />
         <Route path="/my-qr" element={<MyQRCode />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/change-password" element={<ChangePassword />} />
+        <Route path="/feedback" element={<Feedback />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -97,6 +107,9 @@ const AppRoutes = () => {
       <Routes>
         <Route path="/agent" element={<AgentDashboard />} />
         <Route path="/agent-deposit" element={<AgentDeposit />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/change-password" element={<ChangePassword />} />
+        <Route path="/feedback" element={<Feedback />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
     );
@@ -115,6 +128,9 @@ const AppRoutes = () => {
         <Route path="/fee-management" element={<FeeManagement />} />
         <Route path="/admin-deposit" element={<AdminDeposit />} />
         <Route path="/approve-deposits" element={<ApprovePendingDeposits />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/change-password" element={<ChangePassword />} />
+        <Route path="/feedback" element={<Feedback />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     );
