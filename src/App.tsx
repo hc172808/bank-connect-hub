@@ -16,6 +16,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import ManageUsers from "./pages/ManageUsers";
 import ManageAgents from "./pages/ManageAgents";
 import SystemSettings from "./pages/SystemSettings";
+import DatabaseManagement from "./pages/DatabaseManagement";
 import TransactionReports from "./pages/TransactionReports";
 import FinancialReports from "./pages/FinancialReports";
 import UserAnalytics from "./pages/UserAnalytics";
@@ -122,6 +123,7 @@ const AppRoutes = () => {
         <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin"]}><ManageUsers /></ProtectedRoute>} />
         <Route path="/admin/agents" element={<ProtectedRoute allowedRoles={["admin"]}><ManageAgents /></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={["admin"]}><SystemSettings /></ProtectedRoute>} />
+        <Route path="/admin/database" element={<ProtectedRoute allowedRoles={["admin"]}><DatabaseManagement /></ProtectedRoute>} />
         <Route path="/admin/transactions" element={<ProtectedRoute allowedRoles={["admin"]}><TransactionReports /></ProtectedRoute>} />
         <Route path="/admin/financial" element={<ProtectedRoute allowedRoles={["admin"]}><FinancialReports /></ProtectedRoute>} />
         <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={["admin"]}><UserAnalytics /></ProtectedRoute>} />
