@@ -6,7 +6,7 @@ import { Camera, X } from "lucide-react";
 
 interface QRScannerProps {
   onScanSuccess: (userId: string) => void;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 export const QRScanner = ({ onScanSuccess, onClose }: QRScannerProps) => {
@@ -60,9 +60,11 @@ export const QRScanner = ({ onScanSuccess, onClose }: QRScannerProps) => {
     <Card className="p-6">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold">Scan QR Code</h3>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X size={20} />
-        </Button>
+        {onClose && (
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X size={20} />
+          </Button>
+        )}
       </div>
       
       <div id="qr-reader" className="w-full mb-4"></div>

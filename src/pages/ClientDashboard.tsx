@@ -99,14 +99,17 @@ const ClientDashboard = () => {
           <span className="font-bold text-foreground">mmg</span>
         </div>
         <div className="flex items-center gap-4">
-          <button className="relative">
+          <button 
+            onClick={() => navigate("/notifications")}
+            className="relative"
+          >
             <Bell className="text-foreground" />
             <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-white text-xs rounded-full flex items-center justify-center">
               1
             </span>
           </button>
           <button
-            onClick={() => navigate("/menu")}
+            onClick={() => navigate("/profile")}
             className="w-10 h-10 bg-card rounded-full flex items-center justify-center"
           >
             <User size={20} />
@@ -147,15 +150,24 @@ const ClientDashboard = () => {
 
         {/* Action Buttons */}
         <div className="flex gap-3">
-          <Button className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2">
+          <Button 
+            onClick={() => navigate("/send-money")}
+            className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
+          >
             <DollarSign size={20} />
             Pay
           </Button>
-          <Button className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2">
+          <Button 
+            onClick={() => navigate("/add-money")}
+            className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
+          >
             <Plus size={20} />
             Add
           </Button>
-          <Button className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2">
+          <Button 
+            onClick={() => navigate("/receive-money")}
+            className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
+          >
             <ArrowDownToLine size={20} />
             Receive
           </Button>
@@ -186,25 +198,28 @@ const ClientDashboard = () => {
       {/* Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-secondary border-t border-border">
         <div className="flex items-center justify-around p-4">
-          <button className="text-primary">
+          <button onClick={() => navigate("/client")} className="text-primary">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
               <path d="M3 13h1v7c0 1.103.897 2 2 2h12c1.103 0 2-.897 2-2v-7h1a1 1 0 0 0 .707-1.707l-9-9a.999.999 0 0 0-1.414 0l-9 9A1 1 0 0 0 3 13z"/>
             </svg>
           </button>
-          <button className="text-muted-foreground">
+          <button onClick={() => navigate("/transactions")} className="text-muted-foreground">
             <Receipt size={24} />
           </button>
-          <button className="w-16 h-16 -mt-8 bg-primary rounded-full flex items-center justify-center shadow-lg">
+          <button 
+            onClick={() => navigate("/scan-to-pay")}
+            className="w-16 h-16 -mt-8 bg-primary rounded-full flex items-center justify-center shadow-lg"
+          >
             <QrCode size={28} className="text-foreground" />
           </button>
-          <button className="text-muted-foreground">
+          <button onClick={() => navigate("/feedback")} className="text-muted-foreground">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10"/>
               <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
               <line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
           </button>
-          <button className="text-muted-foreground">
+          <button onClick={() => navigate("/menu")} className="text-muted-foreground">
             <MoreHorizontal size={24} />
           </button>
         </div>
