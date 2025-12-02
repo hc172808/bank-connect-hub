@@ -14,6 +14,80 @@ export type Database = {
   }
   public: {
     Tables: {
+      database_backups: {
+        Row: {
+          backup_name: string
+          backup_type: string
+          created_at: string
+          external_db_id: string | null
+          file_size: number | null
+          id: string
+          status: string
+        }
+        Insert: {
+          backup_name: string
+          backup_type?: string
+          created_at?: string
+          external_db_id?: string | null
+          file_size?: number | null
+          id?: string
+          status?: string
+        }
+        Update: {
+          backup_name?: string
+          backup_type?: string
+          created_at?: string
+          external_db_id?: string | null
+          file_size?: number | null
+          id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "database_backups_external_db_id_fkey"
+            columns: ["external_db_id"]
+            isOneToOne: false
+            referencedRelation: "external_databases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      external_databases: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          database_name: string
+          host: string
+          id: string
+          name: string
+          port: number
+          secret_key: string
+          username: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          database_name: string
+          host: string
+          id?: string
+          name: string
+          port?: number
+          secret_key: string
+          username: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          database_name?: string
+          host?: string
+          id?: string
+          name?: string
+          port?: number
+          secret_key?: string
+          username?: string
+        }
+        Relationships: []
+      }
       fund_requests: {
         Row: {
           amount: number
