@@ -28,6 +28,16 @@ import AgentDeposit from "./pages/AgentDeposit";
 import ApprovePendingDeposits from "./pages/ApprovePendingDeposits";
 import MyQRCode from "./pages/MyQRCode";
 import NotFound from "./pages/NotFound";
+import PayBills from "./pages/PayBills";
+import TopUp from "./pages/TopUp";
+import PayMerchant from "./pages/PayMerchant";
+import ReferAndEarn from "./pages/ReferAndEarn";
+import Transactions from "./pages/Transactions";
+import Notifications from "./pages/Notifications";
+import Menu from "./pages/Menu";
+import ScanToPay from "./pages/ScanToPay";
+import AddMoney from "./pages/AddMoney";
+import ReceiveMoney from "./pages/ReceiveMoney";
 
 const queryClient = new QueryClient();
 
@@ -98,6 +108,16 @@ const AppRoutes = () => {
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />
+        <Route path="/pay-bills" element={<PayBills />} />
+        <Route path="/top-up" element={<TopUp />} />
+        <Route path="/pay-merchant" element={<PayMerchant />} />
+        <Route path="/refer" element={<ReferAndEarn />} />
+        <Route path="/transactions" element={<Transactions />} />
+        <Route path="/notifications" element={<Notifications />} />
+        <Route path="/menu" element={<Menu />} />
+        <Route path="/scan-to-pay" element={<ScanToPay />} />
+        <Route path="/add-money" element={<AddMoney />} />
+        <Route path="/receive-money" element={<ReceiveMoney />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
