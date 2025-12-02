@@ -182,23 +182,18 @@ const Auth = () => {
               </div>
             </form>
 
-            <div className="mt-8 text-center">
-              <button
+            <div className="mt-8 text-center space-y-3">
+              <p className="text-muted-foreground text-sm">
+                {mode === "signin" ? "Don't have an account?" : "Already have an account?"}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
                 onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-                className="text-foreground"
+                className="w-full h-12 rounded-xl font-semibold"
               >
-                {mode === "signin" ? (
-                  <>
-                    Don't have an account?{" "}
-                    <span className="font-bold">Register Now</span>
-                  </>
-                ) : (
-                  <>
-                    Already have an account?{" "}
-                    <span className="font-bold">Sign In</span>
-                  </>
-                )}
-              </button>
+                {mode === "signin" ? "Register Now" : "Sign In"}
+              </Button>
             </div>
           </div>
         </div>
