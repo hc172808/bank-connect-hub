@@ -38,6 +38,7 @@ import Menu from "./pages/Menu";
 import ScanToPay from "./pages/ScanToPay";
 import AddMoney from "./pages/AddMoney";
 import ReceiveMoney from "./pages/ReceiveMoney";
+import BlockchainSettings from "./pages/BlockchainSettings";
 
 const queryClient = new QueryClient();
 
@@ -150,6 +151,7 @@ const AppRoutes = () => {
         <Route path="/fee-management" element={<FeeManagement />} />
         <Route path="/admin-deposit" element={<AdminDeposit />} />
         <Route path="/approve-deposits" element={<ApprovePendingDeposits />} />
+        <Route path="/admin/blockchain" element={<ProtectedRoute allowedRoles={["admin"]}><BlockchainSettings /></ProtectedRoute>} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />

@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      blockchain_settings: {
+        Row: {
+          chain_id: string | null
+          created_at: string
+          explorer_url: string | null
+          id: string
+          is_active: boolean
+          native_coin_name: string
+          native_coin_symbol: string
+          rpc_url: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          chain_id?: string | null
+          created_at?: string
+          explorer_url?: string | null
+          id?: string
+          is_active?: boolean
+          native_coin_name?: string
+          native_coin_symbol?: string
+          rpc_url?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          chain_id?: string | null
+          created_at?: string
+          explorer_url?: string | null
+          id?: string
+          is_active?: boolean
+          native_coin_name?: string
+          native_coin_symbol?: string
+          rpc_url?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       database_backups: {
         Row: {
           backup_name: string
@@ -159,21 +198,39 @@ export type Database = {
       }
       profiles: {
         Row: {
+          address: string | null
+          avatar_url: string | null
+          bio: string | null
+          city: string | null
+          country: string | null
           created_at: string
+          date_of_birth: string | null
           full_name: string | null
           id: string
           phone_number: string | null
           updated_at: string
         }
         Insert: {
+          address?: string | null
+          avatar_url?: string | null
+          bio?: string | null
+          city?: string | null
+          country?: string | null
           created_at?: string
+          date_of_birth?: string | null
           full_name?: string | null
           id: string
           phone_number?: string | null
           updated_at?: string
         }
         Update: {
+          address?: string | null
+          avatar_url?: string | null
+          bio?: string | null
+          city?: string | null
+          country?: string | null
           created_at?: string
+          date_of_birth?: string | null
           full_name?: string | null
           id?: string
           phone_number?: string | null

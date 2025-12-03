@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins } from "lucide-react";
 
 interface ProfileData {
   full_name: string;
@@ -133,6 +133,13 @@ const AdminDashboard = () => {
               >
                 <Database size={20} />
                 Database Management
+              </Button>
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                onClick={() => navigate("/admin/blockchain")}
+              >
+                <Coins size={20} />
+                Blockchain Settings
               </Button>
             </CardContent>
           </Card>
