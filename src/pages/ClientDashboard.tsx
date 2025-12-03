@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { getWalletBalance } from "@/lib/wallet";
 import {
   Bell,
   User,
@@ -20,6 +21,8 @@ import {
   Ticket,
   MoreHorizontal,
   QrCode,
+  Coins,
+  Copy,
 } from "lucide-react";
 
 interface WalletData {
@@ -29,12 +32,21 @@ interface WalletData {
 
 interface ProfileData {
   full_name: string;
+  wallet_address: string | null;
+}
+
+interface BlockchainSettings {
+  rpc_url: string | null;
+  native_coin_symbol: string;
+  is_active: boolean;
 }
 
 const ClientDashboard = () => {
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [showBalance, setShowBalance] = useState(true);
+  const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
+  const [blockchainBalance, setBlockchainBalance] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -42,24 +54,36 @@ const ClientDashboard = () => {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    if (blockchainSettings?.is_active && blockchainSettings?.rpc_url && profile?.wallet_address) {
+      fetchBlockchainBalance();
+    }
+  }, [blockchainSettings, profile]);
+
   const fetchData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data: walletData } = await supabase
-      .from("wallets")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    const [walletRes, profileRes, blockchainRes] = await Promise.all([
+      supabase.from("wallets").select("*").eq("user_id", user.id).single(),
+      supabase.from("profiles").select("full_name, wallet_address").eq("id", user.id).single(),
+      supabase.from("blockchain_settings").select("rpc_url, native_coin_symbol, is_active").single(),
+    ]);
 
-    const { data: profileData } = await supabase
-      .from("profiles")
-      .select("full_name")
-      .eq("id", user.id)
-      .single();
+    if (walletRes.data) setWallet(walletRes.data);
+    if (profileRes.data) setProfile(profileRes.data);
+    if (blockchainRes.data) setBlockchainSettings(blockchainRes.data);
+  };
 
-    if (walletData) setWallet(walletData);
-    if (profileData) setProfile(profileData);
+  const fetchBlockchainBalance = async () => {
+    if (!blockchainSettings?.rpc_url || !profile?.wallet_address) return;
+    
+    try {
+      const balance = await getWalletBalance(blockchainSettings.rpc_url, profile.wallet_address);
+      setBlockchainBalance(balance);
+    } catch (error) {
+      console.error('Error fetching blockchain balance:', error);
+    }
   };
 
   const handleLogout = async () => {
@@ -68,11 +92,22 @@ const ClientDashboard = () => {
     navigate("/auth");
   };
 
+  const copyAddress = async () => {
+    if (profile?.wallet_address) {
+      await navigator.clipboard.writeText(profile.wallet_address);
+      toast({ title: "Wallet address copied" });
+    }
+  };
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good Morning";
     if (hour < 18) return "Good Afternoon";
     return "Good Evening";
+  };
+
+  const truncateAddress = (address: string) => {
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
   const services = [
@@ -118,7 +153,7 @@ const ClientDashboard = () => {
       </header>
 
       {/* Main Content */}
-      <main className="p-4 space-y-6">
+      <main className="p-4 space-y-6 pb-32">
         {/* Wallet Card */}
         <div className="relative">
           <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-card-stripe-1 via-card-stripe-2 to-card-stripe-3 blur-xl opacity-50" />
@@ -145,6 +180,33 @@ const ClientDashboard = () => {
               </h2>
               <p className="text-sm text-foreground/70 mt-1">Main Wallet</p>
             </div>
+
+            {/* Blockchain Balance */}
+            {blockchainSettings?.is_active && profile?.wallet_address && (
+              <div className="mt-4 pt-4 border-t border-foreground/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Coins size={16} className="text-foreground/70" />
+                    <span className="text-sm text-foreground/70">
+                      {blockchainSettings.native_coin_symbol} Balance
+                    </span>
+                  </div>
+                  <span className="text-lg font-semibold text-foreground">
+                    {showBalance
+                      ? `${blockchainBalance || '0'} ${blockchainSettings.native_coin_symbol}`
+                      : "****"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <code className="text-xs text-foreground/60 bg-foreground/10 px-2 py-1 rounded">
+                    {truncateAddress(profile.wallet_address)}
+                  </code>
+                  <button onClick={copyAddress} className="text-foreground/60 hover:text-foreground">
+                    <Copy size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

@@ -4,9 +4,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, Fingerprint } from "lucide-react";
+import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle } from "lucide-react";
+import { generateWallet, encryptPrivateKey } from "@/lib/wallet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type AuthMode = "signin" | "signup";
 type UserRole = "client" | "agent" | "admin";
@@ -19,8 +26,18 @@ const Auth = () => {
   const [role, setRole] = useState<UserRole>("client");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showWalletDialog, setShowWalletDialog] = useState(false);
+  const [walletData, setWalletData] = useState<{ address: string; privateKey: string; mnemonic?: string } | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  const copyToClipboard = async (text: string, field: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+    toast({ title: "Copied to clipboard" });
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +45,14 @@ const Auth = () => {
 
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
+        // Generate wallet for new user
+        const wallet = generateWallet();
+        setWalletData(wallet);
+
+        // Encrypt private key with user's password
+        const encryptedKey = await encryptPrivateKey(wallet.privateKey, password);
+
+        const { data: authData, error } = await supabase.auth.signUp({
           email: `${phoneNumber}@vbank.com`,
           password,
           options: {
@@ -36,6 +60,7 @@ const Auth = () => {
               full_name: fullName,
               phone_number: phoneNumber,
               role: role,
+              wallet_address: wallet.address,
             },
             emailRedirectTo: `${window.location.origin}/`,
           },
@@ -43,10 +68,32 @@ const Auth = () => {
 
         if (error) throw error;
 
-        toast({
-          title: "Account created!",
-          description: "Welcome to Virtual Bank",
-        });
+        // Save wallet to user_wallets table
+        if (authData.user) {
+          const { error: walletError } = await supabase
+            .from('user_wallets')
+            .insert({
+              user_id: authData.user.id,
+              wallet_address: wallet.address,
+              encrypted_private_key: encryptedKey,
+            });
+
+          if (walletError) {
+            console.error('Error saving wallet:', walletError);
+          }
+
+          // Update profile with wallet address
+          await supabase
+            .from('profiles')
+            .update({
+              wallet_address: wallet.address,
+              wallet_created_at: new Date().toISOString(),
+            })
+            .eq('id', authData.user.id);
+        }
+
+        // Show wallet dialog with private key
+        setShowWalletDialog(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email: `${phoneNumber}@vbank.com`,
@@ -69,6 +116,15 @@ const Auth = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCloseWalletDialog = () => {
+    setShowWalletDialog(false);
+    setWalletData(null);
+    toast({
+      title: "Account created!",
+      description: "Welcome to Virtual Bank",
+    });
   };
 
   return (
@@ -198,6 +254,91 @@ const Auth = () => {
           </div>
         </div>
       </div>
+
+      {/* Wallet Created Dialog */}
+      <Dialog open={showWalletDialog} onOpenChange={setShowWalletDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <AlertTriangle className="w-5 h-5 text-yellow-500" />
+              Save Your Wallet Keys
+            </DialogTitle>
+            <DialogDescription className="text-destructive font-medium">
+              IMPORTANT: Save these keys securely. You will NOT be able to see your private key again!
+            </DialogDescription>
+          </DialogHeader>
+
+          {walletData && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Wallet Address</Label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 p-3 bg-muted rounded-lg text-xs break-all">
+                    {walletData.address}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => copyToClipboard(walletData.address, 'address')}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+                {copiedField === 'address' && <span className="text-xs text-green-500">Copied!</span>}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-destructive">Private Key (KEEP SECRET!)</Label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 p-3 bg-destructive/10 rounded-lg text-xs break-all border border-destructive/20">
+                    {walletData.privateKey}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => copyToClipboard(walletData.privateKey, 'privateKey')}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+                {copiedField === 'privateKey' && <span className="text-xs text-green-500">Copied!</span>}
+              </div>
+
+              {walletData.mnemonic && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium text-destructive">Recovery Phrase (KEEP SECRET!)</Label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 p-3 bg-destructive/10 rounded-lg text-xs break-all border border-destructive/20">
+                      {walletData.mnemonic}
+                    </code>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      onClick={() => copyToClipboard(walletData.mnemonic!, 'mnemonic')}
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  {copiedField === 'mnemonic' && <span className="text-xs text-green-500">Copied!</span>}
+                </div>
+              )}
+
+              <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
+                <p className="text-xs text-yellow-700 dark:text-yellow-300">
+                  Your private key is encrypted and stored securely. However, you should still save a backup of your private key and recovery phrase in a safe place.
+                </p>
+              </div>
+
+              <Button
+                className="w-full"
+                onClick={handleCloseWalletDialog}
+              >
+                I've Saved My Keys - Continue
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
