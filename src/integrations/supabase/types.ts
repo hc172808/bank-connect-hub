@@ -209,6 +209,8 @@ export type Database = {
           id: string
           phone_number: string | null
           updated_at: string
+          wallet_address: string | null
+          wallet_created_at: string | null
         }
         Insert: {
           address?: string | null
@@ -222,6 +224,8 @@ export type Database = {
           id: string
           phone_number?: string | null
           updated_at?: string
+          wallet_address?: string | null
+          wallet_created_at?: string | null
         }
         Update: {
           address?: string | null
@@ -235,6 +239,8 @@ export type Database = {
           id?: string
           phone_number?: string | null
           updated_at?: string
+          wallet_address?: string | null
+          wallet_created_at?: string | null
         }
         Relationships: []
       }
@@ -319,6 +325,30 @@ export type Database = {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
+        }
+        Relationships: []
+      }
+      user_wallets: {
+        Row: {
+          created_at: string
+          encrypted_private_key: string
+          id: string
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          created_at?: string
+          encrypted_private_key: string
+          id?: string
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          created_at?: string
+          encrypted_private_key?: string
+          id?: string
+          user_id?: string
+          wallet_address?: string
         }
         Relationships: []
       }
