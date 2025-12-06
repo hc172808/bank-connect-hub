@@ -7,8 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { QRScanner } from "@/components/QRScanner";
-import { ArrowLeft, QrCode, User, Wallet, Info } from "lucide-react";
-import { isValidAddress, sendTransaction, decryptPrivateKey } from "@/lib/wallet";
+import { ArrowLeft, QrCode, User, Wallet, Info, Fuel } from "lucide-react";
+import { isValidAddress, sendTransaction, decryptPrivateKey, estimateGas } from "@/lib/wallet";
 import {
   Dialog,
   DialogContent,
@@ -38,12 +38,25 @@ const SendMoney = () => {
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [password, setPassword] = useState("");
   const [pendingBlockchainTx, setPendingBlockchainTx] = useState(false);
+  const [gasEstimate, setGasEstimate] = useState<string | null>(null);
+  const [estimatingGas, setEstimatingGas] = useState(false);
+  const [userWalletAddress, setUserWalletAddress] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     fetchBlockchainSettings();
+    fetchUserWallet();
   }, []);
+
+  // Estimate gas when amount or wallet address changes
+  useEffect(() => {
+    if (sendMode === "blockchain" && amount && (walletAddress || receiverWalletAddress)) {
+      estimateGasFee();
+    } else {
+      setGasEstimate(null);
+    }
+  }, [amount, walletAddress, receiverWalletAddress, sendMode]);
 
   const fetchBlockchainSettings = async () => {
     const { data } = await supabase
@@ -54,6 +67,43 @@ const SendMoney = () => {
     if (data) {
       setBlockchainSettings(data);
     }
+  };
+
+  const fetchUserWallet = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data } = await supabase
+      .from("profiles")
+      .select("wallet_address")
+      .eq("id", user.id)
+      .single();
+
+    if (data?.wallet_address) {
+      setUserWalletAddress(data.wallet_address);
+    }
+  };
+
+  const estimateGasFee = async () => {
+    if (!blockchainSettings?.rpc_url || !userWalletAddress) return;
+    
+    const targetAddress = walletAddress || receiverWalletAddress;
+    if (!targetAddress || !isValidAddress(targetAddress) || !amount) return;
+
+    setEstimatingGas(true);
+    try {
+      const gas = await estimateGas(
+        blockchainSettings.rpc_url,
+        userWalletAddress,
+        targetAddress,
+        amount
+      );
+      setGasEstimate(gas);
+    } catch (error) {
+      console.error("Gas estimation error:", error);
+      setGasEstimate(null);
+    }
+    setEstimatingGas(false);
   };
 
   const handleScanSuccess = async (userId: string) => {
@@ -326,11 +376,32 @@ const SendMoney = () => {
                   onChange={(e) => setAmount(e.target.value)}
                   required
                 />
-                {sendMode === "internal" && (
+                {sendMode === "internal" ? (
                   <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                     <Info size={12} />
                     60% of fees returned to you as cashback
                   </p>
+                ) : (
+                  <div className="mt-2 p-3 rounded-lg bg-muted/50 space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <Fuel size={14} />
+                        Estimated Network Fee
+                      </span>
+                      {estimatingGas ? (
+                        <span className="text-muted-foreground">Calculating...</span>
+                      ) : gasEstimate ? (
+                        <span className="font-medium">{parseFloat(gasEstimate).toFixed(6)} {blockchainSettings?.native_coin_symbol}</span>
+                      ) : (
+                        <span className="text-muted-foreground">Enter amount to estimate</span>
+                      )}
+                    </div>
+                    {gasEstimate && (
+                      <p className="text-xs text-muted-foreground">
+                        Total: {(parseFloat(amount || "0") + parseFloat(gasEstimate)).toFixed(6)} {blockchainSettings?.native_coin_symbol}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
 
