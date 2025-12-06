@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, Link2, Coins, Globe, Hash } from 'lucide-react';
+import { ArrowLeft, Save, Link2, Coins, Globe, Hash, Wallet } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 interface BlockchainSettings {
@@ -18,6 +18,7 @@ interface BlockchainSettings {
   native_coin_name: string;
   explorer_url: string;
   is_active: boolean;
+  liquidity_pool_address: string;
 }
 
 export default function BlockchainSettings() {
@@ -34,6 +35,7 @@ export default function BlockchainSettings() {
     native_coin_name: 'GYD Coin',
     explorer_url: '',
     is_active: false,
+    liquidity_pool_address: '',
   });
 
   useEffect(() => {
@@ -68,6 +70,7 @@ export default function BlockchainSettings() {
         native_coin_name: data.native_coin_name || 'GYD Coin',
         explorer_url: data.explorer_url || '',
         is_active: data.is_active || false,
+        liquidity_pool_address: data.liquidity_pool_address || '',
       });
     }
     setLoading(false);
@@ -86,6 +89,7 @@ export default function BlockchainSettings() {
       native_coin_name: settings.native_coin_name,
       explorer_url: settings.explorer_url || null,
       is_active: settings.is_active,
+      liquidity_pool_address: settings.liquidity_pool_address || null,
       updated_by: user.id,
     };
 
@@ -280,6 +284,21 @@ export default function BlockchainSettings() {
                   />
                   <p className="text-xs text-muted-foreground">
                     Optional: Link to view transactions on block explorer
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center gap-2">
+                    <Wallet className="w-4 h-4" />
+                    Liquidity Pool Address
+                  </label>
+                  <Input
+                    value={settings.liquidity_pool_address}
+                    onChange={(e) => setSettings({ ...settings, liquidity_pool_address: e.target.value })}
+                    placeholder="0x..."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Wallet address to receive 40% of transaction fees
                   </p>
                 </div>
               </div>
