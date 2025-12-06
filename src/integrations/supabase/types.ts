@@ -21,6 +21,7 @@ export type Database = {
           explorer_url: string | null
           id: string
           is_active: boolean
+          liquidity_pool_address: string | null
           native_coin_name: string
           native_coin_symbol: string
           rpc_url: string | null
@@ -33,6 +34,7 @@ export type Database = {
           explorer_url?: string | null
           id?: string
           is_active?: boolean
+          liquidity_pool_address?: string | null
           native_coin_name?: string
           native_coin_symbol?: string
           rpc_url?: string | null
@@ -45,6 +47,7 @@ export type Database = {
           explorer_url?: string | null
           id?: string
           is_active?: boolean
+          liquidity_pool_address?: string | null
           native_coin_name?: string
           native_coin_symbol?: string
           rpc_url?: string | null

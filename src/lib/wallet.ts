@@ -6,6 +6,12 @@ export interface WalletData {
   mnemonic?: string;
 }
 
+export interface TransactionResult {
+  success: boolean;
+  txHash?: string;
+  error?: string;
+}
+
 /**
  * Generate a new Ethereum-compatible wallet
  * This creates a random wallet with address and private key
@@ -80,4 +86,92 @@ export const getWalletInfo = async (rpcUrl: string, address: string) => {
  */
 export const isValidAddress = (address: string): boolean => {
   return ethers.isAddress(address);
+};
+
+/**
+ * Send native token (GYD) transaction on blockchain
+ */
+export const sendTransaction = async (
+  rpcUrl: string,
+  privateKey: string,
+  toAddress: string,
+  amount: string,
+  chainId?: string
+): Promise<TransactionResult> => {
+  try {
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const wallet = new ethers.Wallet(privateKey, provider);
+    
+    // Convert amount to wei
+    const value = ethers.parseEther(amount);
+    
+    // Prepare transaction
+    const tx = {
+      to: toAddress,
+      value: value,
+      chainId: chainId ? parseInt(chainId) : undefined,
+    };
+    
+    // Send transaction
+    const txResponse = await wallet.sendTransaction(tx);
+    
+    // Wait for transaction to be mined
+    const receipt = await txResponse.wait();
+    
+    return {
+      success: true,
+      txHash: receipt?.hash,
+    };
+  } catch (error: any) {
+    console.error('Error sending transaction:', error);
+    return {
+      success: false,
+      error: error.message || 'Transaction failed',
+    };
+  }
+};
+
+/**
+ * Send transaction to liquidity pool (40% of fee)
+ */
+export const sendToLiquidityPool = async (
+  rpcUrl: string,
+  privateKey: string,
+  liquidityPoolAddress: string,
+  feeAmount: string,
+  chainId?: string
+): Promise<TransactionResult> => {
+  // 40% of fee goes to liquidity pool
+  const liquidityAmount = (parseFloat(feeAmount) * 0.40).toString();
+  return sendTransaction(rpcUrl, privateKey, liquidityPoolAddress, liquidityAmount, chainId);
+};
+
+/**
+ * Estimate gas for a transaction
+ */
+export const estimateGas = async (
+  rpcUrl: string,
+  fromAddress: string,
+  toAddress: string,
+  amount: string
+): Promise<string> => {
+  try {
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const value = ethers.parseEther(amount);
+    
+    const gasEstimate = await provider.estimateGas({
+      from: fromAddress,
+      to: toAddress,
+      value: value,
+    });
+    
+    const feeData = await provider.getFeeData();
+    const gasPrice = feeData.gasPrice || BigInt(0);
+    const totalGasCost = gasEstimate * gasPrice;
+    
+    return ethers.formatEther(totalGasCost);
+  } catch (error) {
+    console.error('Error estimating gas:', error);
+    return '0';
+  }
 };
