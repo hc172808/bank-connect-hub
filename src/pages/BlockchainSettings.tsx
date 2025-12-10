@@ -22,10 +22,10 @@ interface BlockchainSettings {
 }
 
 export default function BlockchainSettings() {
-  const { user, role } = useAuth();
+  const { user, role, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<BlockchainSettings>({
     id: '',
@@ -39,12 +39,15 @@ export default function BlockchainSettings() {
   });
 
   useEffect(() => {
+    // Wait for auth to finish loading before checking role
+    if (authLoading) return;
+    
     if (role !== 'admin') {
       navigate('/admin');
       return;
     }
     fetchSettings();
-  }, [role]);
+  }, [role, authLoading]);
 
   const fetchSettings = async () => {
     setLoading(true);
