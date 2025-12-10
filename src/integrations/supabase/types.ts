@@ -56,6 +56,39 @@ export type Database = {
         }
         Relationships: []
       }
+      conversion_fees: {
+        Row: {
+          created_at: string
+          fee_percentage: number
+          from_coin: string
+          id: string
+          is_active: boolean
+          to_coin: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          fee_percentage?: number
+          from_coin: string
+          id?: string
+          is_active?: boolean
+          to_coin: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          fee_percentage?: number
+          from_coin?: string
+          id?: string
+          is_active?: boolean
+          to_coin?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       database_backups: {
         Row: {
           backup_name: string
@@ -244,6 +277,39 @@ export type Database = {
           updated_at?: string
           wallet_address?: string | null
           wallet_created_at?: string | null
+        }
+        Relationships: []
+      }
+      supported_coins: {
+        Row: {
+          coin_name: string
+          coin_symbol: string
+          contract_address: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          is_native: boolean
+          updated_at: string
+        }
+        Insert: {
+          coin_name: string
+          coin_symbol: string
+          contract_address?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_native?: boolean
+          updated_at?: string
+        }
+        Update: {
+          coin_name?: string
+          coin_symbol?: string
+          contract_address?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_native?: boolean
+          updated_at?: string
         }
         Relationships: []
       }
