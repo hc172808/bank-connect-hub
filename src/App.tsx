@@ -39,6 +39,9 @@ import ScanToPay from "./pages/ScanToPay";
 import AddMoney from "./pages/AddMoney";
 import ReceiveMoney from "./pages/ReceiveMoney";
 import BlockchainSettings from "./pages/BlockchainSettings";
+import WalletImport from "./pages/WalletImport";
+import CoinManagement from "./pages/CoinManagement";
+import ConversionFees from "./pages/ConversionFees";
 
 const queryClient = new QueryClient();
 
@@ -119,6 +122,7 @@ const AppRoutes = () => {
         <Route path="/scan-to-pay" element={<ScanToPay />} />
         <Route path="/add-money" element={<AddMoney />} />
         <Route path="/receive-money" element={<ReceiveMoney />} />
+        <Route path="/wallet-import" element={<WalletImport />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -152,6 +156,8 @@ const AppRoutes = () => {
         <Route path="/admin-deposit" element={<AdminDeposit />} />
         <Route path="/approve-deposits" element={<ApprovePendingDeposits />} />
         <Route path="/admin/blockchain" element={<ProtectedRoute allowedRoles={["admin"]}><BlockchainSettings /></ProtectedRoute>} />
+        <Route path="/admin/coins" element={<ProtectedRoute allowedRoles={["admin"]}><CoinManagement /></ProtectedRoute>} />
+        <Route path="/admin/conversion-fees" element={<ProtectedRoute allowedRoles={["admin"]}><ConversionFees /></ProtectedRoute>} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />

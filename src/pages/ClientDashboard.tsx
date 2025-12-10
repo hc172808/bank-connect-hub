@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,8 @@ import {
   QrCode,
   Coins,
   Copy,
+  RefreshCw,
+  Import,
 } from "lucide-react";
 
 interface WalletData {
@@ -41,14 +43,28 @@ interface BlockchainSettings {
   is_active: boolean;
 }
 
+const BALANCE_REFRESH_INTERVAL = 30000; // 30 seconds
+
 const ClientDashboard = () => {
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [showBalance, setShowBalance] = useState(true);
   const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
   const [blockchainBalance, setBlockchainBalance] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  const fetchBlockchainBalance = useCallback(async () => {
+    if (!blockchainSettings?.rpc_url || !profile?.wallet_address) return;
+    
+    try {
+      const balance = await getWalletBalance(blockchainSettings.rpc_url, profile.wallet_address);
+      setBlockchainBalance(balance);
+    } catch (error) {
+      console.error('Error fetching blockchain balance:', error);
+    }
+  }, [blockchainSettings, profile]);
 
   useEffect(() => {
     fetchData();
@@ -57,8 +73,12 @@ const ClientDashboard = () => {
   useEffect(() => {
     if (blockchainSettings?.is_active && blockchainSettings?.rpc_url && profile?.wallet_address) {
       fetchBlockchainBalance();
+      
+      // Set up auto-refresh interval
+      const interval = setInterval(fetchBlockchainBalance, BALANCE_REFRESH_INTERVAL);
+      return () => clearInterval(interval);
     }
-  }, [blockchainSettings, profile]);
+  }, [blockchainSettings, profile, fetchBlockchainBalance]);
 
   const fetchData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -75,15 +95,11 @@ const ClientDashboard = () => {
     if (blockchainRes.data) setBlockchainSettings(blockchainRes.data);
   };
 
-  const fetchBlockchainBalance = async () => {
-    if (!blockchainSettings?.rpc_url || !profile?.wallet_address) return;
-    
-    try {
-      const balance = await getWalletBalance(blockchainSettings.rpc_url, profile.wallet_address);
-      setBlockchainBalance(balance);
-    } catch (error) {
-      console.error('Error fetching blockchain balance:', error);
-    }
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([fetchData(), fetchBlockchainBalance()]);
+    setRefreshing(false);
+    toast({ title: "Balance refreshed" });
   };
 
   const handleLogout = async () => {
@@ -118,7 +134,7 @@ const ClientDashboard = () => {
     { icon: Store, label: "Pay Merchant", path: "/pay-merchant" },
     { icon: UserPlus, label: "Refer & Earn", path: "/refer" },
     { icon: Ticket, label: "Transactions", path: "/transactions" },
-    { icon: QrCode, label: "My QR Code", path: "/my-qr" },
+    { icon: Import, label: "Import Wallet", path: "/wallet-import" },
   ];
 
   return (
@@ -165,12 +181,21 @@ const ClientDashboard = () => {
                 </p>
                 <p className="text-xs text-foreground/60">{getGreeting()}</p>
               </div>
-              <button
-                onClick={() => setShowBalance(!showBalance)}
-                className="text-foreground"
-              >
-                {showBalance ? <Eye size={20} /> : <EyeOff size={20} />}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleRefresh}
+                  className="text-foreground"
+                  disabled={refreshing}
+                >
+                  <RefreshCw size={20} className={refreshing ? 'animate-spin' : ''} />
+                </button>
+                <button
+                  onClick={() => setShowBalance(!showBalance)}
+                  className="text-foreground"
+                >
+                  {showBalance ? <Eye size={20} /> : <EyeOff size={20} />}
+                </button>
+              </div>
             </div>
             <div className="mt-4">
               <h2 className="text-5xl font-bold text-foreground">
