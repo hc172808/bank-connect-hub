@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,11 @@ interface BlockchainSettings {
   is_active: boolean;
 }
 
+interface FeatureToggle {
+  feature_key: string;
+  is_enabled: boolean;
+}
+
 const BALANCE_REFRESH_INTERVAL = 30000; // 30 seconds
 
 const ClientDashboard = () => {
@@ -52,6 +57,7 @@ const ClientDashboard = () => {
   const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
   const [blockchainBalance, setBlockchainBalance] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [featureToggles, setFeatureToggles] = useState<FeatureToggle[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -84,15 +90,17 @@ const ClientDashboard = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [walletRes, profileRes, blockchainRes] = await Promise.all([
+    const [walletRes, profileRes, blockchainRes, featuresRes] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", user.id).single(),
       supabase.from("profiles").select("full_name, wallet_address").eq("id", user.id).single(),
       supabase.from("blockchain_settings").select("rpc_url, native_coin_symbol, is_active").single(),
+      supabase.from("feature_toggles").select("feature_key, is_enabled"),
     ]);
 
     if (walletRes.data) setWallet(walletRes.data);
     if (profileRes.data) setProfile(profileRes.data);
     if (blockchainRes.data) setBlockchainSettings(blockchainRes.data);
+    if (featuresRes.data) setFeatureToggles(featuresRes.data);
   };
 
   const handleRefresh = async () => {
@@ -126,16 +134,27 @@ const ClientDashboard = () => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const services = [
-    { icon: Receipt, label: "Pay Bills", path: "/pay-bills" },
-    { icon: Send, label: "Send Money", path: "/send-money" },
-    { icon: Gift, label: "Request Funds", path: "/request-funds" },
-    { icon: ArrowUpFromLine, label: "Top-up", path: "/top-up" },
-    { icon: Store, label: "Pay Merchant", path: "/pay-merchant" },
-    { icon: UserPlus, label: "Refer & Earn", path: "/refer" },
-    { icon: Ticket, label: "Transactions", path: "/transactions" },
-    { icon: Import, label: "Import Wallet", path: "/wallet-import" },
-  ];
+  const isFeatureEnabled = (featureKey: string) => {
+    const feature = featureToggles.find(f => f.feature_key === featureKey);
+    return feature?.is_enabled ?? false;
+  };
+
+  const services = useMemo(() => {
+    const allServices = [
+      { icon: Receipt, label: "Pay Bills", path: "/pay-bills", featureKey: "pay_bills" },
+      { icon: Send, label: "Send Money", path: "/send-money", featureKey: null },
+      { icon: Gift, label: "Request Funds", path: "/request-funds", featureKey: null },
+      { icon: ArrowUpFromLine, label: "Top-up", path: "/top-up", featureKey: "top_up" },
+      { icon: Store, label: "Pay Merchant", path: "/pay-merchant", featureKey: "pay_merchant" },
+      { icon: UserPlus, label: "Refer & Earn", path: "/refer", featureKey: null },
+      { icon: Ticket, label: "Transactions", path: "/transactions", featureKey: null },
+      { icon: Import, label: "Import Wallet", path: "/wallet-import", featureKey: null },
+    ];
+
+    return allServices.filter(service => 
+      service.featureKey === null || isFeatureEnabled(service.featureKey)
+    );
+  }, [featureToggles]);
 
   return (
     <div className="min-h-screen bg-primary/10">
