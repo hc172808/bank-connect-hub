@@ -7,8 +7,16 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText } from 'lucide-react';
+import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { generateWallet, encryptPrivateKey } from '@/lib/wallet';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function Profile() {
   const { user } = useAuth();
@@ -17,6 +25,13 @@ export default function Profile() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [showCreateWallet, setShowCreateWallet] = useState(false);
+  const [creatingWallet, setCreatingWallet] = useState(false);
+  const [walletPassword, setWalletPassword] = useState('');
+  const [showWalletDialog, setShowWalletDialog] = useState(false);
+  const [newWalletData, setNewWalletData] = useState<{ address: string; privateKey: string; mnemonic?: string } | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
   const [profile, setProfile] = useState({
     full_name: '',
     phone_number: '',
@@ -31,8 +46,83 @@ export default function Profile() {
   useEffect(() => {
     if (user) {
       fetchProfile();
+      fetchWallet();
     }
   }, [user]);
+
+  const fetchWallet = async () => {
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('user_wallets')
+      .select('wallet_address')
+      .eq('user_id', user.id)
+      .single();
+
+    if (data) {
+      setWalletAddress(data.wallet_address);
+    } else {
+      setShowCreateWallet(true);
+    }
+  };
+
+  const copyToClipboard = async (text: string, field: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+    toast({ title: "Copied to clipboard" });
+  };
+
+  const handleCreateWallet = async () => {
+    if (!user || !walletPassword) {
+      toast({
+        variant: "destructive",
+        title: "Password required",
+        description: "Please enter your password to create a wallet",
+      });
+      return;
+    }
+
+    setCreatingWallet(true);
+
+    try {
+      const wallet = generateWallet();
+      const encryptedKey = await encryptPrivateKey(wallet.privateKey, walletPassword);
+
+      const { error } = await supabase
+        .from('user_wallets')
+        .insert({
+          user_id: user.id,
+          wallet_address: wallet.address,
+          encrypted_private_key: encryptedKey,
+        });
+
+      if (error) throw error;
+
+      // Update profile with wallet address
+      await supabase
+        .from('profiles')
+        .update({
+          wallet_address: wallet.address,
+          wallet_created_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+
+      setWalletAddress(wallet.address);
+      setNewWalletData(wallet);
+      setShowCreateWallet(false);
+      setShowWalletDialog(true);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message,
+      });
+    } finally {
+      setCreatingWallet(false);
+      setWalletPassword('');
+    }
+  };
 
   const fetchProfile = async () => {
     if (!user) return;
@@ -327,7 +417,146 @@ export default function Profile() {
             </form>
           </CardContent>
         </Card>
+
+        {/* Wallet Address Card */}
+        <Card className="shadow-xl border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-2">
+              <Wallet className="w-5 h-5" />
+              Blockchain Wallet
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {walletAddress ? (
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-muted-foreground">Your Wallet Address</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 p-3 bg-muted rounded-lg text-xs break-all font-mono">
+                    {walletAddress}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => copyToClipboard(walletAddress, 'walletAddress')}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+                {copiedField === 'walletAddress' && <span className="text-xs text-green-500">Copied!</span>}
+              </div>
+            ) : showCreateWallet ? (
+              <div className="space-y-4">
+                <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    You don't have a wallet yet. Create one to use blockchain features.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Enter your password to create wallet</label>
+                  <Input
+                    type="password"
+                    value={walletPassword}
+                    onChange={(e) => setWalletPassword(e.target.value)}
+                    placeholder="Enter your password"
+                  />
+                </div>
+                <Button
+                  onClick={handleCreateWallet}
+                  disabled={creatingWallet || !walletPassword}
+                  className="w-full"
+                >
+                  {creatingWallet ? 'Creating Wallet...' : 'Create Wallet'}
+                </Button>
+              </div>
+            ) : (
+              <p className="text-muted-foreground">Loading wallet information...</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
+
+      {/* New Wallet Created Dialog */}
+      <Dialog open={showWalletDialog} onOpenChange={setShowWalletDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <AlertTriangle className="w-5 h-5 text-yellow-500" />
+              Save Your Wallet Keys
+            </DialogTitle>
+            <DialogDescription className="text-destructive font-medium">
+              IMPORTANT: Save these keys securely. You will NOT be able to see your private key again!
+            </DialogDescription>
+          </DialogHeader>
+
+          {newWalletData && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Wallet Address</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 p-3 bg-muted rounded-lg text-xs break-all">
+                    {newWalletData.address}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => copyToClipboard(newWalletData.address, 'newAddress')}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+                {copiedField === 'newAddress' && <span className="text-xs text-green-500">Copied!</span>}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-destructive">Private Key (KEEP SECRET!)</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 p-3 bg-destructive/10 rounded-lg text-xs break-all border border-destructive/20">
+                    {newWalletData.privateKey}
+                  </code>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={() => copyToClipboard(newWalletData.privateKey, 'newPrivateKey')}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+                {copiedField === 'newPrivateKey' && <span className="text-xs text-green-500">Copied!</span>}
+              </div>
+
+              {newWalletData.mnemonic && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-destructive">Recovery Phrase (KEEP SECRET!)</label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 p-3 bg-destructive/10 rounded-lg text-xs break-all border border-destructive/20">
+                      {newWalletData.mnemonic}
+                    </code>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      onClick={() => copyToClipboard(newWalletData.mnemonic!, 'newMnemonic')}
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  {copiedField === 'newMnemonic' && <span className="text-xs text-green-500">Copied!</span>}
+                </div>
+              )}
+
+              <Button
+                className="w-full"
+                onClick={() => {
+                  setShowWalletDialog(false);
+                  setNewWalletData(null);
+                }}
+              >
+                I've Saved My Keys - Continue
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
