@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { QRScanner } from "@/components/QRScanner";
-import { ArrowLeft, QrCode, User, Wallet, Info, Fuel } from "lucide-react";
+import { ArrowLeft, QrCode, User, Wallet, Info, Fuel, ArrowRightLeft, AlertTriangle } from "lucide-react";
 import { isValidAddress, sendTransaction, decryptPrivateKey, estimateGas } from "@/lib/wallet";
 import {
   Dialog,
@@ -15,7 +15,15 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface BlockchainSettings {
   rpc_url: string | null;
@@ -23,6 +31,19 @@ interface BlockchainSettings {
   native_coin_symbol: string;
   is_active: boolean;
   liquidity_pool_address: string | null;
+}
+
+interface SupportedCoin {
+  id: string;
+  coin_name: string;
+  coin_symbol: string;
+  is_native: boolean;
+}
+
+interface ConversionFee {
+  from_coin: string;
+  to_coin: string;
+  fee_percentage: number;
 }
 
 const SendMoney = () => {
@@ -41,12 +62,21 @@ const SendMoney = () => {
   const [gasEstimate, setGasEstimate] = useState<string | null>(null);
   const [estimatingGas, setEstimatingGas] = useState(false);
   const [userWalletAddress, setUserWalletAddress] = useState<string | null>(null);
+  
+  // Coin conversion states
+  const [selectedCoin, setSelectedCoin] = useState("");
+  const [supportedCoins, setSupportedCoins] = useState<SupportedCoin[]>([]);
+  const [conversionFees, setConversionFees] = useState<ConversionFee[]>([]);
+  const [showConversionDialog, setShowConversionDialog] = useState(false);
+  const [nativeCoinSymbol, setNativeCoinSymbol] = useState("");
+  
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     fetchBlockchainSettings();
     fetchUserWallet();
+    fetchSupportedCoins();
   }, []);
 
   // Estimate gas when amount or wallet address changes
@@ -82,6 +112,42 @@ const SendMoney = () => {
     if (data?.wallet_address) {
       setUserWalletAddress(data.wallet_address);
     }
+  };
+
+  const fetchSupportedCoins = async () => {
+    const [coinsRes, feesRes] = await Promise.all([
+      supabase.from("supported_coins").select("*").eq("is_active", true),
+      supabase.from("conversion_fees").select("from_coin, to_coin, fee_percentage").eq("is_active", true),
+    ]);
+
+    if (coinsRes.data) {
+      setSupportedCoins(coinsRes.data);
+      const nativeCoin = coinsRes.data.find(c => c.is_native);
+      if (nativeCoin) {
+        setSelectedCoin(nativeCoin.coin_symbol);
+        setNativeCoinSymbol(nativeCoin.coin_symbol);
+      }
+    }
+    if (feesRes.data) setConversionFees(feesRes.data);
+  };
+
+  const isNativeCoin = (coinSymbol: string) => {
+    const coin = supportedCoins.find(c => c.coin_symbol === coinSymbol);
+    return coin?.is_native ?? false;
+  };
+
+  const getConversionFee = (fromCoin: string, toCoin: string) => {
+    const fee = conversionFees.find(f => f.from_coin === fromCoin && f.to_coin === toCoin);
+    return fee?.fee_percentage ?? 0;
+  };
+
+  const calculateConvertedAmount = () => {
+    if (!selectedCoin || !nativeCoinSymbol || selectedCoin === nativeCoinSymbol) {
+      return parseFloat(amount) || 0;
+    }
+    const feePercentage = getConversionFee(selectedCoin, nativeCoinSymbol);
+    const inputAmount = parseFloat(amount) || 0;
+    return inputAmount * (1 - feePercentage / 100);
   };
 
   const estimateGasFee = async () => {
@@ -126,6 +192,12 @@ const SendMoney = () => {
     e.preventDefault();
     
     if (sendMode === "blockchain") {
+      // Check if selected coin is the native coin
+      if (selectedCoin && !isNativeCoin(selectedCoin)) {
+        setShowConversionDialog(true);
+        return;
+      }
+
       // Validate wallet address
       const targetAddress = walletAddress || receiverWalletAddress;
       if (!targetAddress || !isValidAddress(targetAddress)) {
@@ -142,6 +214,11 @@ const SendMoney = () => {
 
     // Internal transfer
     await processInternalTransfer();
+  };
+
+  const handleConvertAndSend = () => {
+    setShowConversionDialog(false);
+    navigate(`/coin-convert?from=${selectedCoin}&to=${nativeCoinSymbol}&amount=${amount}&returnTo=/send-money`);
   };
 
   const processInternalTransfer = async () => {
@@ -351,19 +428,46 @@ const SendMoney = () => {
                   )}
                 </div>
               ) : (
-                <div>
-                  <Label>Wallet Address</Label>
-                  <Input
-                    placeholder="0x..."
-                    value={walletAddress}
-                    onChange={(e) => setWalletAddress(e.target.value)}
-                    required
-                  />
-                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                    <Info size={12} />
-                    Enter the recipient's {blockchainSettings?.native_coin_symbol} wallet address
-                  </p>
-                </div>
+                <>
+                  <div>
+                    <Label>Wallet Address</Label>
+                    <Input
+                      placeholder="0x..."
+                      value={walletAddress}
+                      onChange={(e) => setWalletAddress(e.target.value)}
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                      <Info size={12} />
+                      Enter the recipient's {blockchainSettings?.native_coin_symbol} wallet address
+                    </p>
+                  </div>
+
+                  {supportedCoins.length > 1 && (
+                    <div>
+                      <Label>Select Coin</Label>
+                      <Select value={selectedCoin} onValueChange={setSelectedCoin}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select coin" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {supportedCoins.map((coin) => (
+                            <SelectItem key={coin.id} value={coin.coin_symbol}>
+                              {coin.coin_name} ({coin.coin_symbol})
+                              {coin.is_native && " - Native"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {selectedCoin && !isNativeCoin(selectedCoin) && (
+                        <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                          <AlertTriangle size={12} />
+                          This coin will be converted to {nativeCoinSymbol} before sending
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
 
               <div>
@@ -448,6 +552,48 @@ const SendMoney = () => {
               Confirm & Send
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Conversion Required Dialog */}
+      <Dialog open={showConversionDialog} onOpenChange={setShowConversionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft size={20} />
+              Conversion Required
+            </DialogTitle>
+            <DialogDescription>
+              You can only send {nativeCoinSymbol} on the blockchain. Your {selectedCoin} needs to be converted first.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-muted/50 p-4 rounded-lg space-y-2">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Amount to convert</span>
+                <span>{amount} {selectedCoin}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Conversion fee</span>
+                <span>{getConversionFee(selectedCoin, nativeCoinSymbol)}%</span>
+              </div>
+              <div className="flex justify-between font-medium border-t pt-2">
+                <span>You'll receive (approx)</span>
+                <span>{calculateConvertedAmount().toFixed(6)} {nativeCoinSymbol}</span>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Conversion fees go to the liquidity pool.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowConversionDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConvertAndSend}>
+              Convert & Continue
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
