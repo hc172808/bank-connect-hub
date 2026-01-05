@@ -19,6 +19,7 @@ export type Database = {
           chain_id: string | null
           created_at: string
           explorer_url: string | null
+          fee_wallet_address: string | null
           id: string
           is_active: boolean
           liquidity_pool_address: string | null
@@ -32,6 +33,7 @@ export type Database = {
           chain_id?: string | null
           created_at?: string
           explorer_url?: string | null
+          fee_wallet_address?: string | null
           id?: string
           is_active?: boolean
           liquidity_pool_address?: string | null
@@ -45,6 +47,7 @@ export type Database = {
           chain_id?: string | null
           created_at?: string
           explorer_url?: string | null
+          fee_wallet_address?: string | null
           id?: string
           is_active?: boolean
           liquidity_pool_address?: string | null
