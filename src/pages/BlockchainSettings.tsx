@@ -19,6 +19,7 @@ interface BlockchainSettings {
   explorer_url: string;
   is_active: boolean;
   liquidity_pool_address: string;
+  fee_wallet_address: string;
 }
 
 export default function BlockchainSettings() {
@@ -36,6 +37,7 @@ export default function BlockchainSettings() {
     explorer_url: '',
     is_active: false,
     liquidity_pool_address: '',
+    fee_wallet_address: '',
   });
 
   useEffect(() => {
@@ -74,6 +76,7 @@ export default function BlockchainSettings() {
         explorer_url: data.explorer_url || '',
         is_active: data.is_active || false,
         liquidity_pool_address: data.liquidity_pool_address || '',
+        fee_wallet_address: data.fee_wallet_address || '',
       });
     }
     setLoading(false);
@@ -93,6 +96,7 @@ export default function BlockchainSettings() {
       explorer_url: settings.explorer_url || null,
       is_active: settings.is_active,
       liquidity_pool_address: settings.liquidity_pool_address || null,
+      fee_wallet_address: settings.fee_wallet_address || null,
       updated_by: user.id,
     };
 
@@ -301,7 +305,22 @@ export default function BlockchainSettings() {
                     placeholder="0x..."
                   />
                   <p className="text-xs text-muted-foreground">
-                    Wallet address to receive 40% of transaction fees
+                    Wallet address for liquidity pool operations
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center gap-2">
+                    <Wallet className="w-4 h-4" />
+                    Fee Wallet Address
+                  </label>
+                  <Input
+                    value={settings.fee_wallet_address}
+                    onChange={(e) => setSettings({ ...settings, fee_wallet_address: e.target.value })}
+                    placeholder="0x..."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Wallet address to receive all transaction and conversion fees
                   </p>
                 </div>
               </div>
