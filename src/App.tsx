@@ -44,6 +44,8 @@ import CoinManagement from "./pages/CoinManagement";
 import ConversionFees from "./pages/ConversionFees";
 import FeatureToggles from "./pages/FeatureToggles";
 import CoinConvert from "./pages/CoinConvert";
+import VendorDashboard from "./pages/VendorDashboard";
+import VendorStore from "./pages/VendorStore";
 
 const queryClient = new QueryClient();
 
@@ -126,7 +128,20 @@ const AppRoutes = () => {
         <Route path="/receive-money" element={<ReceiveMoney />} />
         <Route path="/wallet-import" element={<WalletImport />} />
         <Route path="/coin-convert" element={<CoinConvert />} />
+        <Route path="/vendor-store" element={<VendorStore />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
+      </Routes>
+    );
+  }
+
+  if (role === "vendor") {
+    return (
+      <Routes>
+        <Route path="/vendor" element={<VendorDashboard />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/change-password" element={<ChangePassword />} />
+        <Route path="/feedback" element={<Feedback />} />
+        <Route path="*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     );
   }

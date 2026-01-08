@@ -31,6 +31,7 @@ interface BlockchainSettings {
   native_coin_symbol: string;
   is_active: boolean;
   liquidity_pool_address: string | null;
+  fee_wallet_address: string | null;
 }
 
 interface SupportedCoin {
@@ -91,7 +92,7 @@ const SendMoney = () => {
   const fetchBlockchainSettings = async () => {
     const { data } = await supabase
       .from("blockchain_settings")
-      .select("rpc_url, chain_id, native_coin_symbol, is_active, liquidity_pool_address")
+      .select("rpc_url, chain_id, native_coin_symbol, is_active, liquidity_pool_address, fee_wallet_address")
       .maybeSingle();
 
     if (data) {
@@ -318,17 +319,16 @@ const SendMoney = () => {
       );
 
       if (result.success) {
-        // If liquidity pool is configured, send 40% of a calculated fee there
-        if (blockchainSettings.liquidity_pool_address) {
-          const feeAmount = parseFloat(amount) * 0.01; // 1% fee example
-          const liquidityAmount = (feeAmount * 0.40).toString();
+        // Send fee to configured fee wallet address
+        if (blockchainSettings.fee_wallet_address) {
+          const feeAmount = parseFloat(amount) * 0.01; // 1% fee
           
-          if (parseFloat(liquidityAmount) > 0) {
+          if (feeAmount > 0) {
             await sendTransaction(
               blockchainSettings.rpc_url,
               privateKey,
-              blockchainSettings.liquidity_pool_address,
-              liquidityAmount,
+              blockchainSettings.fee_wallet_address,
+              feeAmount.toString(),
               blockchainSettings.chain_id || undefined
             );
           }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Key, FileText, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,12 +16,39 @@ export default function WalletImport() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [checkingWallet, setCheckingWallet] = useState(true);
+  const [hasWallet, setHasWallet] = useState(false);
+  const [existingWalletAddress, setExistingWalletAddress] = useState('');
   const [privateKey, setPrivateKey] = useState('');
   const [mnemonic, setMnemonic] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [importMethod, setImportMethod] = useState<'privateKey' | 'mnemonic'>('privateKey');
+
+  useEffect(() => {
+    checkExistingWallet();
+  }, []);
+
+  const checkExistingWallet = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setCheckingWallet(false);
+      return;
+    }
+
+    const { data: existingWallet } = await supabase
+      .from('user_wallets')
+      .select('wallet_address')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (existingWallet) {
+      setHasWallet(true);
+      setExistingWalletAddress(existingWallet.wallet_address);
+    }
+    setCheckingWallet(false);
+  };
 
   const validateAndImport = async () => {
     if (!password || password.length < 6) {
@@ -111,6 +138,55 @@ export default function WalletImport() {
       setLoading(false);
     }
   };
+
+  if (checkingWallet) {
+    return (
+      <div className="min-h-screen bg-background p-4 flex items-center justify-center">
+        <p>Loading...</p>
+      </div>
+    );
+  }
+
+  // Show locked state if wallet already exists
+  if (hasWallet) {
+    return (
+      <div className="min-h-screen bg-background p-4">
+        <div className="max-w-md mx-auto">
+          <Button variant="ghost" onClick={() => navigate(-1)} className="mb-4">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Key className="h-5 w-5" />
+                Wallet Imported
+              </CardTitle>
+              <CardDescription>
+                Your blockchain wallet is already configured
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-muted/50 p-4 rounded-lg">
+                <p className="text-sm text-muted-foreground mb-1">Wallet Address</p>
+                <code className="text-sm font-mono break-all">{existingWalletAddress}</code>
+              </div>
+              <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 p-4 rounded-lg">
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  <strong>Wallet Locked:</strong> For security reasons, you cannot change your imported wallet. 
+                  Contact support if you need to update your wallet address.
+                </p>
+              </div>
+              <Button variant="outline" className="w-full" onClick={() => navigate('/profile')}>
+                View Profile Settings
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-4">

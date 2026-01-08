@@ -25,7 +25,7 @@ const ReceiveMoney = () => {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: "My MMG Wallet",
+          title: "My GYD Wallet",
           text: `Send money to my wallet: ${walletId}`,
         });
       } catch (error) {

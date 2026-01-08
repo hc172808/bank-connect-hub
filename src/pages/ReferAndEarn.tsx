@@ -24,7 +24,7 @@ const ReferAndEarn = () => {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: "Join MMG Wallet",
+          title: "Join GYD Wallet",
           text: `Use my referral code ${referralCode} to sign up and get $5 bonus!`,
           url: window.location.origin,
         });

@@ -15,7 +15,7 @@ const notifications = [
   {
     id: 2,
     type: "info",
-    title: "Welcome to MMG Wallet",
+    title: "Welcome to GYD Wallet",
     message: "Your account has been created successfully",
     time: "1 day ago",
     read: true,

@@ -451,6 +451,48 @@ export type Database = {
         }
         Relationships: []
       }
+      vendor_products: {
+        Row: {
+          category: string | null
+          created_at: string
+          description: string | null
+          discount_price: number | null
+          id: string
+          is_active: boolean
+          logo_url: string | null
+          name: string
+          price: number
+          updated_at: string
+          vendor_id: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          description?: string | null
+          discount_price?: number | null
+          id?: string
+          is_active?: boolean
+          logo_url?: string | null
+          name: string
+          price: number
+          updated_at?: string
+          vendor_id: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          description?: string | null
+          discount_price?: number | null
+          id?: string
+          is_active?: boolean
+          logo_url?: string | null
+          name?: string
+          price?: number
+          updated_at?: string
+          vendor_id?: string
+        }
+        Relationships: []
+      }
       wallets: {
         Row: {
           balance: number
@@ -506,7 +548,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "agent" | "client"
+      app_role: "admin" | "agent" | "client" | "vendor"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -634,7 +676,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "agent", "client"],
+      app_role: ["admin", "agent", "client", "vendor"],
     },
   },
 } as const
