@@ -166,7 +166,7 @@ const ClientDashboard = () => {
               <div key={i} className="w-2 h-2 bg-foreground rounded-full" />
             ))}
           </div>
-          <span className="font-bold text-foreground">mmg</span>
+          <span className="font-bold text-foreground">GYD</span>
         </div>
         <div className="flex items-center gap-4">
           <button 
