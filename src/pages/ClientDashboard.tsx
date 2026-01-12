@@ -146,7 +146,7 @@ const ClientDashboard = () => {
       { icon: Gift, label: "Request Funds", path: "/request-funds", featureKey: null },
       { icon: ArrowUpFromLine, label: "Top-up", path: "/top-up", featureKey: "top_up" },
       { icon: Store, label: "Pay Merchant", path: "/pay-merchant", featureKey: "pay_merchant" },
-      { icon: Store, label: "Shop", path: "/vendor-store", featureKey: null },
+      { icon: Store, label: "Shop", path: "/vendors", featureKey: null },
       { icon: UserPlus, label: "Refer & Earn", path: "/refer", featureKey: null },
       { icon: Ticket, label: "Transactions", path: "/transactions", featureKey: null },
       { icon: Import, label: "Import Wallet", path: "/wallet-import", featureKey: null },

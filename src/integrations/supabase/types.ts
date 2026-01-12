@@ -274,6 +274,7 @@ export type Database = {
           full_name: string | null
           id: string
           phone_number: string | null
+          store_name: string | null
           updated_at: string
           wallet_address: string | null
           wallet_created_at: string | null
@@ -289,6 +290,7 @@ export type Database = {
           full_name?: string | null
           id: string
           phone_number?: string | null
+          store_name?: string | null
           updated_at?: string
           wallet_address?: string | null
           wallet_created_at?: string | null
@@ -304,6 +306,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           phone_number?: string | null
+          store_name?: string | null
           updated_at?: string
           wallet_address?: string | null
           wallet_created_at?: string | null
@@ -490,6 +493,33 @@ export type Database = {
           price?: number
           updated_at?: string
           vendor_id?: string
+        }
+        Relationships: []
+      }
+      vendor_registration_fees: {
+        Row: {
+          fee_amount: number
+          fee_name: string
+          id: string
+          is_active: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          fee_amount?: number
+          fee_name?: string
+          id?: string
+          is_active?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          fee_amount?: number
+          fee_name?: string
+          id?: string
+          is_active?: boolean
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
