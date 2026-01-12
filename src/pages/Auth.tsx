@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle } from "lucide-react";
+import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle, Store, Users } from "lucide-react";
 import { generateWallet, encryptPrivateKey } from "@/lib/wallet";
 import {
   Dialog,
@@ -14,16 +14,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 type AuthMode = "signin" | "signup";
-type UserRole = "client" | "agent" | "admin";
+type AccountType = "client" | "vendor";
 
 const Auth = () => {
   const [mode, setMode] = useState<AuthMode>("signin");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState<UserRole>("client");
+  const [accountType, setAccountType] = useState<AccountType>("client");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showWalletDialog, setShowWalletDialog] = useState(false);
@@ -59,7 +60,7 @@ const Auth = () => {
             data: {
               full_name: fullName,
               phone_number: phoneNumber,
-              role: role,
+              account_type: accountType,
               wallet_address: wallet.address,
             },
             emailRedirectTo: `${window.location.origin}/`,
@@ -162,11 +163,42 @@ const Auth = () => {
             <form onSubmit={handleAuth} className="space-y-6">
               {mode === "signup" && (
                 <>
+                  {/* Account Type Selection */}
+                  <div className="space-y-3">
+                    <Label>Account Type</Label>
+                    <RadioGroup
+                      value={accountType}
+                      onValueChange={(value) => setAccountType(value as AccountType)}
+                      className="grid grid-cols-2 gap-4"
+                    >
+                      <div>
+                        <RadioGroupItem value="client" id="auth-client" className="peer sr-only" />
+                        <Label
+                          htmlFor="auth-client"
+                          className="flex flex-col items-center justify-between rounded-xl border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
+                        >
+                          <Users className="mb-2 h-6 w-6" />
+                          <span className="font-medium text-sm">Customer</span>
+                        </Label>
+                      </div>
+                      <div>
+                        <RadioGroupItem value="vendor" id="auth-vendor" className="peer sr-only" />
+                        <Label
+                          htmlFor="auth-vendor"
+                          className="flex flex-col items-center justify-between rounded-xl border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
+                        >
+                          <Store className="mb-2 h-6 w-6" />
+                          <span className="font-medium text-sm">Vendor</span>
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="fullName">Full Name</Label>
+                    <Label htmlFor="fullName">{accountType === 'vendor' ? 'Business Name' : 'Full Name'}</Label>
                     <Input
                       id="fullName"
-                      placeholder="Enter your full name"
+                      placeholder={accountType === 'vendor' ? 'Your Business Name' : 'Enter your full name'}
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       required
