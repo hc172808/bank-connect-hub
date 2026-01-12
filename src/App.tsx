@@ -47,6 +47,8 @@ import FeatureToggles from "./pages/FeatureToggles";
 import CoinConvert from "./pages/CoinConvert";
 import VendorDashboard from "./pages/VendorDashboard";
 import VendorStore from "./pages/VendorStore";
+import VendorList from "./pages/VendorList";
+import VendorRegistrationFees from "./pages/VendorRegistrationFees";
 
 const queryClient = new QueryClient();
 
@@ -130,6 +132,7 @@ const AppRoutes = () => {
         <Route path="/wallet-import" element={<WalletImport />} />
         <Route path="/coin-convert" element={<CoinConvert />} />
         <Route path="/vendor-store" element={<VendorStore />} />
+        <Route path="/vendors" element={<VendorList />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -179,6 +182,7 @@ const AppRoutes = () => {
         <Route path="/admin/coins" element={<ProtectedRoute allowedRoles={["admin"]}><CoinManagement /></ProtectedRoute>} />
         <Route path="/admin/conversion-fees" element={<ProtectedRoute allowedRoles={["admin"]}><ConversionFees /></ProtectedRoute>} />
         <Route path="/admin/features" element={<ProtectedRoute allowedRoles={["admin"]}><FeatureToggles /></ProtectedRoute>} />
+        <Route path="/admin/vendor-fees" element={<ProtectedRoute allowedRoles={["admin"]}><VendorRegistrationFees /></ProtectedRoute>} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />

@@ -41,6 +41,7 @@ interface Product {
 
 interface ProfileData {
   full_name: string;
+  store_name: string | null;
 }
 
 const VendorDashboard = () => {
@@ -48,6 +49,7 @@ const VendorDashboard = () => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showProductDialog, setShowProductDialog] = useState(false);
+  const [showStoreDialog, setShowStoreDialog] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
   
@@ -59,6 +61,7 @@ const VendorDashboard = () => {
   const [productLogoUrl, setProductLogoUrl] = useState("");
   const [productCategory, setProductCategory] = useState("");
   const [productActive, setProductActive] = useState(true);
+  const [storeName, setStoreName] = useState("");
 
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -73,7 +76,7 @@ const VendorDashboard = () => {
 
     const [productsRes, profileRes] = await Promise.all([
       supabase.from("vendor_products").select("*").eq("vendor_id", user.id).order("created_at", { ascending: false }),
-      supabase.from("profiles").select("full_name").eq("id", user.id).single(),
+      supabase.from("profiles").select("full_name, store_name").eq("id", user.id).single(),
     ]);
 
     if (productsRes.data) setProducts(productsRes.data);
@@ -177,6 +180,31 @@ const VendorDashboard = () => {
     navigate("/auth");
   };
 
+  const handleSaveStoreName = async () => {
+    setSaving(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ store_name: storeName })
+      .eq("id", user.id);
+
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Store name updated" });
+      setShowStoreDialog(false);
+      fetchData();
+    }
+    setSaving(false);
+  };
+
+  const openStoreDialog = () => {
+    setStoreName(profile?.store_name || "");
+    setShowStoreDialog(true);
+  };
+
   const totalProducts = products.length;
   const activeProducts = products.filter(p => p.is_active).length;
 
@@ -188,11 +216,15 @@ const VendorDashboard = () => {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Store size={28} />
-              Vendor Dashboard
+              {profile?.store_name || "My Store"}
             </h1>
             <p className="text-muted-foreground">Welcome, {profile?.full_name || "Vendor"}</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={openStoreDialog}>
+              <Edit2 size={18} className="mr-2" />
+              Edit Store
+            </Button>
             <Button variant="outline" onClick={() => navigate("/profile")}>
               <User size={18} className="mr-2" />
               Profile
@@ -378,6 +410,36 @@ const VendorDashboard = () => {
             </Button>
             <Button onClick={handleSaveProduct} disabled={saving}>
               {saving ? "Saving..." : editingProduct ? "Update" : "Add"} Product
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Store Name Dialog */}
+      <Dialog open={showStoreDialog} onOpenChange={setShowStoreDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Store Name</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Store Name</Label>
+              <Input
+                value={storeName}
+                onChange={(e) => setStoreName(e.target.value)}
+                placeholder="Enter your store name"
+              />
+              <p className="text-sm text-muted-foreground mt-1">
+                This is how customers will find your store
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowStoreDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveStoreName} disabled={saving}>
+              {saving ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

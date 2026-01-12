@@ -58,6 +58,7 @@ interface WalletData {
 interface VendorProfile {
   wallet_address: string | null;
   full_name: string | null;
+  store_name: string | null;
 }
 
 const VendorStore = () => {
@@ -96,7 +97,7 @@ const VendorStore = () => {
     if (vendorId) {
       const [productsRes, vendorRes] = await Promise.all([
         supabase.from("vendor_products").select("*").eq("vendor_id", vendorId).eq("is_active", true),
-        supabase.from("profiles").select("wallet_address, full_name").eq("id", vendorId).single(),
+        supabase.from("profiles").select("wallet_address, full_name, store_name").eq("id", vendorId).single(),
       ]);
       if (productsRes.data) setProducts(productsRes.data);
       if (vendorRes.data) setVendorProfile(vendorRes.data);
@@ -246,7 +247,7 @@ const VendorStore = () => {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Store size={28} />
-              {vendorProfile ? `${vendorProfile.full_name}'s Store` : "Vendor Marketplace"}
+              {vendorProfile ? (vendorProfile.store_name || `${vendorProfile.full_name}'s Store`) : "Vendor Marketplace"}
             </h1>
             <p className="text-muted-foreground">
               Balance: ${wallet?.balance?.toFixed(2) || "0.00"}

@@ -219,6 +219,13 @@ const AdminDashboard = () => {
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl" 
                 variant="secondary"
+                onClick={() => navigate("/admin/vendor-fees")}
+              >
+                <Store size={20} />
+                Vendor Registration Fees
+              </Button>
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
                 onClick={() => navigate("/admin-deposit")}
               >
                 <Wallet size={20} />
@@ -226,6 +233,7 @@ const AdminDashboard = () => {
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
                 onClick={() => navigate("/approve-deposits")}
               >
                 <CheckCircle size={20} />
