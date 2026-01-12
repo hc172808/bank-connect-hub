@@ -86,14 +86,27 @@ const ManageUsers = () => {
     }
   };
 
-  const updateUserRole = async (userId: string, newRole: "admin" | "agent" | "client") => {
+  const updateUserRole = async (userId: string, newRole: "admin" | "agent" | "client" | "vendor") => {
     try {
-      const { error } = await supabase
+      // Check if user has a role entry
+      const { data: existingRole } = await supabase
         .from("user_roles")
-        .update({ role: newRole })
-        .eq("user_id", userId);
+        .select("id")
+        .eq("user_id", userId)
+        .single();
 
-      if (error) throw error;
+      if (existingRole) {
+        const { error } = await supabase
+          .from("user_roles")
+          .update({ role: newRole })
+          .eq("user_id", userId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("user_roles")
+          .insert({ user_id: userId, role: newRole });
+        if (error) throw error;
+      }
 
       toast({ title: "Role updated successfully" });
       fetchUsers();
@@ -191,20 +204,25 @@ const ManageUsers = () => {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={user.role === 'admin' ? 'default' : user.role === 'agent' ? 'secondary' : 'outline'}>
+                          <Badge variant={
+                            user.role === 'admin' ? 'default' : 
+                            user.role === 'agent' ? 'secondary' : 
+                            user.role === 'vendor' ? 'destructive' : 'outline'
+                          }>
                             {user.role}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           <Select
                             value={user.role}
-                            onValueChange={(value) => updateUserRole(user.id, value as "admin" | "agent" | "client")}
+                            onValueChange={(value) => updateUserRole(user.id, value as "admin" | "agent" | "client" | "vendor")}
                           >
                             <SelectTrigger className="w-32">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="client">Client</SelectItem>
+                              <SelectItem value="vendor">Vendor</SelectItem>
                               <SelectItem value="agent">Agent</SelectItem>
                               <SelectItem value="admin">Admin</SelectItem>
                             </SelectContent>

@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store } from "lucide-react";
 
 interface ProfileData {
   full_name: string;
@@ -118,6 +118,13 @@ const AdminDashboard = () => {
               >
                 <Briefcase size={20} />
                 Manage Agents
+              </Button>
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                onClick={() => navigate("/admin/vendors")}
+              >
+                <Store size={20} />
+                Manage Vendors
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"

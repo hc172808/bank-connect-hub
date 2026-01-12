@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Mail, Phone, User, Copy, AlertTriangle } from 'lucide-react';
+import { Eye, EyeOff, Mail, Phone, User, Copy, AlertTriangle, Store, Users } from 'lucide-react';
 import { generateWallet, encryptPrivateKey } from '@/lib/wallet';
 import {
   Dialog,
@@ -14,6 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+
+type AccountType = 'client' | 'vendor';
 
 export default function Register() {
   const [fullName, setFullName] = useState('');
@@ -26,6 +30,7 @@ export default function Register() {
   const [showWalletDialog, setShowWalletDialog] = useState(false);
   const [walletData, setWalletData] = useState<{ address: string; privateKey: string; mnemonic?: string } | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [accountType, setAccountType] = useState<AccountType>('client');
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -87,6 +92,7 @@ export default function Register() {
             full_name: fullName,
             phone_number: phoneNumber,
             wallet_address: wallet.address,
+            account_type: accountType,
           },
           emailRedirectTo: `${window.location.origin}/`,
         }
@@ -134,16 +140,49 @@ export default function Register() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleRegister} className="space-y-4">
+            {/* Account Type Selection */}
+            <div className="space-y-3">
+              <label className="text-sm font-medium">Account Type</label>
+              <RadioGroup
+                value={accountType}
+                onValueChange={(value) => setAccountType(value as AccountType)}
+                className="grid grid-cols-2 gap-4"
+              >
+                <div>
+                  <RadioGroupItem value="client" id="client" className="peer sr-only" />
+                  <Label
+                    htmlFor="client"
+                    className="flex flex-col items-center justify-between rounded-xl border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
+                  >
+                    <Users className="mb-2 h-6 w-6" />
+                    <span className="font-medium">Customer</span>
+                    <span className="text-xs text-muted-foreground">Personal use</span>
+                  </Label>
+                </div>
+                <div>
+                  <RadioGroupItem value="vendor" id="vendor" className="peer sr-only" />
+                  <Label
+                    htmlFor="vendor"
+                    className="flex flex-col items-center justify-between rounded-xl border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer"
+                  >
+                    <Store className="mb-2 h-6 w-6" />
+                    <span className="font-medium">Vendor</span>
+                    <span className="text-xs text-muted-foreground">Sell products</span>
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
             <div className="space-y-2">
               <label className="text-sm font-medium flex items-center gap-2">
                 <User className="w-4 h-4" />
-                Full Name
+                {accountType === 'vendor' ? 'Business Name' : 'Full Name'}
               </label>
               <Input
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="John Doe"
+                placeholder={accountType === 'vendor' ? 'Your Business Name' : 'John Doe'}
                 required
               />
             </div>
