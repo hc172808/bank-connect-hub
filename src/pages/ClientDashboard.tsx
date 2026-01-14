@@ -217,31 +217,15 @@ const ClientDashboard = () => {
                 </button>
               </div>
             </div>
-            <div className="mt-4">
-              <h2 className="text-5xl font-bold text-foreground">
-                {showBalance
-                  ? `$${wallet?.balance?.toFixed(2) || "0.00"}`
-                  : "****"}
-              </h2>
-              <p className="text-sm text-foreground/70 mt-1">Main Wallet</p>
-            </div>
-
-            {/* Blockchain Balance */}
-            {blockchainSettings?.is_active && profile?.wallet_address && (
-              <div className="mt-4 pt-4 border-t border-foreground/20">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Coins size={16} className="text-foreground/70" />
-                    <span className="text-sm text-foreground/70">
-                      {blockchainSettings.native_coin_symbol} Balance
-                    </span>
-                  </div>
-                  <span className="text-lg font-semibold text-foreground">
-                    {showBalance
-                      ? `${blockchainBalance || '0'} ${blockchainSettings.native_coin_symbol}`
-                      : "****"}
-                  </span>
-                </div>
+            {/* Primary Balance - On-Chain GYD (Source of Truth) */}
+            {blockchainSettings?.is_active && profile?.wallet_address ? (
+              <div className="mt-4">
+                <h2 className="text-5xl font-bold text-foreground">
+                  {showBalance
+                    ? `${blockchainBalance || '0'} ${blockchainSettings.native_coin_symbol}`
+                    : "****"}
+                </h2>
+                <p className="text-sm text-foreground/70 mt-1">On-Chain Balance</p>
                 <div className="flex items-center gap-2 mt-2">
                   <code className="text-xs text-foreground/60 bg-foreground/10 px-2 py-1 rounded">
                     {truncateAddress(profile.wallet_address)}
@@ -250,6 +234,37 @@ const ClientDashboard = () => {
                     <Copy size={14} />
                   </button>
                 </div>
+              </div>
+            ) : (
+              <div className="mt-4">
+                <h2 className="text-5xl font-bold text-foreground">
+                  {showBalance
+                    ? `$${wallet?.balance?.toFixed(2) || "0.00"}`
+                    : "****"}
+                </h2>
+                <p className="text-sm text-foreground/70 mt-1">Main Wallet</p>
+              </div>
+            )}
+
+            {/* Secondary: Internal Ledger Balance (for reference only) */}
+            {blockchainSettings?.is_active && wallet && (
+              <div className="mt-4 pt-4 border-t border-foreground/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Coins size={16} className="text-foreground/70" />
+                    <span className="text-sm text-foreground/70">
+                      Internal Ledger
+                    </span>
+                  </div>
+                  <span className="text-lg font-semibold text-foreground">
+                    {showBalance
+                      ? `$${wallet?.balance?.toFixed(2) || "0.00"}`
+                      : "****"}
+                  </span>
+                </div>
+                <p className="text-xs text-foreground/50 mt-1">
+                  Reference only - On-chain balance is your actual balance
+                </p>
               </div>
             )}
           </div>

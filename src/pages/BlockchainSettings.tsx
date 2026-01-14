@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, Link2, Coins, Globe, Hash, Wallet } from 'lucide-react';
+import { ArrowLeft, Save, Link2, Coins, Globe, Hash, Wallet, Key, Percent } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 interface BlockchainSettings {
@@ -20,6 +20,8 @@ interface BlockchainSettings {
   is_active: boolean;
   liquidity_pool_address: string;
   fee_wallet_address: string;
+  fee_wallet_encrypted_key: string;
+  gas_fee_gyd: number;
 }
 
 export default function BlockchainSettings() {
@@ -38,6 +40,8 @@ export default function BlockchainSettings() {
     is_active: false,
     liquidity_pool_address: '',
     fee_wallet_address: '',
+    fee_wallet_encrypted_key: '',
+    gas_fee_gyd: 0.01,
   });
 
   useEffect(() => {
@@ -77,6 +81,8 @@ export default function BlockchainSettings() {
         is_active: data.is_active || false,
         liquidity_pool_address: data.liquidity_pool_address || '',
         fee_wallet_address: data.fee_wallet_address || '',
+        fee_wallet_encrypted_key: data.fee_wallet_encrypted_key || '',
+        gas_fee_gyd: data.gas_fee_gyd || 0.01,
       });
     }
     setLoading(false);
@@ -97,6 +103,8 @@ export default function BlockchainSettings() {
       is_active: settings.is_active,
       liquidity_pool_address: settings.liquidity_pool_address || null,
       fee_wallet_address: settings.fee_wallet_address || null,
+      fee_wallet_encrypted_key: settings.fee_wallet_encrypted_key || null,
+      gas_fee_gyd: settings.gas_fee_gyd,
       updated_by: user.id,
     };
 
@@ -312,7 +320,7 @@ export default function BlockchainSettings() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium flex items-center gap-2">
                     <Wallet className="w-4 h-4" />
-                    Fee Wallet Address
+                    Fee Wallet Address (Bank)
                   </label>
                   <Input
                     value={settings.fee_wallet_address}
@@ -320,7 +328,40 @@ export default function BlockchainSettings() {
                     placeholder="0x..."
                   />
                   <p className="text-xs text-muted-foreground">
-                    Wallet address to receive all transaction and conversion fees
+                    Bank wallet address that sponsors gas fees and receives transaction fees
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center gap-2">
+                    <Key className="w-4 h-4" />
+                    Fee Wallet Private Key (Encrypted)
+                  </label>
+                  <Input
+                    type="password"
+                    value={settings.fee_wallet_encrypted_key}
+                    onChange={(e) => setSettings({ ...settings, fee_wallet_encrypted_key: e.target.value })}
+                    placeholder="Enter encrypted private key..."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Private key for the bank fee wallet (used to sponsor gas for user transactions)
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center gap-2">
+                    <Percent className="w-4 h-4" />
+                    Gas Fee in GYD
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.0001"
+                    value={settings.gas_fee_gyd}
+                    onChange={(e) => setSettings({ ...settings, gas_fee_gyd: parseFloat(e.target.value) || 0 })}
+                    placeholder="0.01"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Fee in GYD charged to users for gas sponsorship (bank pays actual gas, users see this fixed fee)
                   </p>
                 </div>
               </div>
