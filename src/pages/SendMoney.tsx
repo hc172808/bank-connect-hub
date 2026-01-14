@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { QRScanner } from "@/components/QRScanner";
 import { ArrowLeft, QrCode, User, Wallet, Info, Fuel, ArrowRightLeft, AlertTriangle } from "lucide-react";
-import { isValidAddress, sendTransaction, decryptPrivateKey, estimateGas } from "@/lib/wallet";
+import { isValidAddress, sendSponsoredTransaction, decryptPrivateKey, estimateGas } from "@/lib/wallet";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +32,8 @@ interface BlockchainSettings {
   is_active: boolean;
   liquidity_pool_address: string | null;
   fee_wallet_address: string | null;
+  fee_wallet_encrypted_key: string | null;
+  gas_fee_gyd: number;
 }
 
 interface SupportedCoin {
@@ -92,11 +94,15 @@ const SendMoney = () => {
   const fetchBlockchainSettings = async () => {
     const { data } = await supabase
       .from("blockchain_settings")
-      .select("rpc_url, chain_id, native_coin_symbol, is_active, liquidity_pool_address, fee_wallet_address")
+      .select("rpc_url, chain_id, native_coin_symbol, is_active, liquidity_pool_address, fee_wallet_address, fee_wallet_encrypted_key, gas_fee_gyd")
       .maybeSingle();
 
     if (data) {
-      setBlockchainSettings(data);
+      setBlockchainSettings({
+        ...data,
+        fee_wallet_encrypted_key: data.fee_wallet_encrypted_key || null,
+        gas_fee_gyd: data.gas_fee_gyd || 0.01,
+      });
     }
   };
 
@@ -281,6 +287,15 @@ const SendMoney = () => {
       return;
     }
 
+    if (!blockchainSettings?.fee_wallet_address || !blockchainSettings?.fee_wallet_encrypted_key) {
+      toast({
+        title: "Bank Fee Wallet Not Configured",
+        description: "Please contact admin to configure the bank fee wallet for gas sponsorship",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setPendingBlockchainTx(true);
     setShowPasswordDialog(false);
 
@@ -299,44 +314,45 @@ const SendMoney = () => {
         throw new Error("Wallet not found. Please contact support.");
       }
 
-      // Decrypt private key
-      let privateKey: string;
+      // Decrypt user's private key
+      let userPrivateKey: string;
       try {
-        privateKey = await decryptPrivateKey(walletData.encrypted_private_key, password);
+        userPrivateKey = await decryptPrivateKey(walletData.encrypted_private_key, password);
       } catch {
         throw new Error("Incorrect password");
       }
 
       const targetAddress = walletAddress || receiverWalletAddress;
+      const gasFeeGyd = blockchainSettings.gas_fee_gyd.toString();
       
-      // Send blockchain transaction
-      const result = await sendTransaction(
+      // Send sponsored transaction - bank pays gas, user pays fee in GYD
+      const result = await sendSponsoredTransaction(
         blockchainSettings.rpc_url,
-        privateKey,
+        userPrivateKey,
+        blockchainSettings.fee_wallet_encrypted_key,
         targetAddress,
         amount,
+        gasFeeGyd,
+        blockchainSettings.fee_wallet_address,
         blockchainSettings.chain_id || undefined
       );
 
       if (result.success) {
-        // Send fee to configured fee wallet address
-        if (blockchainSettings.fee_wallet_address) {
-          const feeAmount = parseFloat(amount) * 0.01; // 1% fee
-          
-          if (feeAmount > 0) {
-            await sendTransaction(
-              blockchainSettings.rpc_url,
-              privateKey,
-              blockchainSettings.fee_wallet_address,
-              feeAmount.toString(),
-              blockchainSettings.chain_id || undefined
-            );
-          }
-        }
+        // Record transaction metadata in PostgreSQL (source of truth is on-chain)
+        await supabase.from("transactions").insert({
+          sender_id: user.id,
+          receiver_id: user.id, // We don't know recipient user ID for blockchain transfers
+          amount: parseFloat(amount),
+          fee: blockchainSettings.gas_fee_gyd,
+          status: 'completed',
+          transaction_type: 'blockchain_transfer',
+          description: `Blockchain transfer to ${targetAddress.slice(0, 8)}...${targetAddress.slice(-6)}. TX: ${result.txHash}`,
+          completed_at: new Date().toISOString(),
+        });
 
         toast({
           title: "Blockchain Transfer Successful",
-          description: `Sent ${amount} ${blockchainSettings.native_coin_symbol} to ${targetAddress.slice(0, 8)}...${targetAddress.slice(-6)}. TX: ${result.txHash?.slice(0, 10)}...`,
+          description: `Sent ${amount} ${blockchainSettings.native_coin_symbol} to ${targetAddress.slice(0, 8)}...${targetAddress.slice(-6)}. Fee: ${gasFeeGyd} ${blockchainSettings.native_coin_symbol}`,
         });
         navigate("/client-dashboard");
       } else {
@@ -486,24 +502,31 @@ const SendMoney = () => {
                     60% of fees returned to you as cashback
                   </p>
                 ) : (
-                  <div className="mt-2 p-3 rounded-lg bg-muted/50 space-y-1">
+                  <div className="mt-2 p-3 rounded-lg bg-muted/50 space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1 text-muted-foreground">
                         <Fuel size={14} />
-                        Estimated Network Fee
+                        Transaction Fee
                       </span>
-                      {estimatingGas ? (
-                        <span className="text-muted-foreground">Calculating...</span>
-                      ) : gasEstimate ? (
-                        <span className="font-medium">{parseFloat(gasEstimate).toFixed(6)} {blockchainSettings?.native_coin_symbol}</span>
-                      ) : (
-                        <span className="text-muted-foreground">Enter amount to estimate</span>
-                      )}
+                      <span className="font-medium">
+                        {blockchainSettings?.gas_fee_gyd || 0.01} {blockchainSettings?.native_coin_symbol}
+                      </span>
                     </div>
-                    {gasEstimate && (
-                      <p className="text-xs text-muted-foreground">
-                        Total: {(parseFloat(amount || "0") + parseFloat(gasEstimate)).toFixed(6)} {blockchainSettings?.native_coin_symbol}
-                      </p>
+                    <p className="text-xs text-muted-foreground">
+                      Gas fees are sponsored by the bank. You pay a fixed fee in {blockchainSettings?.native_coin_symbol}.
+                    </p>
+                    {amount && (
+                      <div className="pt-2 border-t border-border">
+                        <div className="flex items-center justify-between text-sm font-medium">
+                          <span>Total Deducted</span>
+                          <span>
+                            {(parseFloat(amount || "0") + (blockchainSettings?.gas_fee_gyd || 0.01)).toFixed(6)} {blockchainSettings?.native_coin_symbol}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {amount} {blockchainSettings?.native_coin_symbol} to recipient + {blockchainSettings?.gas_fee_gyd || 0.01} {blockchainSettings?.native_coin_symbol} fee
+                        </p>
+                      </div>
                     )}
                   </div>
                 )}
