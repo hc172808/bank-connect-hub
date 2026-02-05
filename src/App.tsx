@@ -49,6 +49,7 @@ import VendorDashboard from "./pages/VendorDashboard";
 import VendorStore from "./pages/VendorStore";
 import VendorList from "./pages/VendorList";
 import VendorRegistrationFees from "./pages/VendorRegistrationFees";
+import AdminPrintQRCodes from "./pages/AdminPrintQRCodes";
 
 const queryClient = new QueryClient();
 
@@ -183,6 +184,7 @@ const AppRoutes = () => {
         <Route path="/admin/conversion-fees" element={<ProtectedRoute allowedRoles={["admin"]}><ConversionFees /></ProtectedRoute>} />
         <Route path="/admin/features" element={<ProtectedRoute allowedRoles={["admin"]}><FeatureToggles /></ProtectedRoute>} />
         <Route path="/admin/vendor-fees" element={<ProtectedRoute allowedRoles={["admin"]}><VendorRegistrationFees /></ProtectedRoute>} />
+        <Route path="/admin/print-qr" element={<ProtectedRoute allowedRoles={["admin"]}><AdminPrintQRCodes /></ProtectedRoute>} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />
