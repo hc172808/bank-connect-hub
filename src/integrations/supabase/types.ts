@@ -235,6 +235,36 @@ export type Database = {
         }
         Relationships: []
       }
+      gas_fee_ledger: {
+        Row: {
+          amount: number
+          created_at: string
+          description: string | null
+          id: string
+          related_transaction_id: string | null
+          transaction_type: string
+          user_id: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          related_transaction_id?: string | null
+          transaction_type: string
+          user_id?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          related_transaction_id?: string | null
+          transaction_type?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       pending_deposits: {
         Row: {
           agent_id: string
@@ -280,6 +310,7 @@ export type Database = {
           full_name: string | null
           id: string
           phone_number: string | null
+          pin_hash: string | null
           store_name: string | null
           updated_at: string
           wallet_address: string | null
@@ -296,6 +327,7 @@ export type Database = {
           full_name?: string | null
           id: string
           phone_number?: string | null
+          pin_hash?: string | null
           store_name?: string | null
           updated_at?: string
           wallet_address?: string | null
@@ -312,6 +344,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           phone_number?: string | null
+          pin_hash?: string | null
           store_name?: string | null
           updated_at?: string
           wallet_address?: string | null
@@ -572,6 +605,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      hash_pin: { Args: { pin: string }; Returns: string }
       process_transaction: {
         Args: {
           _amount: number
@@ -582,6 +616,8 @@ export type Database = {
         }
         Returns: Json
       }
+      set_user_pin: { Args: { user_pin: string }; Returns: boolean }
+      verify_pin: { Args: { pin: string; user_id: string }; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "agent" | "client" | "vendor"

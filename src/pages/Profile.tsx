@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { generateWallet, encryptPrivateKey } from '@/lib/wallet';
 import {
@@ -17,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SetPinDialog } from '@/components/SetPinDialog';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -32,6 +33,8 @@ export default function Profile() {
   const [showWalletDialog, setShowWalletDialog] = useState(false);
   const [newWalletData, setNewWalletData] = useState<{ address: string; privateKey: string; mnemonic?: string } | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [hasPin, setHasPin] = useState(false);
+  const [showSetPinDialog, setShowSetPinDialog] = useState(false);
   const [profile, setProfile] = useState({
     full_name: '',
     phone_number: '',
@@ -47,8 +50,22 @@ export default function Profile() {
     if (user) {
       fetchProfile();
       fetchWallet();
+      checkPinStatus();
     }
   }, [user]);
+
+
+  const checkPinStatus = async () => {
+    if (!user) return;
+    
+    const { data } = await supabase
+      .from('profiles')
+      .select('pin_hash')
+      .eq('id', user.id)
+      .single();
+    
+    setHasPin(!!data?.pin_hash);
+  };
 
   const fetchWallet = async () => {
     if (!user) return;
@@ -474,6 +491,51 @@ export default function Profile() {
             )}
           </CardContent>
         </Card>
+
+        {/* Transaction PIN Card */}
+        <Card className="shadow-xl border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-2">
+              <Lock className="w-5 h-5" />
+              Transaction PIN
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Your 4-digit PIN is used to verify transactions when others scan your QR code.
+              </p>
+              {hasPin ? (
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 p-3 bg-green-500/10 rounded-lg text-green-600 text-sm">
+                    ✓ PIN is set
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowSetPinDialog(true)}
+                  >
+                    Change PIN
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      No PIN set. Set a PIN to enable secure QR transactions.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => setShowSetPinDialog(true)}
+                    className="w-full"
+                  >
+                    Set Transaction PIN
+                  </Button>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* New Wallet Created Dialog */}
@@ -557,6 +619,12 @@ export default function Profile() {
           )}
         </DialogContent>
       </Dialog>
+
+      <SetPinDialog
+        open={showSetPinDialog}
+        onOpenChange={setShowSetPinDialog}
+        onPinSet={() => setHasPin(true)}
+      />
     </div>
   );
 }

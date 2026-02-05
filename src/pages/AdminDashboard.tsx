@@ -4,7 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode } from "lucide-react";
+import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 
 interface ProfileData {
   full_name: string;
@@ -128,6 +129,7 @@ const AdminDashboard = () => {
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
                 onClick={() => navigate("/admin/settings")}
               >
                 <Settings size={20} />
@@ -135,7 +137,6 @@ const AdminDashboard = () => {
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
-                variant="secondary"
                 onClick={() => navigate("/admin/database")}
               >
                 <Database size={20} />
@@ -143,6 +144,7 @@ const AdminDashboard = () => {
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
                 onClick={() => navigate("/admin/blockchain")}
               >
                 <Coins size={20} />
@@ -150,7 +152,6 @@ const AdminDashboard = () => {
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
-                variant="secondary"
                 onClick={() => navigate("/admin/coins")}
               >
                 <Coins size={20} />
@@ -158,6 +159,7 @@ const AdminDashboard = () => {
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
                 onClick={() => navigate("/admin/conversion-fees")}
               >
                 <ArrowRightLeft size={20} />
@@ -165,11 +167,18 @@ const AdminDashboard = () => {
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
-                variant="secondary"
                 onClick={() => navigate("/admin/features")}
               >
                 <ToggleLeft size={20} />
                 Feature Toggles
+              </Button>
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/print-qr")}
+              >
+                <QrCode size={20} />
+                Print User QR Codes
               </Button>
             </CardContent>
           </Card>
@@ -243,16 +252,20 @@ const AdminDashboard = () => {
           </Card>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent System Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground text-center py-8">
-              No recent system activity to display
-            </p>
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <AdminFeeWalletWidget />
+          
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent System Activity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground text-center py-8">
+                No recent system activity to display
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </main>
     </div>
   );
