@@ -14,17 +14,52 @@ export interface TransactionResult {
 }
 
 export interface SponsoredTransactionResult extends TransactionResult {
-  userFeePaid?: string; // Fee in GYD deducted from user
-  bankGasCost?: string; // Actual gas cost paid by bank
+  userFeePaid?: string;
+  bankGasCost?: string;
 }
+
+// --- Blockchain connectivity cache ---
+const RPC_TIMEOUT_MS = 5000;
+let _rpcReachable: boolean | null = null;
+let _rpcCheckedAt = 0;
+const RPC_CHECK_INTERVAL = 60_000; // re-check every 60s
+
+/**
+ * Create a provider with a connection timeout.
+ * Returns null if the RPC is known-unreachable (cached for 60 s).
+ */
+export const getSafeProvider = async (
+  rpcUrl: string
+): Promise<ethers.JsonRpcProvider | null> => {
+  // Fast-fail if we recently discovered the RPC is down
+  if (_rpcReachable === false && Date.now() - _rpcCheckedAt < RPC_CHECK_INTERVAL) {
+    return null;
+  }
+
+  try {
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    // Quick connectivity probe with timeout
+    await Promise.race([
+      provider.getBlockNumber(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('RPC timeout')), RPC_TIMEOUT_MS)
+      ),
+    ]);
+    _rpcReachable = true;
+    _rpcCheckedAt = Date.now();
+    return provider;
+  } catch {
+    _rpcReachable = false;
+    _rpcCheckedAt = Date.now();
+    return null;
+  }
+};
 
 /**
  * Generate a new Ethereum-compatible wallet
- * This creates a random wallet with address and private key
  */
 export const generateWallet = (): WalletData => {
   const wallet = ethers.Wallet.createRandom();
-  
   return {
     address: wallet.address,
     privateKey: wallet.privateKey,
@@ -37,8 +72,7 @@ export const generateWallet = (): WalletData => {
  */
 export const encryptPrivateKey = async (privateKey: string, password: string): Promise<string> => {
   const wallet = new ethers.Wallet(privateKey);
-  const encryptedJson = await wallet.encrypt(password);
-  return encryptedJson;
+  return wallet.encrypt(password);
 };
 
 /**
@@ -50,40 +84,35 @@ export const decryptPrivateKey = async (encryptedJson: string, password: string)
 };
 
 /**
- * Get wallet balance from blockchain RPC
+ * Get wallet balance – returns cached "0" when RPC unreachable
  */
 export const getWalletBalance = async (rpcUrl: string, address: string): Promise<string> => {
   try {
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const provider = await getSafeProvider(rpcUrl);
+    if (!provider) return '0';
     const balance = await provider.getBalance(address);
     return ethers.formatEther(balance);
-  } catch (error) {
-    console.error('Error getting balance:', error);
+  } catch {
     return '0';
   }
 };
-
 /**
  * Get wallet info from blockchain
  */
 export const getWalletInfo = async (rpcUrl: string, address: string) => {
   try {
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const provider = await getSafeProvider(rpcUrl);
+    if (!provider) return { balance: '0', transactionCount: 0 };
     const [balance, txCount] = await Promise.all([
       provider.getBalance(address),
       provider.getTransactionCount(address),
     ]);
-    
     return {
       balance: ethers.formatEther(balance),
       transactionCount: txCount,
     };
-  } catch (error) {
-    console.error('Error getting wallet info:', error);
-    return {
-      balance: '0',
-      transactionCount: 0,
-    };
+  } catch {
+    return { balance: '0', transactionCount: 0 };
   }
 };
 
@@ -105,7 +134,8 @@ export const sendTransaction = async (
   chainId?: string
 ): Promise<TransactionResult> => {
   try {
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const provider = await getSafeProvider(rpcUrl);
+    if (!provider) return { success: false, error: 'Blockchain network unreachable' };
     const wallet = new ethers.Wallet(privateKey, provider);
     
     // Convert amount to wei
@@ -162,7 +192,8 @@ export const estimateGas = async (
   amount: string
 ): Promise<string> => {
   try {
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const provider = await getSafeProvider(rpcUrl);
+    if (!provider) return '0';
     const value = ethers.parseEther(amount);
     
     const gasEstimate = await provider.estimateGas({
@@ -208,7 +239,8 @@ export const sendSponsoredTransaction = async (
   chainId?: string
 ): Promise<SponsoredTransactionResult> => {
   try {
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const provider = await getSafeProvider(rpcUrl);
+    if (!provider) return { success: false, error: 'Blockchain network unreachable' };
     const userWallet = new ethers.Wallet(userPrivateKey, provider);
     const bankWallet = new ethers.Wallet(bankFeeWalletPrivateKey, provider);
     
@@ -267,7 +299,8 @@ export const sendCustodialTransaction = async (
   chainId?: string
 ): Promise<TransactionResult> => {
   try {
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const provider = await getSafeProvider(rpcUrl);
+    if (!provider) return { success: false, error: 'Blockchain network unreachable' };
     const userWallet = new ethers.Wallet(userPrivateKey, provider);
     
     // Convert amount to wei

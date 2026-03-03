@@ -1,8 +1,9 @@
  import { useEffect, useState } from "react";
  import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
  import { supabase } from "@/integrations/supabase/client";
- import { Wallet, TrendingUp, TrendingDown } from "lucide-react";
- import { ethers } from "ethers";
+import { Wallet, TrendingUp, TrendingDown } from "lucide-react";
+import { getSafeProvider } from "@/lib/wallet";
+import { ethers } from "ethers";
  
  interface BlockchainSettings {
    fee_wallet_address: string | null;
@@ -36,10 +37,12 @@
  
          // Fetch on-chain balance if RPC and address available
          if (blockchainData.rpc_url && blockchainData.fee_wallet_address) {
-           try {
-             const provider = new ethers.JsonRpcProvider(blockchainData.rpc_url);
-             const balance = await provider.getBalance(blockchainData.fee_wallet_address);
-             setWalletBalance(ethers.formatEther(balance));
+            try {
+              const provider = await getSafeProvider(blockchainData.rpc_url);
+              if (provider) {
+                const balance = await provider.getBalance(blockchainData.fee_wallet_address);
+                setWalletBalance(ethers.formatEther(balance));
+              }
            } catch (error) {
              console.error("Error fetching fee wallet balance:", error);
            }
