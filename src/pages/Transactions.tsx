@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
 import { ethers } from "ethers";
+import { getSafeProvider } from "@/lib/wallet";
 
 interface Transaction {
   id: string;
@@ -101,7 +102,11 @@ const Transactions = () => {
 
     setLoadingBlockchain(true);
     try {
-      const provider = new ethers.JsonRpcProvider(blockchainSettings.rpc_url);
+      const provider = await getSafeProvider(blockchainSettings.rpc_url);
+      if (!provider) {
+        setLoadingBlockchain(false);
+        return;
+      }
       const currentBlock = await provider.getBlockNumber();
       const blocksToScan = Math.min(currentBlock, 1000); // Scan last 1000 blocks
       
