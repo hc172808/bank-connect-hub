@@ -13,12 +13,30 @@ interface ProfileData {
 
 const AdminDashboard = () => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [activeAgents, setActiveAgents] = useState(0);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     fetchProfile();
+    fetchCounts();
   }, []);
+
+  const fetchCounts = async () => {
+    // Total users
+    const { count: userCount } = await supabase
+      .from("profiles")
+      .select("id", { count: "exact", head: true });
+    if (userCount !== null) setTotalUsers(userCount);
+
+    // Active agents
+    const { count: agentCount } = await supabase
+      .from("user_roles")
+      .select("id", { count: "exact", head: true })
+      .eq("role", "agent");
+    if (agentCount !== null) setActiveAgents(agentCount);
+  };
 
   const fetchProfile = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -65,7 +83,7 @@ const AdminDashboard = () => {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">0</div>
+              <div className="text-2xl font-bold">{totalUsers}</div>
               <p className="text-xs text-muted-foreground">
                 All registered users
               </p>
@@ -78,7 +96,7 @@ const AdminDashboard = () => {
               <Briefcase className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">0</div>
+              <div className="text-2xl font-bold">{activeAgents}</div>
               <p className="text-xs text-muted-foreground">
                 Currently active
               </p>
@@ -91,7 +109,7 @@ const AdminDashboard = () => {
               <Shield className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">Healthy</div>
+              <div className="text-2xl font-bold text-primary">Healthy</div>
               <p className="text-xs text-muted-foreground">
                 All systems operational
               </p>
