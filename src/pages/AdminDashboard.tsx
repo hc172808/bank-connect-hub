@@ -4,8 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell } from "lucide-react";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
+import { NotificationBell } from "@/components/NotificationBell";
 
 interface ProfileData {
   full_name: string;
@@ -65,13 +66,16 @@ const AdminDashboard = () => {
             <h1 className="text-2xl font-bold text-foreground">Admin Dashboard</h1>
             <p className="text-sm text-foreground/80">Welcome, {profile?.full_name || "Admin"}</p>
           </div>
-          <Button
-            onClick={handleLogout}
-            variant="secondary"
-            className="rounded-xl"
-          >
-            Logout
-          </Button>
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <Button
+              onClick={handleLogout}
+              variant="secondary"
+              className="rounded-xl"
+            >
+              Logout
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -197,6 +201,13 @@ const AdminDashboard = () => {
               >
                 <QrCode size={20} />
                 Print User QR Codes
+              </Button>
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                onClick={() => navigate("/admin/notifications")}
+              >
+                <Bell size={20} />
+                Send Notifications
               </Button>
             </CardContent>
           </Card>
