@@ -143,6 +143,7 @@ const AppRoutes = () => {
     return (
       <Routes>
         <Route path="/vendor" element={<VendorDashboard />} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />
@@ -156,6 +157,7 @@ const AppRoutes = () => {
       <Routes>
         <Route path="/agent" element={<AgentDashboard />} />
         <Route path="/agent-deposit" element={<AgentDeposit />} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />
@@ -185,6 +187,7 @@ const AppRoutes = () => {
         <Route path="/admin/features" element={<ProtectedRoute allowedRoles={["admin"]}><FeatureToggles /></ProtectedRoute>} />
         <Route path="/admin/vendor-fees" element={<ProtectedRoute allowedRoles={["admin"]}><VendorRegistrationFees /></ProtectedRoute>} />
         <Route path="/admin/print-qr" element={<ProtectedRoute allowedRoles={["admin"]}><AdminPrintQRCodes /></ProtectedRoute>} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />
