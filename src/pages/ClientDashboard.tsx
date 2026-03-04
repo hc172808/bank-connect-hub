@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { NotificationBell } from "@/components/NotificationBell";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { getWalletBalance } from "@/lib/wallet";
 import {
-  Bell,
   User,
   Eye,
   EyeOff,
@@ -170,15 +170,7 @@ const ClientDashboard = () => {
           <span className="font-bold text-foreground">GYD</span>
         </div>
         <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate("/notifications")}
-            className="relative"
-          >
-            <Bell className="text-foreground" />
-            <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-white text-xs rounded-full flex items-center justify-center">
-              1
-            </span>
-          </button>
+          <NotificationBell />
           <button
             onClick={() => navigate("/profile")}
             className="w-10 h-10 bg-card rounded-full flex items-center justify-center"

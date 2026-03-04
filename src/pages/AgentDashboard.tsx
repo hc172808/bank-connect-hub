@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Users, DollarSign, TrendingUp, Activity } from "lucide-react";
+import { NotificationBell } from "@/components/NotificationBell";
 
 interface ProfileData {
   full_name: string;
@@ -46,13 +47,16 @@ const AgentDashboard = () => {
             <h1 className="text-2xl font-bold text-foreground">Agent Portal</h1>
             <p className="text-sm text-foreground/80">Welcome, {profile?.full_name || "Agent"}</p>
           </div>
-          <Button
-            onClick={handleLogout}
-            variant="secondary"
-            className="rounded-xl"
-          >
-            Logout
-          </Button>
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <Button
+              onClick={handleLogout}
+              variant="secondary"
+              className="rounded-xl"
+            >
+              Logout
+            </Button>
+          </div>
         </div>
       </header>
 

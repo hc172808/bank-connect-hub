@@ -19,6 +19,7 @@ import {
   Trash2,
   User,
 } from "lucide-react";
+import { NotificationBell } from "@/components/NotificationBell";
 import {
   Dialog,
   DialogContent,
@@ -221,6 +222,7 @@ const VendorDashboard = () => {
             <p className="text-muted-foreground">Welcome, {profile?.full_name || "Vendor"}</p>
           </div>
           <div className="flex items-center gap-2">
+            <NotificationBell />
             <Button variant="outline" onClick={openStoreDialog}>
               <Edit2 size={18} className="mr-2" />
               Edit Store
