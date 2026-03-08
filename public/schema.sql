@@ -303,6 +303,7 @@ ALTER TABLE public.vendor_products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vendor_registration_fees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.external_databases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.database_backups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.mobile_money_providers ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- FUNCTIONS
