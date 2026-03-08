@@ -724,6 +724,10 @@ CREATE POLICY "Admins can manage external databases" ON public.external_database
 -- Database Backups
 CREATE POLICY "Admins can manage database backups" ON public.database_backups FOR ALL USING (has_role(auth.uid(), 'admin'));
 
+-- Mobile Money Providers
+CREATE POLICY "Everyone can view active providers" ON public.mobile_money_providers FOR SELECT USING (is_active = true);
+CREATE POLICY "Admins can manage providers" ON public.mobile_money_providers FOR ALL USING (has_role(auth.uid(), 'admin'));
+
 -- ============================================
 -- REALTIME (optional - enable for tables needing live updates)
 -- ============================================
