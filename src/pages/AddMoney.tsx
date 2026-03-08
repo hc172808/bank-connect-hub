@@ -9,18 +9,21 @@ const addOptions = [
     title: "Debit/Credit Card",
     description: "Add money using your card",
     color: "bg-blue-500",
+    path: "/add-money/card",
   },
   {
     icon: Building,
     title: "Bank Transfer",
     description: "Transfer from your bank account",
     color: "bg-green-500",
+    path: "/add-money/bank",
   },
   {
     icon: Wallet,
     title: "Visit Agent",
     description: "Deposit cash at an agent location",
     color: "bg-purple-500",
+    path: "/add-money/agent",
   },
 ];
 
