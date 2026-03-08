@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, CreditCard, Building, Wallet } from "lucide-react";
+import { ArrowLeft, CreditCard, Building, Wallet, Smartphone } from "lucide-react";
 
 const addOptions = [
   {
@@ -17,6 +17,13 @@ const addOptions = [
     description: "Transfer from your bank account",
     color: "bg-green-500",
     path: "/add-money/bank",
+  },
+  {
+    icon: Smartphone,
+    title: "Mobile Money / USSD",
+    description: "Pay via mobile money or dial USSD code",
+    color: "bg-orange-500",
+    path: "/add-money/mobile",
   },
   {
     icon: Wallet,
