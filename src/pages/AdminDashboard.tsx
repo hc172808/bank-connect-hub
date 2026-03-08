@@ -271,11 +271,18 @@ const AdminDashboard = () => {
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
-                variant="secondary"
                 onClick={() => navigate("/approve-deposits")}
               >
                 <CheckCircle size={20} />
                 Approve Agent Deposits
+              </Button>
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/reversals")}
+              >
+                <RotateCcw size={20} />
+                Manage Fund Reversals
               </Button>
             </CardContent>
           </Card>
