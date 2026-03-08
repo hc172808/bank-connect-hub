@@ -349,6 +349,48 @@ export type Database = {
         }
         Relationships: []
       }
+      mobile_money_providers: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          instructions: string | null
+          is_active: boolean
+          logo_letter: string
+          merchant_number: string | null
+          name: string
+          sort_order: number
+          updated_at: string
+          ussd_code: string | null
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          instructions?: string | null
+          is_active?: boolean
+          logo_letter?: string
+          merchant_number?: string | null
+          name: string
+          sort_order?: number
+          updated_at?: string
+          ussd_code?: string | null
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          instructions?: string | null
+          is_active?: boolean
+          logo_letter?: string
+          merchant_number?: string | null
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          ussd_code?: string | null
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           created_at: string
