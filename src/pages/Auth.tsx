@@ -128,6 +128,63 @@ const Auth = () => {
     });
   };
 
+  const handleBiometricAuth = async () => {
+    try {
+      if (!window.PublicKeyCredential) {
+        toast({
+          variant: "destructive",
+          title: "Not Supported",
+          description: "Biometric authentication is not supported on this device/browser.",
+        });
+        return;
+      }
+
+      const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      if (!available) {
+        toast({
+          variant: "destructive",
+          title: "Not Available",
+          description: "No biometric authenticator found on this device. Please use password login.",
+        });
+        return;
+      }
+
+      // Trigger the browser's biometric prompt
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rp: { name: "Virtual Bank" },
+          user: {
+            id: crypto.getRandomValues(new Uint8Array(16)),
+            name: "user",
+            displayName: "User",
+          },
+          pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "required",
+          },
+          timeout: 60000,
+        },
+      });
+
+      if (credential) {
+        toast({
+          title: "Biometric Verified",
+          description: "Biometric authentication succeeded. Please enter your mobile number and tap Next to sign in.",
+        });
+      }
+    } catch (error: any) {
+      if (error.name !== "NotAllowedError") {
+        toast({
+          variant: "destructive",
+          title: "Biometric Failed",
+          description: "Authentication was cancelled or failed. Please use password login.",
+        });
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
