@@ -582,7 +582,74 @@ export default function Profile() {
                   </Button>
                 </div>
               )}
-            </div>
+        {/* Biometric Authentication Card */}
+        <Card className="shadow-xl border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-2">
+              <Fingerprint className="w-5 h-5" />
+              Biometric Authentication
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Use your fingerprint or face to sign in without a password.
+            </p>
+
+            {biometricDevices.length > 0 && (
+              <div className="space-y-2">
+                {biometricDevices.map((device) => (
+                  <div key={device.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
+                    <div className="flex items-center gap-3">
+                      {device.auth_type === 'face' ? (
+                        <ScanFace className="w-5 h-5 text-primary" />
+                      ) : (
+                        <Fingerprint className="w-5 h-5 text-primary" />
+                      )}
+                      <div>
+                        <p className="text-sm font-medium capitalize">{device.auth_type === 'face' ? 'Face ID' : 'Fingerprint'}</p>
+                        <p className="text-xs text-muted-foreground">{device.device_name} · Added {new Date(device.created_at).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRemoveBiometric(device.id)}
+                    >
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {biometricAvailable ? (
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => handleEnrollBiometric('fingerprint')}
+                  disabled={enrollingBiometric}
+                >
+                  <Fingerprint className="w-4 h-4 mr-2" />
+                  Add Fingerprint
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => handleEnrollBiometric('face')}
+                  disabled={enrollingBiometric}
+                >
+                  <ScanFace className="w-4 h-4 mr-2" />
+                  Add Face ID
+                </Button>
+              </div>
+            ) : (
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-sm text-muted-foreground">
+                  Biometric authentication is not available on this device/browser.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
