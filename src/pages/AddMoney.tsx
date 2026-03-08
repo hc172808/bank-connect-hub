@@ -9,18 +9,21 @@ const addOptions = [
     title: "Debit/Credit Card",
     description: "Add money using your card",
     color: "bg-blue-500",
+    path: "/add-money/card",
   },
   {
     icon: Building,
     title: "Bank Transfer",
     description: "Transfer from your bank account",
     color: "bg-green-500",
+    path: "/add-money/bank",
   },
   {
     icon: Wallet,
     title: "Visit Agent",
     description: "Deposit cash at an agent location",
     color: "bg-purple-500",
+    path: "/add-money/agent",
   },
 ];
 
@@ -49,6 +52,7 @@ const AddMoney = () => {
             {addOptions.map((option, index) => (
               <button
                 key={index}
+                onClick={() => navigate(option.path)}
                 className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left"
               >
                 <div className={`w-12 h-12 ${option.color} rounded-full flex items-center justify-center`}>

@@ -39,6 +39,9 @@ import Notifications from "./pages/Notifications";
 import Menu from "./pages/Menu";
 import ScanToPay from "./pages/ScanToPay";
 import AddMoney from "./pages/AddMoney";
+import AddMoneyCard from "./pages/AddMoneyCard";
+import AddMoneyBank from "./pages/AddMoneyBank";
+import AddMoneyAgent from "./pages/AddMoneyAgent";
 import ReceiveMoney from "./pages/ReceiveMoney";
 import BlockchainSettings from "./pages/BlockchainSettings";
 import WalletImport from "./pages/WalletImport";
@@ -135,6 +138,9 @@ const AppRoutes = () => {
         <Route path="/menu" element={<Menu />} />
         <Route path="/scan-to-pay" element={<ScanToPay />} />
         <Route path="/add-money" element={<AddMoney />} />
+        <Route path="/add-money/card" element={<AddMoneyCard />} />
+        <Route path="/add-money/bank" element={<AddMoneyBank />} />
+        <Route path="/add-money/agent" element={<AddMoneyAgent />} />
         <Route path="/receive-money" element={<ReceiveMoney />} />
         <Route path="/wallet-import" element={<WalletImport />} />
         <Route path="/coin-convert" element={<CoinConvert />} />
