@@ -52,6 +52,15 @@ const AdminDashboard = () => {
     if (agentCount !== null) setActiveAgents(agentCount);
   };
 
+  const fetchChangelog = async () => {
+    const { data } = await supabase
+      .from("changelog_entries")
+      .select("*")
+      .order("released_at", { ascending: false })
+      .limit(5);
+    if (data) setChangelog(data.map((d: any) => ({ ...d, items: d.items as string[] })));
+  };
+
   const fetchProfile = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
