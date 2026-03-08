@@ -264,6 +264,21 @@ CREATE TABLE public.database_backups (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Mobile Money Providers
+CREATE TABLE public.mobile_money_providers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  ussd_code text,
+  logo_letter text NOT NULL DEFAULT '?',
+  color text NOT NULL DEFAULT 'bg-muted-foreground',
+  merchant_number text,
+  instructions text,
+  is_active boolean NOT NULL DEFAULT true,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- ============================================
 -- ROW LEVEL SECURITY
 -- ============================================
