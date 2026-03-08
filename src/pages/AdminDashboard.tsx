@@ -34,6 +34,7 @@ const AdminDashboard = () => {
   useEffect(() => {
     fetchProfile();
     fetchCounts();
+    fetchChangelog();
   }, []);
 
   const fetchCounts = async () => {
