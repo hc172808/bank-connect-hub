@@ -138,6 +138,9 @@ const AppRoutes = () => {
         <Route path="/menu" element={<Menu />} />
         <Route path="/scan-to-pay" element={<ScanToPay />} />
         <Route path="/add-money" element={<AddMoney />} />
+        <Route path="/add-money/card" element={<AddMoneyCard />} />
+        <Route path="/add-money/bank" element={<AddMoneyBank />} />
+        <Route path="/add-money/agent" element={<AddMoneyAgent />} />
         <Route path="/receive-money" element={<ReceiveMoney />} />
         <Route path="/wallet-import" element={<WalletImport />} />
         <Route path="/coin-convert" element={<CoinConvert />} />
