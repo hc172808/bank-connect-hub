@@ -271,6 +271,54 @@ export type Database = {
         }
         Relationships: []
       }
+      fund_reversals: {
+        Row: {
+          amount: number
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string
+          funds_held_at: string | null
+          funds_returned_at: string | null
+          id: string
+          reason: string | null
+          recipient_id: string
+          requested_at: string
+          requester_id: string
+          status: string
+          transaction_id: string
+        }
+        Insert: {
+          amount: number
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          funds_held_at?: string | null
+          funds_returned_at?: string | null
+          id?: string
+          reason?: string | null
+          recipient_id: string
+          requested_at?: string
+          requester_id: string
+          status?: string
+          transaction_id: string
+        }
+        Update: {
+          amount?: number
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          funds_held_at?: string | null
+          funds_returned_at?: string | null
+          id?: string
+          reason?: string | null
+          recipient_id?: string
+          requested_at?: string
+          requester_id?: string
+          status?: string
+          transaction_id?: string
+        }
+        Relationships: []
+      }
       gas_fee_ledger: {
         Row: {
           amount: number
@@ -664,6 +712,7 @@ export type Database = {
         Args: { _amount: number; _user_id: string }
         Returns: Json
       }
+      approve_fund_reversal: { Args: { _reversal_id: string }; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -672,6 +721,7 @@ export type Database = {
         Returns: boolean
       }
       hash_pin: { Args: { pin: string }; Returns: string }
+      process_pending_reversals: { Args: never; Returns: Json }
       process_transaction: {
         Args: {
           _amount: number

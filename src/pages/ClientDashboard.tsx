@@ -25,6 +25,7 @@ import {
   Copy,
   RefreshCw,
   Import,
+  RotateCcw,
 } from "lucide-react";
 
 interface WalletData {
@@ -144,6 +145,7 @@ const ClientDashboard = () => {
       { icon: Receipt, label: "Pay Bills", path: "/pay-bills", featureKey: "pay_bills" },
       { icon: Send, label: "Send Money", path: "/send-money", featureKey: null },
       { icon: Gift, label: "Request Funds", path: "/request-funds", featureKey: null },
+      { icon: RotateCcw, label: "Reverse Funds", path: "/request-reversal", featureKey: null },
       { icon: ArrowUpFromLine, label: "Top-up", path: "/top-up", featureKey: "top_up" },
       { icon: Store, label: "Pay Merchant", path: "/pay-merchant", featureKey: "pay_merchant" },
       { icon: Store, label: "Shop", path: "/vendors", featureKey: null },

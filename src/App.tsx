@@ -52,6 +52,8 @@ import VendorList from "./pages/VendorList";
 import VendorRegistrationFees from "./pages/VendorRegistrationFees";
 import AdminPrintQRCodes from "./pages/AdminPrintQRCodes";
 import AdminNotifications from "./pages/AdminNotifications";
+import RequestReversal from "./pages/RequestReversal";
+import ManageReversals from "./pages/ManageReversals";
 
 const queryClient = new QueryClient();
 
@@ -138,6 +140,7 @@ const AppRoutes = () => {
         <Route path="/coin-convert" element={<CoinConvert />} />
         <Route path="/vendor-store" element={<VendorStore />} />
         <Route path="/vendors" element={<VendorList />} />
+        <Route path="/request-reversal" element={<RequestReversal />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -192,6 +195,7 @@ const AppRoutes = () => {
         <Route path="/admin/vendor-fees" element={<ProtectedRoute allowedRoles={["admin"]}><VendorRegistrationFees /></ProtectedRoute>} />
         <Route path="/admin/print-qr" element={<ProtectedRoute allowedRoles={["admin"]}><AdminPrintQRCodes /></ProtectedRoute>} />
         <Route path="/admin/notifications" element={<ProtectedRoute allowedRoles={["admin"]}><AdminNotifications /></ProtectedRoute>} />
+        <Route path="/admin/reversals" element={<ProtectedRoute allowedRoles={["admin"]}><ManageReversals /></ProtectedRoute>} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />

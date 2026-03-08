@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw } from "lucide-react";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 import { NotificationBell } from "@/components/NotificationBell";
 
@@ -271,11 +271,18 @@ const AdminDashboard = () => {
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
-                variant="secondary"
                 onClick={() => navigate("/approve-deposits")}
               >
                 <CheckCircle size={20} />
                 Approve Agent Deposits
+              </Button>
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/reversals")}
+              >
+                <RotateCcw size={20} />
+                Manage Fund Reversals
               </Button>
             </CardContent>
           </Card>
