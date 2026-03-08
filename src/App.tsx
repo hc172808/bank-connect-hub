@@ -142,6 +142,7 @@ const AppRoutes = () => {
         <Route path="/add-money/card" element={<AddMoneyCard />} />
         <Route path="/add-money/bank" element={<AddMoneyBank />} />
         <Route path="/add-money/agent" element={<AddMoneyAgent />} />
+        <Route path="/add-money/mobile" element={<AddMoneyMobile />} />
         <Route path="/receive-money" element={<ReceiveMoney />} />
         <Route path="/wallet-import" element={<WalletImport />} />
         <Route path="/coin-convert" element={<CoinConvert />} />
