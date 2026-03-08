@@ -42,6 +42,7 @@ import AddMoney from "./pages/AddMoney";
 import AddMoneyCard from "./pages/AddMoneyCard";
 import AddMoneyBank from "./pages/AddMoneyBank";
 import AddMoneyAgent from "./pages/AddMoneyAgent";
+import AddMoneyMobile from "./pages/AddMoneyMobile";
 import ReceiveMoney from "./pages/ReceiveMoney";
 import BlockchainSettings from "./pages/BlockchainSettings";
 import WalletImport from "./pages/WalletImport";
