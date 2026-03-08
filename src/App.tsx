@@ -52,6 +52,8 @@ import VendorList from "./pages/VendorList";
 import VendorRegistrationFees from "./pages/VendorRegistrationFees";
 import AdminPrintQRCodes from "./pages/AdminPrintQRCodes";
 import AdminNotifications from "./pages/AdminNotifications";
+import RequestReversal from "./pages/RequestReversal";
+import ManageReversals from "./pages/ManageReversals";
 
 const queryClient = new QueryClient();
 
