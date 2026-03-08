@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, ArrowUpRight, ArrowDownLeft, Clock, Wallet, ExternalLink, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ArrowDownLeft, Clock, Wallet, ExternalLink, RefreshCw, Filter } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
@@ -39,6 +39,19 @@ interface BlockchainSettings {
   is_active: boolean;
 }
 
+type FilterType = "all" | "transfer" | "deposit" | "deposit_card" | "deposit_bank" | "deposit_agent" | "payment" | "withdrawal";
+
+const FILTER_OPTIONS: { value: FilterType; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "transfer", label: "Transfers" },
+  { value: "deposit", label: "All Deposits" },
+  { value: "deposit_card", label: "Card Deposits" },
+  { value: "deposit_bank", label: "Bank Transfers" },
+  { value: "deposit_agent", label: "Agent Deposits" },
+  { value: "payment", label: "Payments" },
+  { value: "withdrawal", label: "Withdrawals" },
+];
+
 const Transactions = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -48,6 +61,7 @@ const Transactions = () => {
   const [loadingBlockchain, setLoadingBlockchain] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
 
   useEffect(() => {
     if (user) {
@@ -108,14 +122,10 @@ const Transactions = () => {
         return;
       }
       const currentBlock = await provider.getBlockNumber();
-      const blocksToScan = Math.min(currentBlock, 1000); // Scan last 1000 blocks
+      const blocksToScan = Math.min(currentBlock, 1000);
       
       const txs: BlockchainTransaction[] = [];
       
-      // Get transaction count to find transactions
-      const txCount = await provider.getTransactionCount(walletAddress);
-      
-      // Scan recent blocks for transactions involving this address
       for (let i = currentBlock; i > currentBlock - blocksToScan && i >= 0; i -= 10) {
         try {
           const block = await provider.getBlock(i, true);
@@ -136,10 +146,8 @@ const Transactions = () => {
             }
           }
         } catch (e) {
-          // Skip blocks that fail to load
+          // Skip blocks that fail
         }
-        
-        // Limit to 20 transactions
         if (txs.length >= 20) break;
       }
       
@@ -149,6 +157,33 @@ const Transactions = () => {
     }
     setLoadingBlockchain(false);
   };
+
+  const filteredTransactions = useMemo(() => {
+    if (activeFilter === "all") return transactions;
+
+    return transactions.filter((tx) => {
+      const desc = (tx.description || "").toLowerCase();
+
+      switch (activeFilter) {
+        case "transfer":
+          return tx.transaction_type === "transfer";
+        case "deposit":
+          return tx.transaction_type === "deposit";
+        case "deposit_card":
+          return tx.transaction_type === "deposit" && desc.includes("card");
+        case "deposit_bank":
+          return tx.transaction_type === "deposit" && (desc.includes("bank") || desc.includes("transfer pending"));
+        case "deposit_agent":
+          return tx.transaction_type === "deposit" && (desc.includes("agent") || desc.includes("admin"));
+        case "payment":
+          return tx.transaction_type === "payment" || tx.transaction_type === "bill_payment";
+        case "withdrawal":
+          return tx.transaction_type === "withdrawal";
+        default:
+          return true;
+      }
+    });
+  }, [transactions, activeFilter]);
 
   const getTransactionIcon = (transaction: Transaction) => {
     if (transaction.sender_id === user?.id) {
@@ -166,6 +201,15 @@ const Transactions = () => {
         {sign}${transaction.amount.toFixed(2)}
       </span>
     );
+  };
+
+  const getDepositBadge = (transaction: Transaction) => {
+    if (transaction.transaction_type !== "deposit") return null;
+    const desc = (transaction.description || "").toLowerCase();
+    if (desc.includes("card")) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">Card</span>;
+    if (desc.includes("bank") || desc.includes("transfer pending")) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Bank</span>;
+    if (desc.includes("agent") || desc.includes("admin")) return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">Agent</span>;
+    return <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Deposit</span>;
   };
 
   const openExplorer = (txHash: string) => {
@@ -209,11 +253,34 @@ const Transactions = () => {
           </TabsList>
 
           <TabsContent value="internal">
+            {/* Filter chips */}
+            <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+              <Filter size={14} className="text-muted-foreground flex-shrink-0" />
+              {FILTER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setActiveFilter(opt.value)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    activeFilter === opt.value
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock size={20} />
-                  Internal Transactions
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Clock size={20} />
+                    {activeFilter === "all" ? "All Transactions" : FILTER_OPTIONS.find(f => f.value === activeFilter)?.label}
+                  </span>
+                  <span className="text-sm font-normal text-muted-foreground">
+                    {filteredTransactions.length} result{filteredTransactions.length !== 1 ? "s" : ""}
+                  </span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -221,13 +288,13 @@ const Transactions = () => {
                   <div className="text-center py-8 text-muted-foreground">
                     Loading transactions...
                   </div>
-                ) : transactions.length === 0 ? (
+                ) : filteredTransactions.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
-                    No transactions yet
+                    {activeFilter === "all" ? "No transactions yet" : `No ${FILTER_OPTIONS.find(f => f.value === activeFilter)?.label.toLowerCase()} found`}
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {transactions.map((transaction) => (
+                    {filteredTransactions.map((transaction) => (
                       <div
                         key={transaction.id}
                         className="flex items-center justify-between p-3 rounded-xl bg-muted/50"
@@ -237,9 +304,17 @@ const Transactions = () => {
                             {getTransactionIcon(transaction)}
                           </div>
                           <div>
-                            <p className="font-medium capitalize">
-                              {transaction.transaction_type.replace("_", " ")}
-                            </p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-medium capitalize">
+                                {transaction.transaction_type.replace("_", " ")}
+                              </p>
+                              {getDepositBadge(transaction)}
+                            </div>
+                            {transaction.description && (
+                              <p className="text-xs text-muted-foreground truncate max-w-[160px]">
+                                {transaction.description}
+                              </p>
+                            )}
                             <p className="text-xs text-muted-foreground">
                               {format(new Date(transaction.created_at), "MMM d, yyyy h:mm a")}
                             </p>
