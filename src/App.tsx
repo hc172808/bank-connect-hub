@@ -59,6 +59,7 @@ import AdminNotifications from "./pages/AdminNotifications";
 import ManageMobileProviders from "./pages/ManageMobileProviders";
 import RequestReversal from "./pages/RequestReversal";
 import ManageReversals from "./pages/ManageReversals";
+import ManageChangelog from "./pages/ManageChangelog";
 
 const queryClient = new QueryClient();
 
