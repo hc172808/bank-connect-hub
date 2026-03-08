@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { generateWallet, encryptPrivateKey } from '@/lib/wallet';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SetPinDialog } from '@/components/SetPinDialog';
+import { isBiometricAvailable, enrollBiometric, linkCredentialToPhone } from '@/lib/biometricAuth';
 
 export default function Profile() {
   const { user } = useAuth();
