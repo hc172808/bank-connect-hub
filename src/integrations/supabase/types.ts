@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      biometric_credentials: {
+        Row: {
+          auth_type: string
+          created_at: string
+          credential_id: string
+          device_name: string | null
+          id: string
+          last_used_at: string | null
+          public_key: string
+          user_id: string
+        }
+        Insert: {
+          auth_type?: string
+          created_at?: string
+          credential_id: string
+          device_name?: string | null
+          id?: string
+          last_used_at?: string | null
+          public_key: string
+          user_id: string
+        }
+        Update: {
+          auth_type?: string
+          created_at?: string
+          credential_id?: string
+          device_name?: string | null
+          id?: string
+          last_used_at?: string | null
+          public_key?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       blockchain_settings: {
         Row: {
           chain_id: string | null
@@ -28,6 +61,7 @@ export type Database = {
           native_coin_name: string
           native_coin_symbol: string
           rpc_url: string | null
+          rpc_urls: Json | null
           updated_at: string
           updated_by: string | null
         }
@@ -44,6 +78,7 @@ export type Database = {
           native_coin_name?: string
           native_coin_symbol?: string
           rpc_url?: string | null
+          rpc_urls?: Json | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -60,6 +95,7 @@ export type Database = {
           native_coin_name?: string
           native_coin_symbol?: string
           rpc_url?: string | null
+          rpc_urls?: Json | null
           updated_at?: string
           updated_by?: string | null
         }
