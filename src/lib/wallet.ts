@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import { getProviderWithFallback } from './rpcFallback';
 
 export interface WalletData {
   address: string;
