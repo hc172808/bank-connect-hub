@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle, Store, Users } from "lucide-react";
+import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle, Store, Users, ScanFace } from "lucide-react";
 import { generateWallet, encryptPrivateKey } from "@/lib/wallet";
 import {
   Dialog,
