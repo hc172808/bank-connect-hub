@@ -1,10 +1,13 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+declare const __BUILD_TIME__: string;
+declare const __COMMIT_HASH__: string;
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info } from "lucide-react";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 import { NotificationBell } from "@/components/NotificationBell";
 
@@ -310,6 +313,24 @@ const AdminDashboard = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Version Widget */}
+        <Card className="border-dashed">
+          <CardContent className="flex items-center justify-between py-4">
+            <div className="flex items-center gap-3">
+              <Info size={16} className="text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">GYD App v1.0.0</p>
+                <p className="text-xs text-muted-foreground">
+                  Built {new Date(__BUILD_TIME__).toLocaleString()}
+                </p>
+              </div>
+            </div>
+            <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full">
+              {__COMMIT_HASH__}
+            </span>
+          </CardContent>
+        </Card>
       </main>
     </div>
   );
