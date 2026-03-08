@@ -74,10 +74,20 @@ export default function Profile() {
     setBiometricDevices(data || []);
   };
 
-  const handleEnrollBiometric = async (type: 'fingerprint' | 'face') => {
-    if (!user) return;
+  const startBiometricEnroll = (type: 'fingerprint' | 'face') => {
+    setPendingBiometricType(type);
+    setBiometricPassword('');
+    setShowBiometricPasswordDialog(true);
+  };
+
+  const handleEnrollBiometric = async () => {
+    if (!user || !biometricPassword) {
+      toast({ variant: 'destructive', title: 'Password Required', description: 'Enter your password to link biometric login.' });
+      return;
+    }
+    setShowBiometricPasswordDialog(false);
     setEnrollingBiometric(true);
-    const result = await enrollBiometric(user.id, profile.phone_number || user.email || '', type);
+    const result = await enrollBiometric(user.id, profile.phone_number || user.email || '', pendingBiometricType);
     if (result.success) {
       const { data: creds } = await supabase
         .from('biometric_credentials')
@@ -86,14 +96,15 @@ export default function Profile() {
         .order('created_at', { ascending: false })
         .limit(1);
       if (creds && creds.length > 0) {
-        linkCredentialToPhone(creds[0].credential_id, profile.phone_number, '');
+        linkCredentialToPhone(creds[0].credential_id, profile.phone_number, biometricPassword);
       }
-      toast({ title: 'Biometric Enrolled!', description: `${type === 'face' ? 'Face ID' : 'Fingerprint'} is now set up.` });
+      toast({ title: 'Biometric Enrolled!', description: `${pendingBiometricType === 'face' ? 'Face ID' : 'Fingerprint'} is now set up for quick login.` });
       fetchBiometricDevices();
     } else if (result.error !== 'cancelled') {
       toast({ variant: 'destructive', title: 'Enrollment Failed', description: result.error });
     }
     setEnrollingBiometric(false);
+    setBiometricPassword('');
   };
 
   const handleRemoveBiometric = async (id: string) => {
