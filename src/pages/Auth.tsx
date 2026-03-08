@@ -252,22 +252,36 @@ const Auth = () => {
                 </button>
               )}
 
-              <div className="flex gap-3">
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1 h-14 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-lg"
-                >
-                  {loading ? "Please wait..." : mode === "signin" ? "Next" : "Sign Up"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="w-14 h-14 rounded-xl p-0"
-                >
-                  <Fingerprint size={24} />
-                </Button>
-              </div>
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full h-14 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-lg"
+              >
+                {loading ? "Please wait..." : mode === "signin" ? "Next" : "Sign Up"}
+              </Button>
+
+              {mode === "signin" && (
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleBiometricAuth}
+                    className="flex-1 h-14 rounded-xl flex items-center justify-center gap-2"
+                  >
+                    <Fingerprint size={20} />
+                    <span className="text-sm font-medium">Fingerprint</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleBiometricAuth}
+                    className="flex-1 h-14 rounded-xl flex items-center justify-center gap-2"
+                  >
+                    <ScanFace size={20} />
+                    <span className="text-sm font-medium">Face ID</span>
+                  </Button>
+                </div>
+              )}
             </form>
 
             <div className="mt-8 text-center space-y-3">
