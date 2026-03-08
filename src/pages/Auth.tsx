@@ -147,12 +147,7 @@ const Auth = () => {
         });
         if (error) throw error;
 
-        // After successful password login, offer biometric enrollment if available and not enrolled
-        if (biometricAvailable && !hasStoredBiometric()) {
-          setShowEnrollDialog(true);
-        } else {
-          toast({ title: "Welcome back!", description: "Signed in successfully" });
-        }
+        toast({ title: "Welcome back!", description: "Signed in successfully" });
       }
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message });
