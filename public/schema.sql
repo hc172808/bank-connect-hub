@@ -264,6 +264,21 @@ CREATE TABLE public.database_backups (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Mobile Money Providers
+CREATE TABLE public.mobile_money_providers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  ussd_code text,
+  logo_letter text NOT NULL DEFAULT '?',
+  color text NOT NULL DEFAULT 'bg-muted-foreground',
+  merchant_number text,
+  instructions text,
+  is_active boolean NOT NULL DEFAULT true,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- ============================================
 -- ROW LEVEL SECURITY
 -- ============================================
@@ -288,6 +303,7 @@ ALTER TABLE public.vendor_products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.vendor_registration_fees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.external_databases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.database_backups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.mobile_money_providers ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- FUNCTIONS
@@ -708,6 +724,10 @@ CREATE POLICY "Admins can manage external databases" ON public.external_database
 -- Database Backups
 CREATE POLICY "Admins can manage database backups" ON public.database_backups FOR ALL USING (has_role(auth.uid(), 'admin'));
 
+-- Mobile Money Providers
+CREATE POLICY "Everyone can view active providers" ON public.mobile_money_providers FOR SELECT USING (is_active = true);
+CREATE POLICY "Admins can manage providers" ON public.mobile_money_providers FOR ALL USING (has_role(auth.uid(), 'admin'));
+
 -- ============================================
 -- REALTIME (optional - enable for tables needing live updates)
 -- ============================================
@@ -836,3 +856,11 @@ INSERT INTO public.vendor_products (vendor_id, name, description, category, pric
 -- ============================================
 INSERT INTO public.vendor_registration_fees (fee_name, fee_amount, is_active)
 VALUES ('Vendor Registration Fee', 50.00, true);
+
+-- ============================================
+-- MOBILE MONEY PROVIDERS
+-- ============================================
+INSERT INTO public.mobile_money_providers (name, ussd_code, logo_letter, color, merchant_number, instructions, is_active, sort_order) VALUES
+  ('Digicel MoMo', '*129#', 'D', 'bg-red-500', '+592-000-0001', NULL, true, 1),
+  ('GTT Mobile Money', '*888#', 'G', 'bg-green-600', '+592-000-0002', NULL, true, 2),
+  ('M-Pesa', '*334#', 'M', 'bg-green-500', '+592-000-0003', NULL, true, 3);
