@@ -56,8 +56,52 @@ export default function Profile() {
       fetchProfile();
       fetchWallet();
       checkPinStatus();
+      fetchBiometricDevices();
+      isBiometricAvailable().then(setBiometricAvailable);
     }
   }, [user]);
+
+  const fetchBiometricDevices = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('biometric_credentials')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    setBiometricDevices(data || []);
+  };
+
+  const handleEnrollBiometric = async (type: 'fingerprint' | 'face') => {
+    if (!user) return;
+    setEnrollingBiometric(true);
+    const result = await enrollBiometric(user.id, profile.phone_number || user.email || '', type);
+    if (result.success) {
+      const { data: creds } = await supabase
+        .from('biometric_credentials')
+        .select('credential_id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (creds && creds.length > 0) {
+        linkCredentialToPhone(creds[0].credential_id, profile.phone_number, '');
+      }
+      toast({ title: 'Biometric Enrolled!', description: `${type === 'face' ? 'Face ID' : 'Fingerprint'} is now set up.` });
+      fetchBiometricDevices();
+    } else if (result.error !== 'cancelled') {
+      toast({ variant: 'destructive', title: 'Enrollment Failed', description: result.error });
+    }
+    setEnrollingBiometric(false);
+  };
+
+  const handleRemoveBiometric = async (id: string) => {
+    const { error } = await supabase.from('biometric_credentials').delete().eq('id', id);
+    if (error) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to remove biometric' });
+    } else {
+      toast({ title: 'Removed', description: 'Biometric credential removed' });
+      fetchBiometricDevices();
+    }
+  };
 
 
   const checkPinStatus = async () => {
