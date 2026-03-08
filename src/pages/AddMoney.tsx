@@ -52,6 +52,7 @@ const AddMoney = () => {
             {addOptions.map((option, index) => (
               <button
                 key={index}
+                onClick={() => navigate(option.path)}
                 className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left"
               >
                 <div className={`w-12 h-12 ${option.color} rounded-full flex items-center justify-center`}>
