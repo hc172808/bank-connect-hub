@@ -310,6 +310,24 @@ const AdminDashboard = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Version Widget */}
+        <Card className="border-dashed">
+          <CardContent className="flex items-center justify-between py-4">
+            <div className="flex items-center gap-3">
+              <Info size={16} className="text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">GYD App v1.0.0</p>
+                <p className="text-xs text-muted-foreground">
+                  Built {new Date(__BUILD_TIME__).toLocaleString()}
+                </p>
+              </div>
+            </div>
+            <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full">
+              {__COMMIT_HASH__}
+            </span>
+          </CardContent>
+        </Card>
       </main>
     </div>
   );
