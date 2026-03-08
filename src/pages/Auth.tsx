@@ -344,47 +344,7 @@ const Auth = () => {
         </div>
       </div>
 
-      {/* Biometric Enrollment Dialog */}
-      <Dialog open={showEnrollDialog} onOpenChange={setShowEnrollDialog}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-primary" />
-              Enable Quick Login
-            </DialogTitle>
-            <DialogDescription>
-              Set up biometric authentication to sign in faster next time.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Button
-              onClick={() => handleEnrollBiometric("fingerprint")}
-              className="w-full h-14 rounded-xl flex items-center justify-center gap-3"
-            >
-              <Fingerprint size={22} />
-              <span>Set Up Fingerprint</span>
-            </Button>
-            <Button
-              onClick={() => handleEnrollBiometric("face")}
-              variant="outline"
-              className="w-full h-14 rounded-xl flex items-center justify-center gap-3"
-            >
-              <ScanFace size={22} />
-              <span>Set Up Face ID</span>
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setShowEnrollDialog(false);
-                toast({ title: "Welcome back!", description: "Signed in successfully" });
-              }}
-              className="w-full"
-            >
-              Skip for now
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+
 
       {/* Wallet Created Dialog */}
       <Dialog open={showWalletDialog} onOpenChange={setShowWalletDialog}>
