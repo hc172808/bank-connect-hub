@@ -738,3 +738,101 @@ VALUES (
 -- Default supported coin
 INSERT INTO public.supported_coins (coin_symbol, coin_name, is_native, is_active)
 VALUES ('GYD', 'GYD Coin', true, true);
+
+-- ============================================
+-- SAMPLE USERS (via Supabase Auth)
+-- ============================================
+-- NOTE: In Supabase, users are created via auth.users which triggers handle_new_user().
+-- Below we insert directly into profiles/wallets/user_roles for standalone PostgreSQL usage.
+-- For Supabase, create users via the Auth API or dashboard instead.
+
+-- Admin User
+-- Email: admin@gyd.com | Password: set via Supabase Auth
+INSERT INTO public.profiles (id, full_name, phone_number)
+VALUES ('00000000-0000-0000-0000-000000000001', 'GYD Admin', '+1234567890');
+
+INSERT INTO public.wallets (user_id, balance, currency)
+VALUES ('00000000-0000-0000-0000-000000000001', 999999.00, 'USD');
+
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('00000000-0000-0000-0000-000000000001', 'admin');
+
+-- Agent 1
+INSERT INTO public.profiles (id, full_name, phone_number, address, city, country)
+VALUES ('00000000-0000-0000-0000-000000000002', 'Agent Smith', '+1234567891', '123 Main St', 'Georgetown', 'Guyana');
+
+INSERT INTO public.wallets (user_id, balance, currency)
+VALUES ('00000000-0000-0000-0000-000000000002', 5000.00, 'USD');
+
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('00000000-0000-0000-0000-000000000002', 'agent');
+
+-- Agent 2
+INSERT INTO public.profiles (id, full_name, phone_number, address, city, country)
+VALUES ('00000000-0000-0000-0000-000000000003', 'Agent Johnson', '+1234567892', '456 Market Rd', 'Linden', 'Guyana');
+
+INSERT INTO public.wallets (user_id, balance, currency)
+VALUES ('00000000-0000-0000-0000-000000000003', 3000.00, 'USD');
+
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('00000000-0000-0000-0000-000000000003', 'agent');
+
+-- Test Client
+INSERT INTO public.profiles (id, full_name, phone_number)
+VALUES ('00000000-0000-0000-0000-000000000004', 'Test User', '+1234567893');
+
+INSERT INTO public.wallets (user_id, balance, currency)
+VALUES ('00000000-0000-0000-0000-000000000004', 100.00, 'USD');
+
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('00000000-0000-0000-0000-000000000004', 'client');
+
+-- Test Vendor
+INSERT INTO public.profiles (id, full_name, phone_number, store_name)
+VALUES ('00000000-0000-0000-0000-000000000005', 'Vendor Shop', '+1234567894', 'GYD General Store');
+
+INSERT INTO public.wallets (user_id, balance, currency)
+VALUES ('00000000-0000-0000-0000-000000000005', 500.00, 'USD');
+
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('00000000-0000-0000-0000-000000000005', 'vendor');
+
+-- ============================================
+-- FEATURE TOGGLES
+-- ============================================
+INSERT INTO public.feature_toggles (feature_key, feature_name, is_enabled) VALUES
+  ('pay_bills', 'Pay Bills', true),
+  ('top_up', 'Top-Up / Airtime', true),
+  ('pay_merchant', 'Pay Merchant', true),
+  ('coin_convert', 'Coin Conversion', true),
+  ('biometric_login', 'Biometric Login', true),
+  ('qr_payments', 'QR Code Payments', true),
+  ('fund_requests', 'Fund Requests', true),
+  ('fund_reversals', 'Fund Reversals', true),
+  ('bank_transfer', 'Bank Transfer Deposits', true),
+  ('card_deposits', 'Card Deposits', true);
+
+-- ============================================
+-- TRANSACTION FEES
+-- ============================================
+INSERT INTO public.transaction_fees (transaction_type, fee_percentage, fixed_fee) VALUES
+  ('transfer', 1.5, 0.00),
+  ('deposit', 0.0, 0.00),
+  ('withdrawal', 2.0, 0.50),
+  ('payment', 1.0, 0.00),
+  ('bill_payment', 1.0, 0.25);
+
+-- ============================================
+-- SAMPLE VENDOR PRODUCTS
+-- ============================================
+INSERT INTO public.vendor_products (vendor_id, name, description, category, price, discount_price) VALUES
+  ('00000000-0000-0000-0000-000000000005', 'Phone Credit $5', 'Mobile phone top-up credit', 'Telecom', 5.00, NULL),
+  ('00000000-0000-0000-0000-000000000005', 'Phone Credit $10', 'Mobile phone top-up credit', 'Telecom', 10.00, 9.50),
+  ('00000000-0000-0000-0000-000000000005', 'Internet 1GB', '1GB mobile data package', 'Internet', 8.00, NULL),
+  ('00000000-0000-0000-0000-000000000005', 'Internet 5GB', '5GB mobile data package', 'Internet', 25.00, 22.00);
+
+-- ============================================
+-- VENDOR REGISTRATION FEE
+-- ============================================
+INSERT INTO public.vendor_registration_fees (fee_name, fee_amount, is_active)
+VALUES ('Vendor Registration Fee', 50.00, true);
