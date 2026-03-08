@@ -5,12 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Mail } from 'lucide-react';
+import { ArrowLeft, Phone } from 'lucide-react';
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
@@ -19,6 +19,7 @@ export default function ForgotPassword() {
     setLoading(true);
 
     try {
+      const email = `${phoneNumber}@vbank.com`;
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`,
       });
@@ -27,8 +28,8 @@ export default function ForgotPassword() {
 
       setSent(true);
       toast({
-        title: "Reset email sent",
-        description: "Check your email for password reset instructions",
+        title: "Reset link sent",
+        description: "A password reset link has been generated for your account",
       });
     } catch (error: any) {
       toast({
@@ -42,12 +43,9 @@ export default function ForgotPassword() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-primary/5 to-background p-4 flex items-center justify-center">
+    <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-6">
-        <Button
-          variant="ghost"
-          onClick={() => navigate('/auth')}
-        >
+        <Button variant="ghost" onClick={() => navigate('/auth')}>
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Sign In
         </Button>
@@ -56,7 +54,7 @@ export default function ForgotPassword() {
           <CardHeader>
             <CardTitle className="text-2xl">Forgot Password</CardTitle>
             <CardDescription>
-              Enter your email to receive password reset instructions
+              Enter your mobile number to reset your password
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -64,39 +62,34 @@ export default function ForgotPassword() {
               <form onSubmit={handleResetPassword} className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium flex items-center gap-2">
-                    <Mail className="w-4 h-4" />
-                    Email Address
+                    <Phone className="w-4 h-4" />
+                    Mobile Number
                   </label>
                   <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="john@example.com"
+                    type="text"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="Enter your mobile number"
                     required
                   />
                 </div>
 
-                <Button
-                  type="submit"
-                  className="w-full bg-gradient-to-r from-primary to-yellow-600"
-                  disabled={loading}
-                >
+                <Button type="submit" className="w-full" disabled={loading}>
                   {loading ? 'Sending...' : 'Send Reset Link'}
                 </Button>
               </form>
             ) : (
               <div className="text-center space-y-4">
                 <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
-                  <Mail className="w-8 h-8 text-primary" />
+                  <Phone className="w-8 h-8 text-primary" />
                 </div>
                 <p className="text-muted-foreground">
-                  We've sent password reset instructions to <strong>{email}</strong>
+                  A password reset link has been sent to your account associated with <strong>{phoneNumber}</strong>.
                 </p>
-                <Button
-                  variant="outline"
-                  onClick={() => navigate('/auth')}
-                  className="w-full"
-                >
+                <p className="text-xs text-muted-foreground">
+                  Since this app uses virtual emails ({phoneNumber}@vbank.com), the reset may need to be handled by an admin. Contact support if needed.
+                </p>
+                <Button variant="outline" onClick={() => navigate('/auth')} className="w-full">
                   Return to Sign In
                 </Button>
               </div>

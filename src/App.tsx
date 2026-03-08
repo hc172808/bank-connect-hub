@@ -7,6 +7,7 @@ import { useAuth, UserRole } from "./hooks/useAuth";
 import Auth from "./pages/Auth";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Profile from "./pages/Profile";
 import ChangePassword from "./pages/ChangePassword";
 import Feedback from "./pages/Feedback";
@@ -105,6 +106,8 @@ const AppRoutes = () => {
         <Route path="/auth" element={<Auth />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="*" element={<Navigate to="/auth" replace />} />
         <Route path="*" element={<Navigate to="/auth" replace />} />
       </Routes>
     );

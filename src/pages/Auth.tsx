@@ -294,7 +294,11 @@ const Auth = () => {
               </div>
 
               {mode === "signin" && (
-                <button type="button" className="text-sm text-muted-foreground hover:text-foreground">
+                <button
+                  type="button"
+                  onClick={() => navigate("/forgot-password")}
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
                   Having trouble signing in?
                 </button>
               )}

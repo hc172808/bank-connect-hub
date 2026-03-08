@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock } from 'lucide-react';
+import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { generateWallet, encryptPrivateKey } from '@/lib/wallet';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SetPinDialog } from '@/components/SetPinDialog';
+import { isBiometricAvailable, enrollBiometric, linkCredentialToPhone } from '@/lib/biometricAuth';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -35,6 +37,9 @@ export default function Profile() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [hasPin, setHasPin] = useState(false);
   const [showSetPinDialog, setShowSetPinDialog] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricDevices, setBiometricDevices] = useState<any[]>([]);
+  const [enrollingBiometric, setEnrollingBiometric] = useState(false);
   const [profile, setProfile] = useState({
     full_name: '',
     phone_number: '',
@@ -51,8 +56,52 @@ export default function Profile() {
       fetchProfile();
       fetchWallet();
       checkPinStatus();
+      fetchBiometricDevices();
+      isBiometricAvailable().then(setBiometricAvailable);
     }
   }, [user]);
+
+  const fetchBiometricDevices = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('biometric_credentials')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    setBiometricDevices(data || []);
+  };
+
+  const handleEnrollBiometric = async (type: 'fingerprint' | 'face') => {
+    if (!user) return;
+    setEnrollingBiometric(true);
+    const result = await enrollBiometric(user.id, profile.phone_number || user.email || '', type);
+    if (result.success) {
+      const { data: creds } = await supabase
+        .from('biometric_credentials')
+        .select('credential_id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (creds && creds.length > 0) {
+        linkCredentialToPhone(creds[0].credential_id, profile.phone_number, '');
+      }
+      toast({ title: 'Biometric Enrolled!', description: `${type === 'face' ? 'Face ID' : 'Fingerprint'} is now set up.` });
+      fetchBiometricDevices();
+    } else if (result.error !== 'cancelled') {
+      toast({ variant: 'destructive', title: 'Enrollment Failed', description: result.error });
+    }
+    setEnrollingBiometric(false);
+  };
+
+  const handleRemoveBiometric = async (id: string) => {
+    const { error } = await supabase.from('biometric_credentials').delete().eq('id', id);
+    if (error) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to remove biometric' });
+    } else {
+      toast({ title: 'Removed', description: 'Biometric credential removed' });
+      fetchBiometricDevices();
+    }
+  };
 
 
   const checkPinStatus = async () => {
@@ -534,6 +583,77 @@ export default function Profile() {
                 </div>
               )}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Biometric Authentication Card */}
+        <Card className="shadow-xl border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-2">
+              <Fingerprint className="w-5 h-5" />
+              Biometric Authentication
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Use your fingerprint or face to sign in without a password.
+            </p>
+
+            {biometricDevices.length > 0 && (
+              <div className="space-y-2">
+                {biometricDevices.map((device) => (
+                  <div key={device.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
+                    <div className="flex items-center gap-3">
+                      {device.auth_type === 'face' ? (
+                        <ScanFace className="w-5 h-5 text-primary" />
+                      ) : (
+                        <Fingerprint className="w-5 h-5 text-primary" />
+                      )}
+                      <div>
+                        <p className="text-sm font-medium capitalize">{device.auth_type === 'face' ? 'Face ID' : 'Fingerprint'}</p>
+                        <p className="text-xs text-muted-foreground">{device.device_name} · Added {new Date(device.created_at).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRemoveBiometric(device.id)}
+                    >
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {biometricAvailable ? (
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => handleEnrollBiometric('fingerprint')}
+                  disabled={enrollingBiometric}
+                >
+                  <Fingerprint className="w-4 h-4 mr-2" />
+                  Add Fingerprint
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => handleEnrollBiometric('face')}
+                  disabled={enrollingBiometric}
+                >
+                  <ScanFace className="w-4 h-4 mr-2" />
+                  Add Face ID
+                </Button>
+              </div>
+            ) : (
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-sm text-muted-foreground">
+                  Biometric authentication is not available on this device/browser.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
