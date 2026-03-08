@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,28 +9,41 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Smartphone, Copy, Phone } from "lucide-react";
 
 interface MobileProvider {
+  id: string;
   name: string;
-  ussdCode: string;
-  logo: string;
+  ussd_code: string | null;
+  logo_letter: string;
   color: string;
+  merchant_number: string | null;
+  instructions: string | null;
 }
 
-const providers: MobileProvider[] = [
-  { name: "Digicel MoMo", ussdCode: "*129#", logo: "D", color: "bg-red-500" },
-  { name: "GTT Mobile Money", ussdCode: "*888#", logo: "G", color: "bg-green-600" },
-  { name: "M-Pesa", ussdCode: "*234#", logo: "M", color: "bg-green-500" },
-  { name: "Other Provider", ussdCode: "", logo: "?", color: "bg-muted-foreground" },
-];
-
 const AddMoneyMobile = () => {
+  const [providers, setProviders] = useState<MobileProvider[]>([]);
   const [amount, setAmount] = useState("");
   const [phone, setPhone] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<MobileProvider | null>(null);
   const [transactionRef, setTransactionRef] = useState("");
   const [step, setStep] = useState<"select" | "details" | "confirm">("select");
   const [loading, setLoading] = useState(false);
+  const [loadingProviders, setLoadingProviders] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  useEffect(() => {
+    fetchProviders();
+  }, []);
+
+  const fetchProviders = async () => {
+    const { data } = await supabase
+      .from("mobile_money_providers")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
+
+    if (data) setProviders(data as MobileProvider[]);
+    setLoadingProviders(false);
+  };
 
   const copyToClipboard = async (text: string, label: string) => {
     await navigator.clipboard.writeText(text);
@@ -54,7 +67,6 @@ const AddMoneyMobile = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      // Create a pending deposit for admin verification
       await supabase.from("pending_deposits").insert({
         agent_id: user.id,
         user_id: user.id,
@@ -62,7 +74,6 @@ const AddMoneyMobile = () => {
         status: "pending",
       });
 
-      // Record transaction as pending
       await supabase.from("transactions").insert({
         sender_id: user.id,
         receiver_id: user.id,
@@ -108,6 +119,8 @@ const AddMoneyMobile = () => {
   }
 
   if (step === "details" && selectedProvider) {
+    const merchantNum = selectedProvider.merchant_number || "+592-000-0001";
+
     return (
       <div className="min-h-screen bg-background p-4">
         <div className="max-w-md mx-auto">
@@ -118,56 +131,50 @@ const AddMoneyMobile = () => {
           <h1 className="text-2xl font-bold mb-4">Mobile Money Deposit</h1>
 
           {/* USSD Instructions */}
-          {selectedProvider.ussdCode && (
+          {selectedProvider.ussd_code && (
             <Card className="mb-4 bg-primary/5 border-primary/20">
               <CardContent className="p-4 space-y-3">
                 <p className="font-semibold text-sm">USSD Instructions</p>
-                <ol className="text-sm space-y-2 text-muted-foreground">
-                  <li className="flex gap-2">
-                    <span className="font-bold text-foreground">1.</span>
-                    Dial <strong className="text-foreground">{selectedProvider.ussdCode}</strong> on your phone
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="font-bold text-foreground">2.</span>
-                    Select "Send Money" or "Pay Merchant"
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="font-bold text-foreground">3.</span>
-                    Enter the GYD merchant number: <strong className="text-foreground">+592-000-0001</strong>
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="font-bold text-foreground">4.</span>
-                    Enter the amount and confirm
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="font-bold text-foreground">5.</span>
-                    Enter the transaction reference below
-                  </li>
-                </ol>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-xs"
-                    onClick={() => copyToClipboard(selectedProvider.ussdCode, "USSD code")}
-                  >
+                {selectedProvider.instructions ? (
+                  <p className="text-sm text-muted-foreground">{selectedProvider.instructions}</p>
+                ) : (
+                  <ol className="text-sm space-y-2 text-muted-foreground">
+                    <li className="flex gap-2">
+                      <span className="font-bold text-foreground">1.</span>
+                      Dial <strong className="text-foreground">{selectedProvider.ussd_code}</strong> on your phone
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-bold text-foreground">2.</span>
+                      Select "Send Money" or "Pay Merchant"
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-bold text-foreground">3.</span>
+                      Enter the GYD merchant number: <strong className="text-foreground">{merchantNum}</strong>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-bold text-foreground">4.</span>
+                      Enter the amount and confirm
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="font-bold text-foreground">5.</span>
+                      Enter the transaction reference below
+                    </li>
+                  </ol>
+                )}
+                <div className="flex gap-2 flex-wrap">
+                  <Button size="sm" variant="outline" className="text-xs"
+                    onClick={() => copyToClipboard(selectedProvider.ussd_code!, "USSD code")}>
                     <Copy size={12} className="mr-1" /> Copy USSD
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-xs"
-                    onClick={() => copyToClipboard("+5920000001", "Merchant number")}
-                  >
+                  <Button size="sm" variant="outline" className="text-xs"
+                    onClick={() => copyToClipboard(merchantNum.replace(/[^+\d]/g, ""), "Merchant number")}>
                     <Copy size={12} className="mr-1" /> Copy Number
                   </Button>
-                  {selectedProvider.ussdCode && (
-                    <a href={`tel:${encodeURIComponent(selectedProvider.ussdCode)}`}>
-                      <Button size="sm" variant="outline" className="text-xs">
-                        <Phone size={12} className="mr-1" /> Dial
-                      </Button>
-                    </a>
-                  )}
+                  <a href={`tel:${encodeURIComponent(selectedProvider.ussd_code!)}`}>
+                    <Button size="sm" variant="outline" className="text-xs">
+                      <Phone size={12} className="mr-1" /> Dial
+                    </Button>
+                  </a>
                 </div>
               </CardContent>
             </Card>
@@ -177,7 +184,7 @@ const AddMoneyMobile = () => {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <div className={`w-8 h-8 ${selectedProvider.color} rounded-full flex items-center justify-center text-white text-sm font-bold`}>
-                  {selectedProvider.logo}
+                  {selectedProvider.logo_letter}
                 </div>
                 {selectedProvider.name}
               </CardTitle>
@@ -185,43 +192,23 @@ const AddMoneyMobile = () => {
             <CardContent className="space-y-4">
               <div>
                 <Label>Amount ($)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="1"
-                  max="100000"
-                  placeholder="0.00"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  required
-                />
+                <Input type="number" step="0.01" min="1" max="100000" placeholder="0.00"
+                  value={amount} onChange={(e) => setAmount(e.target.value)} required />
               </div>
-
               <div>
                 <Label>Your Mobile Number</Label>
-                <Input
-                  type="tel"
-                  placeholder="+592 000 0000"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/[^\d+\-\s]/g, "").slice(0, 20))}
-                  required
-                />
+                <Input type="tel" placeholder="+592 000 0000" value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/[^\d+\-\s]/g, "").slice(0, 20))} required />
               </div>
-
               <div>
                 <Label>Transaction Reference (from your receipt)</Label>
-                <Input
-                  placeholder="e.g. TXN123456789"
-                  value={transactionRef}
-                  onChange={(e) => setTransactionRef(e.target.value.replace(/[^a-zA-Z0-9\-_]/g, "").slice(0, 30))}
-                />
+                <Input placeholder="e.g. TXN123456789" value={transactionRef}
+                  onChange={(e) => setTransactionRef(e.target.value.replace(/[^a-zA-Z0-9\-_]/g, "").slice(0, 30))} />
                 <p className="text-xs text-muted-foreground mt-1">Optional — helps speed up verification</p>
               </div>
-
               <Button className="w-full" onClick={handleSubmit} disabled={loading}>
                 {loading ? "Submitting..." : `Submit Deposit of $${amount || "0.00"}`}
               </Button>
-
               <p className="text-xs text-muted-foreground text-center">
                 Complete the mobile money payment first, then submit here for verification.
               </p>
@@ -243,25 +230,34 @@ const AddMoneyMobile = () => {
         <h1 className="text-2xl font-bold mb-4">Mobile Money / USSD</h1>
         <p className="text-muted-foreground mb-6">Select your mobile money provider to get started.</p>
 
-        <div className="space-y-3">
-          {providers.map((provider) => (
-            <button
-              key={provider.name}
-              onClick={() => { setSelectedProvider(provider); setStep("details"); }}
-              className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left"
-            >
-              <div className={`w-12 h-12 ${provider.color} rounded-full flex items-center justify-center text-white text-lg font-bold`}>
-                {provider.logo}
-              </div>
-              <div>
-                <p className="font-medium">{provider.name}</p>
-                {provider.ussdCode && (
-                  <p className="text-sm text-muted-foreground">Dial {provider.ussdCode}</p>
-                )}
-              </div>
-            </button>
-          ))}
-        </div>
+        {loadingProviders ? (
+          <div className="text-center py-8 text-muted-foreground">Loading providers...</div>
+        ) : providers.length === 0 ? (
+          <Card className="p-8 text-center">
+            <Smartphone size={32} className="mx-auto mb-2 text-muted-foreground" />
+            <p className="text-muted-foreground">No mobile money providers available at this time</p>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {providers.map((provider) => (
+              <button
+                key={provider.id}
+                onClick={() => { setSelectedProvider(provider); setStep("details"); }}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left"
+              >
+                <div className={`w-12 h-12 ${provider.color} rounded-full flex items-center justify-center text-white text-lg font-bold`}>
+                  {provider.logo_letter}
+                </div>
+                <div>
+                  <p className="font-medium">{provider.name}</p>
+                  {provider.ussd_code && (
+                    <p className="text-sm text-muted-foreground">Dial {provider.ussd_code}</p>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

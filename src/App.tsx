@@ -56,6 +56,7 @@ import VendorList from "./pages/VendorList";
 import VendorRegistrationFees from "./pages/VendorRegistrationFees";
 import AdminPrintQRCodes from "./pages/AdminPrintQRCodes";
 import AdminNotifications from "./pages/AdminNotifications";
+import ManageMobileProviders from "./pages/ManageMobileProviders";
 import RequestReversal from "./pages/RequestReversal";
 import ManageReversals from "./pages/ManageReversals";
 
@@ -204,6 +205,7 @@ const AppRoutes = () => {
         <Route path="/admin/print-qr" element={<ProtectedRoute allowedRoles={["admin"]}><AdminPrintQRCodes /></ProtectedRoute>} />
         <Route path="/admin/notifications" element={<ProtectedRoute allowedRoles={["admin"]}><AdminNotifications /></ProtectedRoute>} />
         <Route path="/admin/reversals" element={<ProtectedRoute allowedRoles={["admin"]}><ManageReversals /></ProtectedRoute>} />
+        <Route path="/admin/mobile-providers" element={<ProtectedRoute allowedRoles={["admin"]}><ManageMobileProviders /></ProtectedRoute>} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
