@@ -156,37 +156,6 @@ const Auth = () => {
     }
   };
 
-  const handleEnrollBiometric = async (type: "fingerprint" | "face") => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const result = await enrollBiometric(user.id, phoneNumber, type);
-    if (result.success) {
-      // Get the latest credential to link
-      const { data: creds } = await supabase
-        .from("biometric_credentials")
-        .select("credential_id")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (creds && creds.length > 0) {
-        linkCredentialToPhone(creds[0].credential_id, phoneNumber, password);
-      }
-
-      toast({ title: "Biometric Enrolled!", description: `${type === "face" ? "Face ID" : "Fingerprint"} is now set up for quick login.` });
-    } else if (result.error !== "cancelled") {
-      toast({ variant: "destructive", title: "Enrollment Failed", description: result.error });
-    }
-    setShowEnrollDialog(false);
-  };
-
-  const handleCloseWalletDialog = () => {
-    setShowWalletDialog(false);
-    setWalletData(null);
-    toast({ title: "Account created!", description: "Welcome to Virtual Bank" });
-  };
-
   return (
     <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
