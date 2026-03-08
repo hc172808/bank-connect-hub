@@ -645,7 +645,7 @@ export default function Profile() {
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => handleEnrollBiometric('fingerprint')}
+                  onClick={() => startBiometricEnroll('fingerprint')}
                   disabled={enrollingBiometric}
                 >
                   <Fingerprint className="w-4 h-4 mr-2" />
