@@ -140,6 +140,7 @@ const AppRoutes = () => {
         <Route path="/coin-convert" element={<CoinConvert />} />
         <Route path="/vendor-store" element={<VendorStore />} />
         <Route path="/vendors" element={<VendorList />} />
+        <Route path="/request-reversal" element={<RequestReversal />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
