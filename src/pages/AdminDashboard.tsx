@@ -209,6 +209,14 @@ const AdminDashboard = () => {
                 <Bell size={20} />
                 Send Notifications
               </Button>
+              <Button 
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/mobile-providers")}
+              >
+                <Smartphone size={20} />
+                Mobile Money Providers
+              </Button>
             </CardContent>
           </Card>
 
