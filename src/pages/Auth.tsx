@@ -34,11 +34,9 @@ const Auth = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [hasBiometricStored, setHasBiometricStored] = useState(false);
   const [showWalletDialog, setShowWalletDialog] = useState(false);
   const [walletData, setWalletData] = useState<{ address: string; privateKey: string; mnemonic?: string } | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [showEnrollDialog, setShowEnrollDialog] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
