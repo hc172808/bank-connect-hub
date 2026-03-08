@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle, Store, Users, ScanFace, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle, Store, Users, ScanFace } from "lucide-react";
 import { generateWallet, encryptPrivateKey } from "@/lib/wallet";
 import {
   Dialog,
@@ -17,9 +17,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   isBiometricAvailable,
-  enrollBiometric,
   authenticateWithBiometric,
-  linkCredentialToPhone,
   getBiometricAuthData,
   hasStoredBiometric,
 } from "@/lib/biometricAuth";
@@ -36,17 +34,14 @@ const Auth = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [hasBiometricStored, setHasBiometricStored] = useState(false);
   const [showWalletDialog, setShowWalletDialog] = useState(false);
   const [walletData, setWalletData] = useState<{ address: string; privateKey: string; mnemonic?: string } | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [showEnrollDialog, setShowEnrollDialog] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     isBiometricAvailable().then(setBiometricAvailable);
-    setHasBiometricStored(!!hasStoredBiometric());
   }, []);
 
   const copyToClipboard = async (text: string, field: string) => {
@@ -57,6 +52,17 @@ const Auth = () => {
   };
 
   const handleBiometricLogin = async (type: "fingerprint" | "face") => {
+    // Check if any biometric is enrolled locally first
+    const storedCredential = hasStoredBiometric();
+    if (!storedCredential) {
+      toast({
+        variant: "destructive",
+        title: "No Biometric Enrolled",
+        description: "Please sign in with your password first, then set up biometrics in Profile → Biometric Authentication.",
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const result = await authenticateWithBiometric();
@@ -67,10 +73,9 @@ const Auth = () => {
         return;
       }
 
-      // result.userId is the credentialId, get stored auth data
       const authData = getBiometricAuthData(result.userId!);
       if (!authData) {
-        toast({ variant: "destructive", title: "No Linked Account", description: "Please sign in with password first, then enroll biometrics from your profile." });
+        toast({ variant: "destructive", title: "No Linked Account", description: "Please sign in with password first, then enroll biometrics from Profile settings." });
         return;
       }
 
@@ -137,43 +142,13 @@ const Auth = () => {
         });
         if (error) throw error;
 
-        // After successful password login, offer biometric enrollment if available and not enrolled
-        if (biometricAvailable && !hasStoredBiometric()) {
-          setShowEnrollDialog(true);
-        } else {
-          toast({ title: "Welcome back!", description: "Signed in successfully" });
-        }
+        toast({ title: "Welcome back!", description: "Signed in successfully" });
       }
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message });
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleEnrollBiometric = async (type: "fingerprint" | "face") => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const result = await enrollBiometric(user.id, phoneNumber, type);
-    if (result.success) {
-      // Get the latest credential to link
-      const { data: creds } = await supabase
-        .from("biometric_credentials")
-        .select("credential_id")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (creds && creds.length > 0) {
-        linkCredentialToPhone(creds[0].credential_id, phoneNumber, password);
-      }
-
-      toast({ title: "Biometric Enrolled!", description: `${type === "face" ? "Face ID" : "Fingerprint"} is now set up for quick login.` });
-    } else if (result.error !== "cancelled") {
-      toast({ variant: "destructive", title: "Enrollment Failed", description: result.error });
-    }
-    setShowEnrollDialog(false);
   };
 
   const handleCloseWalletDialog = () => {
@@ -364,47 +339,7 @@ const Auth = () => {
         </div>
       </div>
 
-      {/* Biometric Enrollment Dialog */}
-      <Dialog open={showEnrollDialog} onOpenChange={setShowEnrollDialog}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-primary" />
-              Enable Quick Login
-            </DialogTitle>
-            <DialogDescription>
-              Set up biometric authentication to sign in faster next time.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Button
-              onClick={() => handleEnrollBiometric("fingerprint")}
-              className="w-full h-14 rounded-xl flex items-center justify-center gap-3"
-            >
-              <Fingerprint size={22} />
-              <span>Set Up Fingerprint</span>
-            </Button>
-            <Button
-              onClick={() => handleEnrollBiometric("face")}
-              variant="outline"
-              className="w-full h-14 rounded-xl flex items-center justify-center gap-3"
-            >
-              <ScanFace size={22} />
-              <span>Set Up Face ID</span>
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setShowEnrollDialog(false);
-                toast({ title: "Welcome back!", description: "Signed in successfully" });
-              }}
-              className="w-full"
-            >
-              Skip for now
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+
 
       {/* Wallet Created Dialog */}
       <Dialog open={showWalletDialog} onOpenChange={setShowWalletDialog}>

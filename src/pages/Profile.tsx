@@ -40,6 +40,9 @@ export default function Profile() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricDevices, setBiometricDevices] = useState<any[]>([]);
   const [enrollingBiometric, setEnrollingBiometric] = useState(false);
+  const [showBiometricPasswordDialog, setShowBiometricPasswordDialog] = useState(false);
+  const [biometricPassword, setBiometricPassword] = useState('');
+  const [pendingBiometricType, setPendingBiometricType] = useState<'fingerprint' | 'face'>('fingerprint');
   const [profile, setProfile] = useState({
     full_name: '',
     phone_number: '',
@@ -71,10 +74,20 @@ export default function Profile() {
     setBiometricDevices(data || []);
   };
 
-  const handleEnrollBiometric = async (type: 'fingerprint' | 'face') => {
-    if (!user) return;
+  const startBiometricEnroll = (type: 'fingerprint' | 'face') => {
+    setPendingBiometricType(type);
+    setBiometricPassword('');
+    setShowBiometricPasswordDialog(true);
+  };
+
+  const handleEnrollBiometric = async () => {
+    if (!user || !biometricPassword) {
+      toast({ variant: 'destructive', title: 'Password Required', description: 'Enter your password to link biometric login.' });
+      return;
+    }
+    setShowBiometricPasswordDialog(false);
     setEnrollingBiometric(true);
-    const result = await enrollBiometric(user.id, profile.phone_number || user.email || '', type);
+    const result = await enrollBiometric(user.id, profile.phone_number || user.email || '', pendingBiometricType);
     if (result.success) {
       const { data: creds } = await supabase
         .from('biometric_credentials')
@@ -83,14 +96,15 @@ export default function Profile() {
         .order('created_at', { ascending: false })
         .limit(1);
       if (creds && creds.length > 0) {
-        linkCredentialToPhone(creds[0].credential_id, profile.phone_number, '');
+        linkCredentialToPhone(creds[0].credential_id, profile.phone_number, biometricPassword);
       }
-      toast({ title: 'Biometric Enrolled!', description: `${type === 'face' ? 'Face ID' : 'Fingerprint'} is now set up.` });
+      toast({ title: 'Biometric Enrolled!', description: `${pendingBiometricType === 'face' ? 'Face ID' : 'Fingerprint'} is now set up for quick login.` });
       fetchBiometricDevices();
     } else if (result.error !== 'cancelled') {
       toast({ variant: 'destructive', title: 'Enrollment Failed', description: result.error });
     }
     setEnrollingBiometric(false);
+    setBiometricPassword('');
   };
 
   const handleRemoveBiometric = async (id: string) => {
@@ -631,7 +645,7 @@ export default function Profile() {
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => handleEnrollBiometric('fingerprint')}
+                  onClick={() => startBiometricEnroll('fingerprint')}
                   disabled={enrollingBiometric}
                 >
                   <Fingerprint className="w-4 h-4 mr-2" />
@@ -640,7 +654,7 @@ export default function Profile() {
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => handleEnrollBiometric('face')}
+                  onClick={() => startBiometricEnroll('face')}
                   disabled={enrollingBiometric}
                 >
                   <ScanFace className="w-4 h-4 mr-2" />
@@ -745,6 +759,38 @@ export default function Profile() {
         onOpenChange={setShowSetPinDialog}
         onPinSet={() => setHasPin(true)}
       />
+
+      {/* Biometric Password Dialog */}
+      <Dialog open={showBiometricPasswordDialog} onOpenChange={setShowBiometricPasswordDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {pendingBiometricType === 'face' ? <ScanFace className="w-5 h-5 text-primary" /> : <Fingerprint className="w-5 h-5 text-primary" />}
+              Confirm Your Password
+            </DialogTitle>
+            <DialogDescription>
+              Enter your account password to link {pendingBiometricType === 'face' ? 'Face ID' : 'Fingerprint'} for quick login.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              type="password"
+              value={biometricPassword}
+              onChange={(e) => setBiometricPassword(e.target.value)}
+              placeholder="Enter your password"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleEnrollBiometric(); }}
+            />
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowBiometricPasswordDialog(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button onClick={handleEnrollBiometric} disabled={!biometricPassword || enrollingBiometric} className="flex-1">
+                {enrollingBiometric ? 'Setting up...' : 'Continue'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
