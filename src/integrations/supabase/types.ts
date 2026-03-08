@@ -101,6 +101,36 @@ export type Database = {
         }
         Relationships: []
       }
+      changelog_entries: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          is_latest: boolean
+          items: Json
+          released_at: string
+          version: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_latest?: boolean
+          items?: Json
+          released_at?: string
+          version: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_latest?: boolean
+          items?: Json
+          released_at?: string
+          version?: string
+        }
+        Relationships: []
+      }
       conversion_fees: {
         Row: {
           created_at: string

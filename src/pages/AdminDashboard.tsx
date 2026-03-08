@@ -7,9 +7,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil } from "lucide-react";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 import { NotificationBell } from "@/components/NotificationBell";
+
+interface ChangelogEntry {
+  id: string;
+  version: string;
+  is_latest: boolean;
+  items: string[];
+  released_at: string;
+}
 
 interface ProfileData {
   full_name: string;
@@ -19,12 +27,14 @@ const AdminDashboard = () => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [totalUsers, setTotalUsers] = useState(0);
   const [activeAgents, setActiveAgents] = useState(0);
+  const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     fetchProfile();
     fetchCounts();
+    fetchChangelog();
   }, []);
 
   const fetchCounts = async () => {
@@ -40,6 +50,15 @@ const AdminDashboard = () => {
       .select("id", { count: "exact", head: true })
       .eq("role", "agent");
     if (agentCount !== null) setActiveAgents(agentCount);
+  };
+
+  const fetchChangelog = async () => {
+    const { data } = await supabase
+      .from("changelog_entries")
+      .select("*")
+      .order("released_at", { ascending: false })
+      .limit(5);
+    if (data) setChangelog(data.map((d: any) => ({ ...d, items: d.items as string[] })));
   };
 
   const fetchProfile = async () => {
@@ -321,45 +340,44 @@ const AdminDashboard = () => {
               <div className="flex items-center gap-3">
                 <Info size={16} className="text-muted-foreground" />
                 <div>
-                  <p className="text-sm font-medium">GYD App v1.1.0</p>
+                  <p className="text-sm font-medium">
+                    GYD App {changelog.length > 0 ? `v${changelog[0].version}` : "v1.1.0"}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Built {new Date(__BUILD_TIME__).toLocaleString()}
                   </p>
                 </div>
               </div>
-              <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full">
-                {__COMMIT_HASH__}
-              </span>
-            </div>
-
-            <div className="border-t pt-3">
-              <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Changelog</p>
-              <div className="space-y-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold">v1.1.0</span>
-                    <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">Latest</span>
-                  </div>
-                  <ul className="text-xs text-muted-foreground mt-1 space-y-0.5 list-disc list-inside">
-                    <li>Mobile Money / USSD deposit option for unbanked users</li>
-                    <li>Admin-configurable mobile money providers</li>
-                    <li>Transaction history filtering by deposit type</li>
-                    <li>CI/CD workflow for self-hosted deployment</li>
-                    <li>Version display widget on admin dashboard</li>
-                  </ul>
-                </div>
-                <div>
-                  <span className="text-xs font-bold">v1.0.0</span>
-                  <ul className="text-xs text-muted-foreground mt-1 space-y-0.5 list-disc list-inside">
-                    <li>Initial release with wallet, transfers, deposits</li>
-                    <li>Agent & vendor management</li>
-                    <li>QR payments, fund requests & reversals</li>
-                    <li>Biometric authentication & PIN security</li>
-                    <li>Admin dashboard with fee management</li>
-                  </ul>
-                </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full">
+                  {__COMMIT_HASH__}
+                </span>
+                <Button variant="ghost" size="sm" onClick={() => navigate("/admin/changelog")}>
+                  <Pencil size={14} />
+                </Button>
               </div>
             </div>
+
+            {changelog.length > 0 && (
+              <div className="border-t pt-3">
+                <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Changelog</p>
+                <div className="space-y-3">
+                  {changelog.map((entry) => (
+                    <div key={entry.id}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold">v{entry.version}</span>
+                        {entry.is_latest && (
+                          <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">Latest</span>
+                        )}
+                      </div>
+                      <ul className="text-xs text-muted-foreground mt-1 space-y-0.5 list-disc list-inside">
+                        {entry.items.map((item, i) => <li key={i}>{item}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </main>
