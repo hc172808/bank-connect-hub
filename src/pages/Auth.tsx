@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle, Store, Users, ScanFace } from "lucide-react";
+import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle, Store, Users, ScanFace, ShieldCheck } from "lucide-react";
 import { generateWallet, encryptPrivateKey } from "@/lib/wallet";
 import {
   Dialog,
@@ -15,6 +15,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  isBiometricAvailable,
+  enrollBiometric,
+  authenticateWithBiometric,
+  linkCredentialToPhone,
+  getBiometricAuthData,
+  hasStoredBiometric,
+} from "@/lib/biometricAuth";
 
 type AuthMode = "signin" | "signup";
 type AccountType = "client" | "vendor";
@@ -27,11 +35,19 @@ const Auth = () => {
   const [accountType, setAccountType] = useState<AccountType>("client");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [hasBiometricStored, setHasBiometricStored] = useState(false);
   const [showWalletDialog, setShowWalletDialog] = useState(false);
   const [walletData, setWalletData] = useState<{ address: string; privateKey: string; mnemonic?: string } | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showEnrollDialog, setShowEnrollDialog] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  useEffect(() => {
+    isBiometricAvailable().then(setBiometricAvailable);
+    setHasBiometricStored(!!hasStoredBiometric());
+  }, []);
 
   const copyToClipboard = async (text: string, field: string) => {
     await navigator.clipboard.writeText(text);
@@ -40,17 +56,47 @@ const Auth = () => {
     toast({ title: "Copied to clipboard" });
   };
 
+  const handleBiometricLogin = async (type: "fingerprint" | "face") => {
+    setLoading(true);
+    try {
+      const result = await authenticateWithBiometric();
+      if (!result.success) {
+        if (result.error !== "cancelled") {
+          toast({ variant: "destructive", title: "Biometric Login Failed", description: result.error });
+        }
+        return;
+      }
+
+      // result.userId is the credentialId, get stored auth data
+      const authData = getBiometricAuthData(result.userId!);
+      if (!authData) {
+        toast({ variant: "destructive", title: "No Linked Account", description: "Please sign in with password first, then enroll biometrics from your profile." });
+        return;
+      }
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: `${authData.phone}@vbank.com`,
+        password: authData.password,
+      });
+
+      if (error) throw error;
+
+      toast({ title: "Welcome back!", description: `Signed in with ${type === "face" ? "Face ID" : "Fingerprint"}` });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
       if (mode === "signup") {
-        // Generate wallet for new user
         const wallet = generateWallet();
         setWalletData(wallet);
-
-        // Encrypt private key with user's password
         const encryptedKey = await encryptPrivateKey(wallet.privateKey, password);
 
         const { data: authData, error } = await supabase.auth.signUp({
@@ -69,136 +115,84 @@ const Auth = () => {
 
         if (error) throw error;
 
-        // Save wallet to user_wallets table
         if (authData.user) {
-          const { error: walletError } = await supabase
-            .from('user_wallets')
-            .insert({
-              user_id: authData.user.id,
-              wallet_address: wallet.address,
-              encrypted_private_key: encryptedKey,
-            });
+          const { error: walletError } = await supabase.from("user_wallets").insert({
+            user_id: authData.user.id,
+            wallet_address: wallet.address,
+            encrypted_private_key: encryptedKey,
+          });
+          if (walletError) console.error("Error saving wallet:", walletError);
 
-          if (walletError) {
-            console.error('Error saving wallet:', walletError);
-          }
-
-          // Update profile with wallet address
-          await supabase
-            .from('profiles')
-            .update({
-              wallet_address: wallet.address,
-              wallet_created_at: new Date().toISOString(),
-            })
-            .eq('id', authData.user.id);
+          await supabase.from("profiles").update({
+            wallet_address: wallet.address,
+            wallet_created_at: new Date().toISOString(),
+          }).eq("id", authData.user.id);
         }
 
-        // Show wallet dialog with private key
         setShowWalletDialog(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email: `${phoneNumber}@vbank.com`,
           password,
         });
-
         if (error) throw error;
 
-        toast({
-          title: "Welcome back!",
-          description: "Signed in successfully",
-        });
+        // After successful password login, offer biometric enrollment if available and not enrolled
+        if (biometricAvailable && !hasStoredBiometric()) {
+          setShowEnrollDialog(true);
+        } else {
+          toast({ title: "Welcome back!", description: "Signed in successfully" });
+        }
       }
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message,
-      });
+      toast({ variant: "destructive", title: "Error", description: error.message });
     } finally {
       setLoading(false);
     }
   };
 
+  const handleEnrollBiometric = async (type: "fingerprint" | "face") => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const result = await enrollBiometric(user.id, phoneNumber, type);
+    if (result.success) {
+      // Get the latest credential to link
+      const { data: creds } = await supabase
+        .from("biometric_credentials")
+        .select("credential_id")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (creds && creds.length > 0) {
+        linkCredentialToPhone(creds[0].credential_id, phoneNumber, password);
+      }
+
+      toast({ title: "Biometric Enrolled!", description: `${type === "face" ? "Face ID" : "Fingerprint"} is now set up for quick login.` });
+    } else if (result.error !== "cancelled") {
+      toast({ variant: "destructive", title: "Enrollment Failed", description: result.error });
+    }
+    setShowEnrollDialog(false);
+  };
+
   const handleCloseWalletDialog = () => {
     setShowWalletDialog(false);
     setWalletData(null);
-    toast({
-      title: "Account created!",
-      description: "Welcome to Virtual Bank",
-    });
-  };
-
-  const handleBiometricAuth = async () => {
-    try {
-      if (!window.PublicKeyCredential) {
-        toast({
-          variant: "destructive",
-          title: "Not Supported",
-          description: "Biometric authentication is not supported on this device/browser.",
-        });
-        return;
-      }
-
-      const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-      if (!available) {
-        toast({
-          variant: "destructive",
-          title: "Not Available",
-          description: "No biometric authenticator found on this device. Please use password login.",
-        });
-        return;
-      }
-
-      // Trigger the browser's biometric prompt
-      const credential = await navigator.credentials.create({
-        publicKey: {
-          challenge: crypto.getRandomValues(new Uint8Array(32)),
-          rp: { name: "Virtual Bank" },
-          user: {
-            id: crypto.getRandomValues(new Uint8Array(16)),
-            name: "user",
-            displayName: "User",
-          },
-          pubKeyCredParams: [{ alg: -7, type: "public-key" }],
-          authenticatorSelection: {
-            authenticatorAttachment: "platform",
-            userVerification: "required",
-          },
-          timeout: 60000,
-        },
-      });
-
-      if (credential) {
-        toast({
-          title: "Biometric Verified",
-          description: "Biometric authentication succeeded. Please enter your mobile number and tap Next to sign in.",
-        });
-      }
-    } catch (error: any) {
-      if (error.name !== "NotAllowedError") {
-        toast({
-          variant: "destructive",
-          title: "Biometric Failed",
-          description: "Authentication was cancelled or failed. Please use password login.",
-        });
-      }
-    }
+    toast({ title: "Account created!", description: "Welcome to Virtual Bank" });
   };
 
   return (
     <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="bg-card rounded-3xl shadow-card overflow-hidden">
-          {/* Card Stripes */}
           <div className="h-3 flex">
             <div className="flex-1 bg-card-stripe-1" />
             <div className="flex-1 bg-card-stripe-2" />
             <div className="flex-1 bg-card-stripe-3" />
           </div>
 
-          {/* Card Content */}
           <div className="p-8">
-            {/* Logo */}
             <div className="text-center mb-8">
               <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-2xl mb-4">
                 <div className="grid grid-cols-2 gap-1">
@@ -220,7 +214,6 @@ const Auth = () => {
             <form onSubmit={handleAuth} className="space-y-6">
               {mode === "signup" && (
                 <>
-                  {/* Account Type Selection */}
                   <div className="space-y-3">
                     <Label>Account Type</Label>
                     <RadioGroup
@@ -252,10 +245,10 @@ const Auth = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="fullName">{accountType === 'vendor' ? 'Business Name' : 'Full Name'}</Label>
+                    <Label htmlFor="fullName">{accountType === "vendor" ? "Business Name" : "Full Name"}</Label>
                     <Input
                       id="fullName"
-                      placeholder={accountType === 'vendor' ? 'Your Business Name' : 'Enter your full name'}
+                      placeholder={accountType === "vendor" ? "Your Business Name" : "Enter your full name"}
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       required
@@ -301,10 +294,7 @@ const Auth = () => {
               </div>
 
               {mode === "signin" && (
-                <button
-                  type="button"
-                  className="text-sm text-muted-foreground hover:text-foreground"
-                >
+                <button type="button" className="text-sm text-muted-foreground hover:text-foreground">
                   Having trouble signing in?
                 </button>
               )}
@@ -317,26 +307,38 @@ const Auth = () => {
                 {loading ? "Please wait..." : mode === "signin" ? "Next" : "Sign Up"}
               </Button>
 
-              {mode === "signin" && (
-                <div className="flex gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleBiometricAuth}
-                    className="flex-1 h-14 rounded-xl flex items-center justify-center gap-2"
-                  >
-                    <Fingerprint size={20} />
-                    <span className="text-sm font-medium">Fingerprint</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleBiometricAuth}
-                    className="flex-1 h-14 rounded-xl flex items-center justify-center gap-2"
-                  >
-                    <ScanFace size={20} />
-                    <span className="text-sm font-medium">Face ID</span>
-                  </Button>
+              {mode === "signin" && biometricAvailable && (
+                <div className="space-y-3">
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-card px-2 text-muted-foreground">Or unlock with</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => handleBiometricLogin("fingerprint")}
+                      disabled={loading}
+                      className="flex-1 h-14 rounded-xl flex items-center justify-center gap-2"
+                    >
+                      <Fingerprint size={20} />
+                      <span className="text-sm font-medium">Fingerprint</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => handleBiometricLogin("face")}
+                      disabled={loading}
+                      className="flex-1 h-14 rounded-xl flex items-center justify-center gap-2"
+                    >
+                      <ScanFace size={20} />
+                      <span className="text-sm font-medium">Face ID</span>
+                    </Button>
+                  </div>
                 </div>
               )}
             </form>
@@ -358,6 +360,48 @@ const Auth = () => {
         </div>
       </div>
 
+      {/* Biometric Enrollment Dialog */}
+      <Dialog open={showEnrollDialog} onOpenChange={setShowEnrollDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-primary" />
+              Enable Quick Login
+            </DialogTitle>
+            <DialogDescription>
+              Set up biometric authentication to sign in faster next time.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Button
+              onClick={() => handleEnrollBiometric("fingerprint")}
+              className="w-full h-14 rounded-xl flex items-center justify-center gap-3"
+            >
+              <Fingerprint size={22} />
+              <span>Set Up Fingerprint</span>
+            </Button>
+            <Button
+              onClick={() => handleEnrollBiometric("face")}
+              variant="outline"
+              className="w-full h-14 rounded-xl flex items-center justify-center gap-3"
+            >
+              <ScanFace size={22} />
+              <span>Set Up Face ID</span>
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowEnrollDialog(false);
+                toast({ title: "Welcome back!", description: "Signed in successfully" });
+              }}
+              className="w-full"
+            >
+              Skip for now
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Wallet Created Dialog */}
       <Dialog open={showWalletDialog} onOpenChange={setShowWalletDialog}>
         <DialogContent className="max-w-md">
@@ -376,53 +420,35 @@ const Auth = () => {
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Wallet Address</Label>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 p-3 bg-muted rounded-lg text-xs break-all">
-                    {walletData.address}
-                  </code>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    onClick={() => copyToClipboard(walletData.address, 'address')}
-                  >
+                  <code className="flex-1 p-3 bg-muted rounded-lg text-xs break-all">{walletData.address}</code>
+                  <Button size="icon" variant="outline" onClick={() => copyToClipboard(walletData.address, "address")}>
                     <Copy className="w-4 h-4" />
                   </Button>
                 </div>
-                {copiedField === 'address' && <span className="text-xs text-green-500">Copied!</span>}
+                {copiedField === "address" && <span className="text-xs text-green-500">Copied!</span>}
               </div>
 
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-destructive">Private Key (KEEP SECRET!)</Label>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 p-3 bg-destructive/10 rounded-lg text-xs break-all border border-destructive/20">
-                    {walletData.privateKey}
-                  </code>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    onClick={() => copyToClipboard(walletData.privateKey, 'privateKey')}
-                  >
+                  <code className="flex-1 p-3 bg-destructive/10 rounded-lg text-xs break-all border border-destructive/20">{walletData.privateKey}</code>
+                  <Button size="icon" variant="outline" onClick={() => copyToClipboard(walletData.privateKey, "privateKey")}>
                     <Copy className="w-4 h-4" />
                   </Button>
                 </div>
-                {copiedField === 'privateKey' && <span className="text-xs text-green-500">Copied!</span>}
+                {copiedField === "privateKey" && <span className="text-xs text-green-500">Copied!</span>}
               </div>
 
               {walletData.mnemonic && (
                 <div className="space-y-2">
                   <Label className="text-sm font-medium text-destructive">Recovery Phrase (KEEP SECRET!)</Label>
                   <div className="flex items-center gap-2">
-                    <code className="flex-1 p-3 bg-destructive/10 rounded-lg text-xs break-all border border-destructive/20">
-                      {walletData.mnemonic}
-                    </code>
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      onClick={() => copyToClipboard(walletData.mnemonic!, 'mnemonic')}
-                    >
+                    <code className="flex-1 p-3 bg-destructive/10 rounded-lg text-xs break-all border border-destructive/20">{walletData.mnemonic}</code>
+                    <Button size="icon" variant="outline" onClick={() => copyToClipboard(walletData.mnemonic!, "mnemonic")}>
                       <Copy className="w-4 h-4" />
                     </Button>
                   </div>
-                  {copiedField === 'mnemonic' && <span className="text-xs text-green-500">Copied!</span>}
+                  {copiedField === "mnemonic" && <span className="text-xs text-green-500">Copied!</span>}
                 </div>
               )}
 
@@ -432,10 +458,7 @@ const Auth = () => {
                 </p>
               </div>
 
-              <Button
-                className="w-full"
-                onClick={handleCloseWalletDialog}
-              >
+              <Button className="w-full" onClick={handleCloseWalletDialog}>
                 I've Saved My Keys - Continue
               </Button>
             </div>
