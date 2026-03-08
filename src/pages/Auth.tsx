@@ -17,9 +17,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   isBiometricAvailable,
-  enrollBiometric,
   authenticateWithBiometric,
-  linkCredentialToPhone,
   getBiometricAuthData,
   hasStoredBiometric,
 } from "@/lib/biometricAuth";
