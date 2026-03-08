@@ -56,6 +56,7 @@ import VendorList from "./pages/VendorList";
 import VendorRegistrationFees from "./pages/VendorRegistrationFees";
 import AdminPrintQRCodes from "./pages/AdminPrintQRCodes";
 import AdminNotifications from "./pages/AdminNotifications";
+import ManageMobileProviders from "./pages/ManageMobileProviders";
 import RequestReversal from "./pages/RequestReversal";
 import ManageReversals from "./pages/ManageReversals";
 
