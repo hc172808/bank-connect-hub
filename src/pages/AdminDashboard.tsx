@@ -7,9 +7,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil } from "lucide-react";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 import { NotificationBell } from "@/components/NotificationBell";
+
+interface ChangelogEntry {
+  id: string;
+  version: string;
+  is_latest: boolean;
+  items: string[];
+  released_at: string;
+}
 
 interface ProfileData {
   full_name: string;
