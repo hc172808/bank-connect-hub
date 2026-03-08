@@ -42,7 +42,6 @@ const Auth = () => {
 
   useEffect(() => {
     isBiometricAvailable().then(setBiometricAvailable);
-    setHasBiometricStored(!!hasStoredBiometric());
   }, []);
 
   const copyToClipboard = async (text: string, field: string) => {
