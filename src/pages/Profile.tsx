@@ -37,6 +37,9 @@ export default function Profile() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [hasPin, setHasPin] = useState(false);
   const [showSetPinDialog, setShowSetPinDialog] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricDevices, setBiometricDevices] = useState<any[]>([]);
+  const [enrollingBiometric, setEnrollingBiometric] = useState(false);
   const [profile, setProfile] = useState({
     full_name: '',
     phone_number: '',
