@@ -27,6 +27,7 @@ const AdminDashboard = () => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [totalUsers, setTotalUsers] = useState(0);
   const [activeAgents, setActiveAgents] = useState(0);
+  const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
