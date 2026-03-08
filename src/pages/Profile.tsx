@@ -40,6 +40,9 @@ export default function Profile() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricDevices, setBiometricDevices] = useState<any[]>([]);
   const [enrollingBiometric, setEnrollingBiometric] = useState(false);
+  const [showBiometricPasswordDialog, setShowBiometricPasswordDialog] = useState(false);
+  const [biometricPassword, setBiometricPassword] = useState('');
+  const [pendingBiometricType, setPendingBiometricType] = useState<'fingerprint' | 'face'>('fingerprint');
   const [profile, setProfile] = useState({
     full_name: '',
     phone_number: '',
