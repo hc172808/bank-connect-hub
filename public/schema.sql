@@ -856,3 +856,11 @@ INSERT INTO public.vendor_products (vendor_id, name, description, category, pric
 -- ============================================
 INSERT INTO public.vendor_registration_fees (fee_name, fee_amount, is_active)
 VALUES ('Vendor Registration Fee', 50.00, true);
+
+-- ============================================
+-- MOBILE MONEY PROVIDERS
+-- ============================================
+INSERT INTO public.mobile_money_providers (name, ussd_code, logo_letter, color, merchant_number, instructions, is_active, sort_order) VALUES
+  ('Digicel MoMo', '*129#', 'D', 'bg-red-500', '+592-000-0001', NULL, true, 1),
+  ('GTT Mobile Money', '*888#', 'G', 'bg-green-600', '+592-000-0002', NULL, true, 2),
+  ('M-Pesa', '*334#', 'M', 'bg-green-500', '+592-000-0003', NULL, true, 3);
