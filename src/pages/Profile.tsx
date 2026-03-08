@@ -582,6 +582,10 @@ export default function Profile() {
                   </Button>
                 </div>
               )}
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Biometric Authentication Card */}
         <Card className="shadow-xl border-primary/20">
           <CardHeader>
