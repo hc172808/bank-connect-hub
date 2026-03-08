@@ -57,6 +57,17 @@ const Auth = () => {
   };
 
   const handleBiometricLogin = async (type: "fingerprint" | "face") => {
+    // Check if any biometric is enrolled locally first
+    const storedCredential = hasStoredBiometric();
+    if (!storedCredential) {
+      toast({
+        variant: "destructive",
+        title: "No Biometric Enrolled",
+        description: "Please sign in with your password first, then set up biometrics in Profile → Biometric Authentication.",
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const result = await authenticateWithBiometric();
@@ -67,10 +78,9 @@ const Auth = () => {
         return;
       }
 
-      // result.userId is the credentialId, get stored auth data
       const authData = getBiometricAuthData(result.userId!);
       if (!authData) {
-        toast({ variant: "destructive", title: "No Linked Account", description: "Please sign in with password first, then enroll biometrics from your profile." });
+        toast({ variant: "destructive", title: "No Linked Account", description: "Please sign in with password first, then enroll biometrics from Profile settings." });
         return;
       }
 
