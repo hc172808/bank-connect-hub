@@ -1,67 +1,92 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
-import Auth from "./pages/Auth";
-import Register from "./pages/Register";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
-import Profile from "./pages/Profile";
-import ChangePassword from "./pages/ChangePassword";
-import Feedback from "./pages/Feedback";
-import ClientDashboard from "./pages/ClientDashboard";
-import AgentDashboard from "./pages/AgentDashboard";
-import AdminDashboard from "./pages/AdminDashboard";
-import ManageUsers from "./pages/ManageUsers";
-import ManageAgents from "./pages/ManageAgents";
-import ManageVendors from "./pages/ManageVendors";
-import SystemSettings from "./pages/SystemSettings";
-import DatabaseManagement from "./pages/DatabaseManagement";
-import TransactionReports from "./pages/TransactionReports";
-import FinancialReports from "./pages/FinancialReports";
-import UserAnalytics from "./pages/UserAnalytics";
-import SendMoney from "./pages/SendMoney";
-import RequestFunds from "./pages/RequestFunds";
-import FeeManagement from "./pages/FeeManagement";
-import AdminDeposit from "./pages/AdminDeposit";
-import AgentDeposit from "./pages/AgentDeposit";
-import ApprovePendingDeposits from "./pages/ApprovePendingDeposits";
-import MyQRCode from "./pages/MyQRCode";
-import NotFound from "./pages/NotFound";
-import PayBills from "./pages/PayBills";
-import TopUp from "./pages/TopUp";
-import PayMerchant from "./pages/PayMerchant";
-import ReferAndEarn from "./pages/ReferAndEarn";
-import Transactions from "./pages/Transactions";
-import Notifications from "./pages/Notifications";
-import Menu from "./pages/Menu";
-import ScanToPay from "./pages/ScanToPay";
-import AddMoney from "./pages/AddMoney";
-import AddMoneyCard from "./pages/AddMoneyCard";
-import AddMoneyBank from "./pages/AddMoneyBank";
-import AddMoneyAgent from "./pages/AddMoneyAgent";
-import AddMoneyMobile from "./pages/AddMoneyMobile";
-import ReceiveMoney from "./pages/ReceiveMoney";
-import BlockchainSettings from "./pages/BlockchainSettings";
-import WalletImport from "./pages/WalletImport";
-import CoinManagement from "./pages/CoinManagement";
-import ConversionFees from "./pages/ConversionFees";
-import FeatureToggles from "./pages/FeatureToggles";
-import CoinConvert from "./pages/CoinConvert";
-import VendorDashboard from "./pages/VendorDashboard";
-import VendorStore from "./pages/VendorStore";
-import VendorList from "./pages/VendorList";
-import VendorRegistrationFees from "./pages/VendorRegistrationFees";
-import AdminPrintQRCodes from "./pages/AdminPrintQRCodes";
-import AdminNotifications from "./pages/AdminNotifications";
-import ManageMobileProviders from "./pages/ManageMobileProviders";
-import RequestReversal from "./pages/RequestReversal";
-import ManageReversals from "./pages/ManageReversals";
-import ManageChangelog from "./pages/ManageChangelog";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ScrollToTop } from "./components/ScrollToTop";
 
-const queryClient = new QueryClient();
+// Lazy-loaded pages (route-based code splitting)
+const Auth = lazy(() => import("./pages/Auth"));
+const Register = lazy(() => import("./pages/Register"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const Profile = lazy(() => import("./pages/Profile"));
+const ChangePassword = lazy(() => import("./pages/ChangePassword"));
+const Feedback = lazy(() => import("./pages/Feedback"));
+const ClientDashboard = lazy(() => import("./pages/ClientDashboard"));
+const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const ManageUsers = lazy(() => import("./pages/ManageUsers"));
+const ManageAgents = lazy(() => import("./pages/ManageAgents"));
+const ManageVendors = lazy(() => import("./pages/ManageVendors"));
+const SystemSettings = lazy(() => import("./pages/SystemSettings"));
+const DatabaseManagement = lazy(() => import("./pages/DatabaseManagement"));
+const TransactionReports = lazy(() => import("./pages/TransactionReports"));
+const FinancialReports = lazy(() => import("./pages/FinancialReports"));
+const UserAnalytics = lazy(() => import("./pages/UserAnalytics"));
+const SendMoney = lazy(() => import("./pages/SendMoney"));
+const RequestFunds = lazy(() => import("./pages/RequestFunds"));
+const FeeManagement = lazy(() => import("./pages/FeeManagement"));
+const AdminDeposit = lazy(() => import("./pages/AdminDeposit"));
+const AgentDeposit = lazy(() => import("./pages/AgentDeposit"));
+const ApprovePendingDeposits = lazy(() => import("./pages/ApprovePendingDeposits"));
+const MyQRCode = lazy(() => import("./pages/MyQRCode"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const PayBills = lazy(() => import("./pages/PayBills"));
+const TopUp = lazy(() => import("./pages/TopUp"));
+const PayMerchant = lazy(() => import("./pages/PayMerchant"));
+const ReferAndEarn = lazy(() => import("./pages/ReferAndEarn"));
+const Transactions = lazy(() => import("./pages/Transactions"));
+const Notifications = lazy(() => import("./pages/Notifications"));
+const Menu = lazy(() => import("./pages/Menu"));
+const ScanToPay = lazy(() => import("./pages/ScanToPay"));
+const AddMoney = lazy(() => import("./pages/AddMoney"));
+const AddMoneyCard = lazy(() => import("./pages/AddMoneyCard"));
+const AddMoneyBank = lazy(() => import("./pages/AddMoneyBank"));
+const AddMoneyAgent = lazy(() => import("./pages/AddMoneyAgent"));
+const AddMoneyMobile = lazy(() => import("./pages/AddMoneyMobile"));
+const ReceiveMoney = lazy(() => import("./pages/ReceiveMoney"));
+const BlockchainSettings = lazy(() => import("./pages/BlockchainSettings"));
+const WalletImport = lazy(() => import("./pages/WalletImport"));
+const CoinManagement = lazy(() => import("./pages/CoinManagement"));
+const ConversionFees = lazy(() => import("./pages/ConversionFees"));
+const FeatureToggles = lazy(() => import("./pages/FeatureToggles"));
+const CoinConvert = lazy(() => import("./pages/CoinConvert"));
+const VendorDashboard = lazy(() => import("./pages/VendorDashboard"));
+const VendorStore = lazy(() => import("./pages/VendorStore"));
+const VendorList = lazy(() => import("./pages/VendorList"));
+const VendorRegistrationFees = lazy(() => import("./pages/VendorRegistrationFees"));
+const AdminPrintQRCodes = lazy(() => import("./pages/AdminPrintQRCodes"));
+const AdminNotifications = lazy(() => import("./pages/AdminNotifications"));
+const ManageMobileProviders = lazy(() => import("./pages/ManageMobileProviders"));
+const RequestReversal = lazy(() => import("./pages/RequestReversal"));
+const ManageReversals = lazy(() => import("./pages/ManageReversals"));
+const ManageChangelog = lazy(() => import("./pages/ManageChangelog"));
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+      staleTime: 30_000,
+    },
+  },
+});
+
+const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => (
+  <div
+    className="min-h-screen bg-primary/10 flex items-center justify-center"
+    data-testid="loader-fullscreen"
+  >
+    <div className="text-center">
+      <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+      <p className="text-foreground">{label}</p>
+    </div>
+  </div>
+);
 
 const ProtectedRoute = ({
   children,
@@ -72,24 +97,9 @@ const ProtectedRoute = ({
 }) => {
   const { user, role, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-primary/10 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <Navigate to="/auth" replace />;
-  }
-
-  if (role && !allowedRoles.includes(role)) {
-    return <Navigate to={`/${role}`} replace />;
-  }
+  if (loading) return <FullScreenLoader />;
+  if (!user) return <Navigate to="/auth" replace />;
+  if (role && !allowedRoles.includes(role)) return <Navigate to={`/${role}`} replace />;
 
   return <>{children}</>;
 };
@@ -97,16 +107,7 @@ const ProtectedRoute = ({
 const AppRoutes = () => {
   const { user, role, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-primary/10 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <FullScreenLoader />;
 
   if (!user) {
     return (
@@ -116,12 +117,10 @@ const AppRoutes = () => {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/auth" replace />} />
-        <Route path="*" element={<Navigate to="/auth" replace />} />
       </Routes>
     );
   }
 
-  // Redirect to appropriate dashboard based on role
   if (role === "client") {
     return (
       <Routes>
@@ -225,15 +224,22 @@ const AppRoutes = () => {
 };
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+  <ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        >
+          <ScrollToTop />
+          <Suspense fallback={<FullScreenLoader />}>
+            <AppRoutes />
+          </Suspense>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;

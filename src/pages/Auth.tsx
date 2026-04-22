@@ -237,7 +237,9 @@ const Auth = () => {
                 <Label htmlFor="phoneNumber">Mobile Number</Label>
                 <Input
                   id="phoneNumber"
-                  type="text"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                   placeholder="Enter Mobile Number"
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
@@ -252,6 +254,7 @@ const Auth = () => {
                   <Input
                     id="password"
                     type={showPassword ? "text" : "password"}
+                    autoComplete={mode === "signin" ? "current-password" : "new-password"}
                     placeholder="Password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
