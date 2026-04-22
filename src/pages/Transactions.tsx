@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
 import { ethers } from "ethers";
 import { getSafeProvider } from "@/lib/wallet";
+import { useDashboardHome } from "@/hooks/useDashboardHome";
 
 interface Transaction {
   id: string;
@@ -54,6 +55,7 @@ const FILTER_OPTIONS: { value: FilterType; label: string }[] = [
 
 const Transactions = () => {
   const navigate = useNavigate();
+  const homeRoute = useDashboardHome();
   const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [blockchainTxs, setBlockchainTxs] = useState<BlockchainTransaction[]>([]);
@@ -227,7 +229,7 @@ const Transactions = () => {
       <div className="max-w-md mx-auto">
         <Button
           variant="ghost"
-          onClick={() => navigate("/client")}
+          onClick={() => navigate(homeRoute)}
           className="mb-4"
         >
           <ArrowLeft size={20} className="mr-2" />

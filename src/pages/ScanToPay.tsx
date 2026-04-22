@@ -10,6 +10,7 @@ import { QRScanner } from "@/components/QRScanner";
 import { PinInput } from "@/components/PinInput";
 import { TransactionReceipt } from "@/components/TransactionReceipt";
 import { SetPinDialog } from "@/components/SetPinDialog";
+import { useDashboardHome } from "@/hooks/useDashboardHome";
 
 type ActionType = "pay" | "check_balance" | "receive" | null;
 type Step = "scan" | "options" | "pin" | "amount" | "receipt";
@@ -33,6 +34,7 @@ interface ReceiptData {
 const ScanToPay = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const homeRoute = useDashboardHome();
   const [step, setStep] = useState<Step>("scan");
   const [scannedUser, setScannedUser] = useState<ScannedUser | null>(null);
   const [selectedAction, setSelectedAction] = useState<ActionType>(null);
@@ -241,7 +243,7 @@ const ScanToPay = () => {
   };
 
   const handleDone = () => {
-    navigate("/client");
+    navigate(homeRoute);
   };
 
   const resetFlow = () => {
@@ -259,7 +261,7 @@ const ScanToPay = () => {
         <div className="max-w-md mx-auto">
           <Button
             variant="ghost"
-            onClick={() => navigate("/client")}
+            onClick={() => navigate(homeRoute)}
             className="mb-4"
           >
             <ArrowLeft size={20} className="mr-2" />

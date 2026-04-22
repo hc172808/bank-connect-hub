@@ -7,11 +7,13 @@ import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "@/integrations/supabase/client";
+import { useDashboardHome } from "@/hooks/useDashboardHome";
 
 const ReceiveMoney = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
+  const homeRoute = useDashboardHome();
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -72,7 +74,7 @@ const ReceiveMoney = () => {
       <div className="max-w-md mx-auto">
         <Button
           variant="ghost"
-          onClick={() => navigate("/client")}
+          onClick={() => navigate(homeRoute)}
           className="mb-4"
         >
           <ArrowLeft size={20} className="mr-2" />

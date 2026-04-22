@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { QRScanner } from "@/components/QRScanner";
 import { ArrowLeft, QrCode, User, Wallet, Info, Fuel, ArrowRightLeft, AlertTriangle } from "lucide-react";
 import { isValidAddress, sendSponsoredTransaction, decryptPrivateKey, estimateGas } from "@/lib/wallet";
+import { useDashboardHome } from "@/hooks/useDashboardHome";
 import {
   Dialog,
   DialogContent,
@@ -75,6 +76,7 @@ const SendMoney = () => {
   
   const navigate = useNavigate();
   const { toast } = useToast();
+  const homeRoute = useDashboardHome();
 
   useEffect(() => {
     fetchBlockchainSettings();
@@ -258,7 +260,7 @@ const SendMoney = () => {
           title: "Transfer Successful",
           description: `Sent $${amount} to ${receiverName}. Fee: $${result.fee?.toFixed(2)} (Cashback: $${result.sender_cashback?.toFixed(2)})`,
         });
-        navigate("/client-dashboard");
+        navigate(homeRoute);
       } else {
         toast({
           title: "Transfer Failed",
@@ -354,7 +356,7 @@ const SendMoney = () => {
           title: "Blockchain Transfer Successful",
           description: `Sent ${amount} ${blockchainSettings.native_coin_symbol} to ${targetAddress.slice(0, 8)}...${targetAddress.slice(-6)}. Fee: ${gasFeeGyd} ${blockchainSettings.native_coin_symbol}`,
         });
-        navigate("/client-dashboard");
+        navigate(homeRoute);
       } else {
         toast({
           title: "Transfer Failed",
@@ -379,7 +381,7 @@ const SendMoney = () => {
       <div className="max-w-md mx-auto">
         <Button
           variant="ghost"
-          onClick={() => navigate("/client-dashboard")}
+          onClick={() => navigate(homeRoute)}
           className="mb-4"
         >
           <ArrowLeft size={20} className="mr-2" />
