@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2, MessageCircle, ShieldCheck, LogOut } from 'lucide-react';
+import { isVerified as isWhatsAppVerified } from '@/lib/whatsapp';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { generateWallet, encryptPrivateKey } from '@/lib/wallet';
 import { Badge } from '@/components/ui/badge';
@@ -552,6 +553,55 @@ export default function Profile() {
             ) : (
               <p className="text-muted-foreground">Loading wallet information...</p>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Account Security Card */}
+        <Card className="shadow-xl border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5" />
+              Account Security
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button
+              variant="outline"
+              className="w-full justify-between"
+              onClick={() => navigate('/verify-whatsapp')}
+              data-testid="button-verify-whatsapp"
+            >
+              <span className="flex items-center gap-2">
+                <MessageCircle className="w-4 h-4 text-green-600" />
+                Verify with WhatsApp
+              </span>
+              <Badge
+                variant={user && isWhatsAppVerified(user.id) ? 'default' : 'secondary'}
+                className={user && isWhatsAppVerified(user.id) ? 'bg-green-600' : ''}
+              >
+                {user && isWhatsAppVerified(user.id) ? 'Verified' : 'Not yet'}
+              </Badge>
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              onClick={async () => {
+                try {
+                  await supabase.auth.signOut({ scope: 'global' });
+                  toast({ title: 'Signed out everywhere', description: 'All sessions on every device were ended.' });
+                  navigate('/auth');
+                } catch (e: any) {
+                  toast({ variant: 'destructive', title: 'Sign-out failed', description: e?.message || 'Please try again.' });
+                }
+              }}
+              data-testid="button-signout-everywhere"
+            >
+              <LogOut className="w-4 h-4 text-destructive" />
+              Sign out on all devices
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Use this if your account was used on a device you no longer trust.
+            </p>
           </CardContent>
         </Card>
 

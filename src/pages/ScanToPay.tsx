@@ -60,11 +60,25 @@ const ScanToPay = () => {
       setScannedUser({
         userId,
         walletAddress: parsed.walletAddress,
-        name: profile?.full_name || "User"
+        name: profile?.full_name || parsed.merchantName || "User"
       });
       
       // Check if scanned user has PIN set
       setHasPin(!!profile?.pin_hash);
+
+      // Vendor "charge_request" QR includes a pre-filled amount → skip
+      // straight to the payment confirmation flow.
+      if (parsed.type === "charge_request" && typeof parsed.amount === "number") {
+        setSelectedAction("pay");
+        setAmount(String(parsed.amount));
+        setStep("amount");
+        toast({
+          title: "Payment request",
+          description: `${parsed.merchantName || profile?.full_name || "Vendor"} requests $${parsed.amount.toFixed(2)}`,
+        });
+        return;
+      }
+
       setStep("options");
     } catch {
       // Legacy QR format (just user ID)

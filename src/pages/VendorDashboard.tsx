@@ -389,6 +389,24 @@ const VendorDashboard = () => {
           />
         </div>
 
+        {/* POS / Analytics row */}
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <QuickAction
+            icon={Receipt}
+            label="Charge Customer"
+            onClick={() => navigate("/vendor/charge")}
+            testId="quick-charge"
+            color="text-emerald-600"
+          />
+          <QuickAction
+            icon={TrendingUp}
+            label="Sales Analytics"
+            onClick={() => navigate("/vendor/analytics")}
+            testId="quick-analytics"
+            color="text-indigo-600"
+          />
+        </div>
+
         {/* Stats */}
         <div className="grid grid-cols-2 gap-4 mb-6">
           <Card>

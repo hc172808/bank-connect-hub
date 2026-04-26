@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, ArrowUpRight, ArrowDownLeft, Clock, Wallet, ExternalLink, RefreshCw, Filter } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ArrowDownLeft, Clock, Wallet, ExternalLink, RefreshCw, Filter, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
@@ -187,6 +187,52 @@ const Transactions = () => {
     });
   }, [transactions, activeFilter]);
 
+  const exportCsv = () => {
+    if (filteredTransactions.length === 0) return;
+    const escape = (v: unknown) => {
+      const s = v === null || v === undefined ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const headers = [
+      "Date",
+      "Type",
+      "Direction",
+      "Amount",
+      "Fee",
+      "Status",
+      "Description",
+      "Counterparty",
+      "Transaction ID",
+    ];
+    const rows = filteredTransactions.map((t) => {
+      const isOutgoing = t.sender_id === user?.id;
+      return [
+        format(new Date(t.created_at), "yyyy-MM-dd HH:mm:ss"),
+        t.transaction_type,
+        isOutgoing ? "out" : "in",
+        Number(t.amount).toFixed(2),
+        Number(t.fee || 0).toFixed(2),
+        t.status,
+        t.description || "",
+        isOutgoing ? t.receiver_id : t.sender_id,
+        t.id,
+      ];
+    });
+    const csv =
+      headers.join(",") +
+      "\n" +
+      rows.map((r) => r.map(escape).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `transactions_${format(new Date(), "yyyyMMdd_HHmm")}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const getTransactionIcon = (transaction: Transaction) => {
     if (transaction.sender_id === user?.id) {
       return <ArrowUpRight className="text-destructive" size={20} />;
@@ -255,22 +301,35 @@ const Transactions = () => {
           </TabsList>
 
           <TabsContent value="internal">
-            {/* Filter chips */}
-            <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-2 scrollbar-hide">
-              <Filter size={14} className="text-muted-foreground flex-shrink-0" />
-              {FILTER_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setActiveFilter(opt.value)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                    activeFilter === opt.value
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+            {/* Filter chips + export */}
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-hide flex-1">
+                <Filter size={14} className="text-muted-foreground flex-shrink-0" />
+                {FILTER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setActiveFilter(opt.value)}
+                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      activeFilter === opt.value
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportCsv}
+                disabled={filteredTransactions.length === 0}
+                className="flex-shrink-0 gap-1"
+                data-testid="button-export-csv"
+              >
+                <Download size={14} />
+                CSV
+              </Button>
             </div>
 
             <Card>

@@ -56,6 +56,9 @@ const ConversionFees = lazy(() => import("./pages/ConversionFees"));
 const FeatureToggles = lazy(() => import("./pages/FeatureToggles"));
 const CoinConvert = lazy(() => import("./pages/CoinConvert"));
 const VendorDashboard = lazy(() => import("./pages/VendorDashboard"));
+const VendorCharge = lazy(() => import("./pages/VendorCharge"));
+const VendorAnalytics = lazy(() => import("./pages/VendorAnalytics"));
+const VerifyWhatsApp = lazy(() => import("./pages/VerifyWhatsApp"));
 const VendorStore = lazy(() => import("./pages/VendorStore"));
 const VendorList = lazy(() => import("./pages/VendorList"));
 const VendorRegistrationFees = lazy(() => import("./pages/VendorRegistrationFees"));
@@ -159,6 +162,16 @@ const AppRoutes = () => {
     return (
       <Routes>
         <Route path="/vendor" element={<VendorDashboard />} />
+        <Route path="/vendor/charge" element={<VendorCharge />} />
+        <Route path="/vendor/analytics" element={<VendorAnalytics />} />
+        <Route path="/send-money" element={<SendMoney />} />
+        <Route path="/receive-money" element={<ReceiveMoney />} />
+        <Route path="/scan-to-pay" element={<ScanToPay />} />
+        <Route path="/transactions" element={<Transactions />} />
+        <Route path="/request-funds" element={<RequestFunds />} />
+        <Route path="/my-qr" element={<MyQRCode />} />
+        <Route path="/vendor-store" element={<VendorStore />} />
+        <Route path="/verify-whatsapp" element={<VerifyWhatsApp />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
