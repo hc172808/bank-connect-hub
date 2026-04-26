@@ -7,7 +7,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil, Brain, Activity, AlertTriangle } from "lucide-react";
+import { loadAISettings, scoreTransactions, summarizeRisk } from "@/lib/aiSecurity";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 import { NotificationBell } from "@/components/NotificationBell";
 
@@ -28,6 +29,15 @@ const AdminDashboard = () => {
   const [totalUsers, setTotalUsers] = useState(0);
   const [activeAgents, setActiveAgents] = useState(0);
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
+  const [todayVolume, setTodayVolume] = useState(0);
+  const [todayCount, setTodayCount] = useState(0);
+  const [pendingDeposits, setPendingDeposits] = useState(0);
+  const [aiSummary, setAiSummary] = useState<{ critical: number; high: number; total: number; enabled: boolean }>({
+    critical: 0,
+    high: 0,
+    total: 0,
+    enabled: true,
+  });
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -35,7 +45,51 @@ const AdminDashboard = () => {
     fetchProfile();
     fetchCounts();
     fetchChangelog();
+    fetchTodayStats();
+    fetchAiSummary();
   }, []);
+
+  const fetchTodayStats = async () => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const { data, count } = await supabase
+      .from("transactions")
+      .select("amount", { count: "exact" })
+      .eq("status", "completed")
+      .gte("created_at", start.toISOString());
+    if (data) {
+      const sum = (data as any[]).reduce((a, t) => a + Number(t.amount || 0), 0);
+      setTodayVolume(sum);
+    }
+    if (count !== null) setTodayCount(count);
+
+    const { count: pCount } = await supabase
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending");
+    if (pCount !== null) setPendingDeposits(pCount);
+  };
+
+  const fetchAiSummary = async () => {
+    const settings = loadAISettings();
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from("transactions")
+      .select("id, amount, fee, status, transaction_type, description, created_at, sender_id, receiver_id")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (data) {
+      const scored = scoreTransactions(data as any, settings);
+      const sum = summarizeRisk(scored);
+      setAiSummary({
+        critical: sum.byLevel.critical,
+        high: sum.byLevel.high,
+        total: sum.total,
+        enabled: settings.enabled,
+      });
+    }
+  };
 
   const fetchCounts = async () => {
     // Total users
@@ -102,43 +156,75 @@ const AdminDashboard = () => {
       </header>
 
       <main className="p-6 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+              <CardTitle className="text-xs font-medium">Total Users</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalUsers}</div>
-              <p className="text-xs text-muted-foreground">
-                All registered users
-              </p>
+              <div className="text-xl font-bold" data-testid="kpi-total-users">{totalUsers}</div>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Active Agents</CardTitle>
+              <CardTitle className="text-xs font-medium">Agents</CardTitle>
               <Briefcase className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{activeAgents}</div>
-              <p className="text-xs text-muted-foreground">
-                Currently active
+              <div className="text-xl font-bold" data-testid="kpi-agents">{activeAgents}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-xs font-medium">Today Vol.</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold" data-testid="kpi-today-vol">${todayVolume.toFixed(0)}</div>
+              <p className="text-[10px] text-muted-foreground">{todayCount} txs</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-xs font-medium">Pending</CardTitle>
+              <Activity className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold text-yellow-600" data-testid="kpi-pending">{pendingDeposits}</div>
+              <p className="text-[10px] text-muted-foreground">need review</p>
+            </CardContent>
+          </Card>
+          <Card
+            className={`cursor-pointer hover:shadow-md transition ${aiSummary.critical > 0 ? "border-red-500/40" : ""}`}
+            onClick={() => navigate("/admin/ai-security")}
+            data-testid="card-ai-alerts"
+          >
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-xs font-medium flex items-center gap-1">
+                <Brain className="h-3.5 w-3.5" /> AI Alerts
+              </CardTitle>
+              <AlertTriangle className={`h-4 w-4 ${aiSummary.critical > 0 ? "text-red-500" : "text-muted-foreground"}`} />
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold" data-testid="kpi-ai-alerts">
+                {aiSummary.enabled ? aiSummary.total : "—"}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                {aiSummary.enabled
+                  ? `${aiSummary.critical} critical · ${aiSummary.high} high`
+                  : "AI disabled"}
               </p>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">System Status</CardTitle>
+              <CardTitle className="text-xs font-medium">System</CardTitle>
               <Shield className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-primary">Healthy</div>
-              <p className="text-xs text-muted-foreground">
-                All systems operational
-              </p>
+              <div className="text-xl font-bold text-primary">Healthy</div>
+              <p className="text-[10px] text-muted-foreground">all good</p>
             </CardContent>
           </Card>
         </div>
@@ -230,6 +316,20 @@ const AdminDashboard = () => {
               >
                 <Bell size={20} />
                 Send Notifications
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant={aiSummary.critical > 0 ? "destructive" : "secondary"}
+                onClick={() => navigate("/admin/ai-security")}
+                data-testid="button-ai-security"
+              >
+                <Brain size={20} />
+                AI Security Center
+                {aiSummary.critical > 0 && (
+                  <span className="ml-auto text-xs bg-white/20 px-2 py-0.5 rounded">
+                    {aiSummary.critical} critical
+                  </span>
+                )}
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"

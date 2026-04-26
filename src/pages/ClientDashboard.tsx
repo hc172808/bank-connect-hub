@@ -26,7 +26,14 @@ import {
   RefreshCw,
   Import,
   RotateCcw,
+  TrendingUp,
+  TrendingDown,
+  ArrowUpRight,
+  ArrowDownLeft,
+  ShieldCheck,
+  Scan,
 } from "lucide-react";
+import { format, startOfMonth } from "date-fns";
 
 interface WalletData {
   balance: number;
@@ -59,6 +66,12 @@ const ClientDashboard = () => {
   const [blockchainBalance, setBlockchainBalance] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [featureToggles, setFeatureToggles] = useState<FeatureToggle[]>([]);
+  const [monthIn, setMonthIn] = useState(0);
+  const [monthOut, setMonthOut] = useState(0);
+  const [monthCount, setMonthCount] = useState(0);
+  const [recentTx, setRecentTx] = useState<any[]>([]);
+  const [topPayees, setTopPayees] = useState<{ id: string; name: string; total: number }[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -90,6 +103,7 @@ const ClientDashboard = () => {
   const fetchData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    setUserId(user.id);
 
     const [walletRes, profileRes, blockchainRes, featuresRes] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", user.id).single(),
@@ -102,6 +116,54 @@ const ClientDashboard = () => {
     if (profileRes.data) setProfile(profileRes.data);
     if (blockchainRes.data) setBlockchainSettings(blockchainRes.data);
     if (featuresRes.data) setFeatureToggles(featuresRes.data);
+
+    // This-month income/spending + recent + top payees
+    const monthStart = startOfMonth(new Date()).toISOString();
+    const { data: txMonth } = await supabase
+      .from("transactions")
+      .select("id, amount, transaction_type, status, description, created_at, sender_id, receiver_id")
+      .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+      .gte("created_at", monthStart)
+      .order("created_at", { ascending: false });
+
+    if (txMonth) {
+      let inc = 0;
+      let out = 0;
+      const payeeMap = new Map<string, number>();
+      txMonth.forEach((t: any) => {
+        if (t.status !== "completed") return;
+        if (t.receiver_id === user.id) inc += Number(t.amount || 0);
+        if (t.sender_id === user.id) {
+          out += Number(t.amount || 0);
+          payeeMap.set(t.receiver_id, (payeeMap.get(t.receiver_id) || 0) + Number(t.amount || 0));
+        }
+      });
+      setMonthIn(inc);
+      setMonthOut(out);
+      setMonthCount(txMonth.length);
+      setRecentTx(txMonth.slice(0, 4));
+
+      const payeeIds = Array.from(payeeMap.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([id]) => id);
+      if (payeeIds.length > 0) {
+        const { data: payeeProfiles } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", payeeIds);
+        if (payeeProfiles) {
+          const arr = payeeIds.map((id) => ({
+            id,
+            name: payeeProfiles.find((p: any) => p.id === id)?.full_name || "User",
+            total: payeeMap.get(id) || 0,
+          }));
+          setTopPayees(arr);
+        }
+      } else {
+        setTopPayees([]);
+      }
+    }
   };
 
   const handleRefresh = async () => {
@@ -263,6 +325,126 @@ const ClientDashboard = () => {
             )}
           </div>
         </div>
+
+        {/* This Month Stats */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-card rounded-2xl p-3 shadow-soft" data-testid="stat-month-in">
+            <div className="flex items-center gap-1 text-[11px] text-muted-foreground mb-1">
+              <TrendingUp size={12} className="text-green-600" /> Income
+            </div>
+            <div className="text-base font-bold text-green-600">${monthIn.toFixed(2)}</div>
+            <div className="text-[10px] text-muted-foreground">{format(new Date(), "MMM yyyy")}</div>
+          </div>
+          <div className="bg-card rounded-2xl p-3 shadow-soft" data-testid="stat-month-out">
+            <div className="flex items-center gap-1 text-[11px] text-muted-foreground mb-1">
+              <TrendingDown size={12} className="text-red-600" /> Spent
+            </div>
+            <div className="text-base font-bold text-red-600">${monthOut.toFixed(2)}</div>
+            <div className="text-[10px] text-muted-foreground">{monthCount} txs</div>
+          </div>
+          <div className="bg-card rounded-2xl p-3 shadow-soft" data-testid="stat-month-net">
+            <div className="flex items-center gap-1 text-[11px] text-muted-foreground mb-1">
+              <DollarSign size={12} /> Net
+            </div>
+            <div className={`text-base font-bold ${monthIn - monthOut >= 0 ? "text-green-600" : "text-red-600"}`}>
+              {monthIn - monthOut >= 0 ? "+" : "-"}${Math.abs(monthIn - monthOut).toFixed(2)}
+            </div>
+            <div className="text-[10px] text-muted-foreground">this month</div>
+          </div>
+        </div>
+
+        {/* Frequent recipients */}
+        {topPayees.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-bold text-foreground">Pay again</h3>
+              <button
+                onClick={() => navigate("/send-money")}
+                className="text-xs text-primary"
+                data-testid="link-send-other"
+              >
+                Pay someone new →
+              </button>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+              {topPayees.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => navigate("/send-money")}
+                  className="flex-shrink-0 flex flex-col items-center gap-1 w-16"
+                  data-testid={`payee-${p.id}`}
+                >
+                  <div className="w-12 h-12 rounded-full bg-primary/15 text-primary font-bold flex items-center justify-center">
+                    {p.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-[11px] text-foreground truncate w-full text-center">
+                    {p.name.split(" ")[0]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent activity */}
+        {recentTx.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-bold text-foreground">Recent activity</h3>
+              <button
+                onClick={() => navigate("/transactions")}
+                className="text-xs text-primary"
+                data-testid="link-all-tx"
+              >
+                See all →
+              </button>
+            </div>
+            <div className="bg-card rounded-2xl divide-y divide-border overflow-hidden shadow-soft">
+              {recentTx.map((t: any) => {
+                const out = t.sender_id === userId;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => navigate("/transactions")}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition text-left"
+                    data-testid={`recent-${t.id}`}
+                  >
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center ${out ? "bg-red-500/15 text-red-600" : "bg-green-500/15 text-green-600"}`}>
+                      {out ? <ArrowUpRight size={16} /> : <ArrowDownLeft size={16} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">
+                        {t.description || (out ? "Sent" : "Received")}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {format(new Date(t.created_at), "MMM d · HH:mm")}
+                      </div>
+                    </div>
+                    <div className={`text-sm font-bold ${out ? "text-red-600" : "text-green-600"}`}>
+                      {out ? "-" : "+"}${Number(t.amount).toFixed(2)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Quick safety chip */}
+        <button
+          onClick={() => navigate("/profile")}
+          className="w-full bg-card border border-primary/20 rounded-2xl p-3 flex items-center gap-3 hover:bg-primary/5 transition text-left"
+          data-testid="link-security"
+        >
+          <div className="w-10 h-10 rounded-full bg-primary/15 text-primary flex items-center justify-center">
+            <ShieldCheck size={18} />
+          </div>
+          <div className="flex-1">
+            <div className="text-sm font-semibold">Account security</div>
+            <div className="text-[11px] text-muted-foreground">PIN, biometrics, WhatsApp verify, sign-out everywhere</div>
+          </div>
+          <span className="text-xs text-primary">Open →</span>
+        </button>
 
         {/* Action Buttons */}
         <div className="flex gap-3">

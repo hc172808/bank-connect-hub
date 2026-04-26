@@ -2,102 +2,99 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Design tokens. Default = "Midnight Blue + Gold".
+   The ThemeProvider may override these at runtime per the user's choice.
+   All colors MUST be HSL ("H S% L%" without the hsl() wrapper). */
 
 @layer base {
   :root {
-    /* Banking App - Golden Yellow Theme */
-    --background: 48 100% 96%;
-    --foreground: 0 0% 13%;
+    --background: 220 30% 96%;
+    --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 13%;
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 13%;
+    --popover-foreground: 222 47% 11%;
 
-    /* Bold golden yellow for primary elements */
-    --primary: 48 100% 50%;
-    --primary-foreground: 0 0% 13%;
+    /* Warm gold for primary highlights */
+    --primary: 45 90% 52%;
+    --primary-foreground: 222 47% 11%;
 
-    /* Darker for buttons and CTAs */
-    --secondary: 0 0% 13%;
-    --secondary-foreground: 48 100% 96%;
+    /* Deep midnight navy for buttons/CTAs */
+    --secondary: 222 47% 11%;
+    --secondary-foreground: 45 90% 90%;
 
-    --muted: 48 20% 94%;
-    --muted-foreground: 0 0% 45%;
+    --muted: 220 16% 92%;
+    --muted-foreground: 222 14% 40%;
 
-    /* Accent colors */
-    --accent: 48 100% 50%;
-    --accent-foreground: 0 0% 13%;
+    --accent: 45 90% 52%;
+    --accent-foreground: 222 47% 11%;
 
-    /* Card stripes colors */
-    --card-stripe-1: 330 100% 50%;
-    --card-stripe-2: 140 100% 40%;
-    --card-stripe-3: 270 100% 55%;
+    /* Card stripes (used by virtual card decoration) */
+    --card-stripe-1: 45 90% 52%;
+    --card-stripe-2: 222 47% 30%;
+    --card-stripe-3: 192 84% 45%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 48 20% 85%;
-    --input: 48 20% 90%;
-    --ring: 48 100% 50%;
+    --border: 220 16% 85%;
+    --input: 220 16% 90%;
+    --ring: 45 90% 52%;
 
     --radius: 1rem;
 
-    /* Shadows */
-    --shadow-soft: 0 4px 6px -1px hsl(48 100% 50% / 0.1);
-    --shadow-card: 0 10px 25px -5px hsl(0 0% 0% / 0.1);
-    
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 0 0% 13%;
-    --sidebar-primary: 48 100% 50%;
-    --sidebar-primary-foreground: 0 0% 13%;
-    --sidebar-accent: 48 100% 95%;
-    --sidebar-accent-foreground: 0 0% 13%;
-    --sidebar-border: 48 20% 85%;
-    --sidebar-ring: 48 100% 50%;
+    --shadow-soft: 0 4px 6px -1px hsl(45 90% 52% / 0.12);
+    --shadow-card: 0 10px 25px -5px hsl(222 47% 11% / 0.18);
+
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 45 90% 90%;
+    --sidebar-primary: 45 90% 52%;
+    --sidebar-primary-foreground: 222 47% 11%;
+    --sidebar-accent: 222 30% 18%;
+    --sidebar-accent-foreground: 45 90% 90%;
+    --sidebar-border: 222 30% 22%;
+    --sidebar-ring: 45 90% 52%;
   }
 
   .dark {
-    --background: 0 0% 8%;
-    --foreground: 48 100% 96%;
+    --background: 222 47% 8%;
+    --foreground: 45 90% 92%;
 
-    --card: 0 0% 13%;
-    --card-foreground: 48 100% 96%;
+    --card: 222 40% 12%;
+    --card-foreground: 45 90% 92%;
 
-    --popover: 0 0% 13%;
-    --popover-foreground: 48 100% 96%;
+    --popover: 222 40% 12%;
+    --popover-foreground: 45 90% 92%;
 
-    --primary: 48 100% 50%;
-    --primary-foreground: 0 0% 13%;
+    --primary: 45 90% 55%;
+    --primary-foreground: 222 47% 8%;
 
-    --secondary: 0 0% 20%;
-    --secondary-foreground: 48 100% 96%;
+    --secondary: 222 30% 18%;
+    --secondary-foreground: 45 90% 92%;
 
-    --muted: 0 0% 20%;
-    --muted-foreground: 0 0% 60%;
+    --muted: 222 30% 18%;
+    --muted-foreground: 220 16% 65%;
 
-    --accent: 48 100% 50%;
-    --accent-foreground: 0 0% 13%;
+    --accent: 45 90% 55%;
+    --accent-foreground: 222 47% 8%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 48 100% 96%;
+    --destructive: 0 62.8% 40%;
+    --destructive-foreground: 45 90% 92%;
 
-    --border: 0 0% 20%;
-    --input: 0 0% 20%;
-    --ring: 48 100% 50%;
-    
-    --sidebar-background: 0 0% 8%;
-    --sidebar-foreground: 48 100% 96%;
-    --sidebar-primary: 48 100% 50%;
-    --sidebar-primary-foreground: 0 0% 13%;
-    --sidebar-accent: 0 0% 15%;
-    --sidebar-accent-foreground: 48 100% 96%;
-    --sidebar-border: 0 0% 20%;
-    --sidebar-ring: 48 100% 50%;
+    --border: 222 30% 22%;
+    --input: 222 30% 22%;
+    --ring: 45 90% 55%;
+
+    --sidebar-background: 222 47% 8%;
+    --sidebar-foreground: 45 90% 92%;
+    --sidebar-primary: 45 90% 55%;
+    --sidebar-primary-foreground: 222 47% 8%;
+    --sidebar-accent: 222 30% 18%;
+    --sidebar-accent-foreground: 45 90% 92%;
+    --sidebar-border: 222 30% 22%;
+    --sidebar-ring: 45 90% 55%;
   }
 }
 

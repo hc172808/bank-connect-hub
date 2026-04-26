@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2, MessageCircle, ShieldCheck, LogOut } from 'lucide-react';
+import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2, MessageCircle, ShieldCheck, LogOut, Palette, Sun, Moon, Check } from 'lucide-react';
 import { isVerified as isWhatsAppVerified } from '@/lib/whatsapp';
+import { useTheme } from '@/components/ThemeProvider';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { generateWallet, encryptPrivateKey } from '@/lib/wallet';
 import { Badge } from '@/components/ui/badge';
@@ -26,6 +27,7 @@ export default function Profile() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { themeId, mode, setThemeId, toggleMode, presets } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -553,6 +555,78 @@ export default function Profile() {
             ) : (
               <p className="text-muted-foreground">Loading wallet information...</p>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Appearance Card */}
+        <Card className="shadow-xl border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-2">
+              <Palette className="w-5 h-5" />
+              Appearance
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-sm">Display mode</p>
+                <p className="text-xs text-muted-foreground">Switch between light and dark.</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleMode}
+                className="gap-2"
+                data-testid="button-toggle-mode"
+              >
+                {mode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                {mode === 'dark' ? 'Light' : 'Dark'}
+              </Button>
+            </div>
+
+            <div>
+              <p className="font-medium text-sm mb-2">Color theme</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {presets.map((p) => {
+                  const active = themeId === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => setThemeId(p.id)}
+                      className={`text-left p-3 rounded-xl border transition-all ${
+                        active
+                          ? 'border-primary ring-2 ring-primary/30 bg-primary/5'
+                          : 'border-border hover:border-primary/40'
+                      }`}
+                      data-testid={`theme-option-${p.id}`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="font-semibold text-sm">{p.name}</div>
+                        {active && <Check className="w-4 h-4 text-primary" />}
+                      </div>
+                      <div className="flex items-center gap-1 mb-1">
+                        <span
+                          className="w-5 h-5 rounded-full border border-black/10"
+                          style={{ background: p.swatch.bg }}
+                          aria-hidden
+                        />
+                        <span
+                          className="w-5 h-5 rounded-full border border-black/10"
+                          style={{ background: p.swatch.primary }}
+                          aria-hidden
+                        />
+                        <span
+                          className="w-5 h-5 rounded-full border border-black/10"
+                          style={{ background: p.swatch.accent }}
+                          aria-hidden
+                        />
+                      </div>
+                      <p className="text-[11px] text-muted-foreground line-clamp-2">{p.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </CardContent>
         </Card>
 
