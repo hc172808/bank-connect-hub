@@ -60,6 +60,7 @@ const VendorCharge = lazy(() => import("./pages/VendorCharge"));
 const VendorAnalytics = lazy(() => import("./pages/VendorAnalytics"));
 const VerifyWhatsApp = lazy(() => import("./pages/VerifyWhatsApp"));
 const AdminAISecurity = lazy(() => import("./pages/AdminAISecurity"));
+const AdminAppReleases = lazy(() => import("./pages/AdminAppReleases"));
 const VendorStore = lazy(() => import("./pages/VendorStore"));
 const VendorList = lazy(() => import("./pages/VendorList"));
 const VendorRegistrationFees = lazy(() => import("./pages/VendorRegistrationFees"));
@@ -222,6 +223,7 @@ const AppRoutes = () => {
         <Route path="/admin/mobile-providers" element={<ProtectedRoute allowedRoles={["admin"]}><ManageMobileProviders /></ProtectedRoute>} />
         <Route path="/admin/changelog" element={<ProtectedRoute allowedRoles={["admin"]}><ManageChangelog /></ProtectedRoute>} />
         <Route path="/admin/ai-security" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAISecurity /></ProtectedRoute>} />
+        <Route path="/admin/app-releases" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppReleases /></ProtectedRoute>} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />

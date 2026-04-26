@@ -339,6 +339,15 @@ const AdminDashboard = () => {
                 <Smartphone size={20} />
                 Mobile Money Providers
               </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/app-releases")}
+                data-testid="button-app-releases"
+              >
+                <Smartphone size={20} />
+                App Releases (APK/IPA)
+              </Button>
             </CardContent>
           </Card>
 

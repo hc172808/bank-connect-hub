@@ -23,6 +23,7 @@ import {
 import { SetPinDialog } from '@/components/SetPinDialog';
 import { isBiometricAvailable, enrollBiometric, linkCredentialToPhone, checkBiometricSupport, isInIframe } from '@/lib/biometricAuth';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
+import { AppDownloadButton } from '@/components/AppDownloadButton';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -581,7 +582,8 @@ export default function Profile() {
                 Quick Access
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <AppDownloadButton />
               <PWAInstallButton />
             </CardContent>
           </Card>

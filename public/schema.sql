@@ -848,7 +848,31 @@ INSERT INTO public.feature_toggles (feature_key, feature_name, is_enabled) VALUE
   ('fund_reversals', 'Fund Reversals', true),
   ('bank_transfer', 'Bank Transfer Deposits', true),
   ('card_deposits', 'Card Deposits', true),
-  ('pwa_install', 'Install as App (PWA)', true);
+  ('pwa_install', 'Install as App (PWA)', true),
+  ('app_download', 'Show app download to users', true);
+
+-- ============================================
+-- APP RELEASES (admin-uploaded APK/IPA versions)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.app_releases (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  version text NOT NULL,
+  platform text NOT NULL CHECK (platform IN ('android','ios','web')),
+  file_path text,
+  file_url  text,
+  file_size bigint,
+  release_notes text,
+  is_latest boolean NOT NULL DEFAULT false,
+  created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.app_releases ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anyone reads releases" ON public.app_releases
+  FOR SELECT USING (true);
+CREATE POLICY "admins manage releases" ON public.app_releases
+  FOR ALL USING (public.has_role(auth.uid(),'admin'))
+  WITH CHECK (public.has_role(auth.uid(),'admin'));
+CREATE INDEX IF NOT EXISTS idx_app_releases_latest ON public.app_releases(platform, is_latest);
 
 -- ============================================
 -- TRANSACTION FEES
