@@ -11,14 +11,29 @@
     <meta property="og:title" content="Virtual Bank - Secure Digital Banking Services" />
     <meta property="og:description" content="Experience modern virtual banking with secure digital wallet, instant payments, and comprehensive financial services." />
     <meta property="og:type" content="website" />
-    <meta name="theme-color" content="#facc15" />
+    <meta name="theme-color" content="#0B1B3F" />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@VirtualBank" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Virtual Bank" />
+    <meta name="mobile-web-app-capable" content="yes" />
   </head>
 
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ("serviceWorker" in navigator && location.protocol === "https:") {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>

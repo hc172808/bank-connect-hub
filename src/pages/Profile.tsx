@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2, MessageCircle, ShieldCheck, LogOut, Palette, Sun, Moon, Check } from 'lucide-react';
+import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2, MessageCircle, ShieldCheck, LogOut, Palette, Sun, Moon, Check, Smartphone } from 'lucide-react';
 import { isVerified as isWhatsAppVerified } from '@/lib/whatsapp';
 import { useTheme } from '@/components/ThemeProvider';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { SetPinDialog } from '@/components/SetPinDialog';
 import { isBiometricAvailable, enrollBiometric, linkCredentialToPhone, checkBiometricSupport, isInIframe } from '@/lib/biometricAuth';
+import { PWAInstallButton } from '@/components/PWAInstallButton';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -42,6 +43,7 @@ export default function Profile() {
   const [showSetPinDialog, setShowSetPinDialog] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricSupport, setBiometricSupport] = useState<{ ok: boolean; reason?: string; hint?: string }>({ ok: false });
+  const [pwaInstallEnabled, setPwaInstallEnabled] = useState(true);
   const [biometricDevices, setBiometricDevices] = useState<any[]>([]);
   const [enrollingBiometric, setEnrollingBiometric] = useState(false);
   const [showBiometricPasswordDialog, setShowBiometricPasswordDialog] = useState(false);
@@ -66,6 +68,16 @@ export default function Profile() {
       fetchBiometricDevices();
       isBiometricAvailable().then(setBiometricAvailable);
       checkBiometricSupport().then(setBiometricSupport);
+      // Check if admin has enabled the PWA install option
+      supabase
+        .from('feature_toggles')
+        .select('is_enabled')
+        .eq('feature_key', 'pwa_install')
+        .maybeSingle()
+        .then(({ data }) => {
+          // Default ON when row is missing
+          setPwaInstallEnabled(data ? !!data.is_enabled : true);
+        });
     }
   }, [user]);
 
@@ -559,6 +571,21 @@ export default function Profile() {
             )}
           </CardContent>
         </Card>
+
+        {/* PWA Install Card (admin-toggleable via 'pwa_install' feature) */}
+        {pwaInstallEnabled && (
+          <Card className="shadow-xl border-primary/20">
+            <CardHeader>
+              <CardTitle className="text-xl flex items-center gap-2">
+                <Smartphone className="w-5 h-5" />
+                Quick Access
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PWAInstallButton />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Appearance Card */}
         <Card className="shadow-xl border-primary/20">

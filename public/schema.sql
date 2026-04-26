@@ -847,7 +847,8 @@ INSERT INTO public.feature_toggles (feature_key, feature_name, is_enabled) VALUE
   ('fund_requests', 'Fund Requests', true),
   ('fund_reversals', 'Fund Reversals', true),
   ('bank_transfer', 'Bank Transfer Deposits', true),
-  ('card_deposits', 'Card Deposits', true);
+  ('card_deposits', 'Card Deposits', true),
+  ('pwa_install', 'Install as App (PWA)', true);
 
 -- ============================================
 -- TRANSACTION FEES

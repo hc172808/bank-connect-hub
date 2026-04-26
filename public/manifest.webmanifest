@@ -1,0 +1,47 @@
+{
+  "name": "Virtual Bank",
+  "short_name": "VB",
+  "description": "Secure digital banking, payments and wallet — anywhere, anytime.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B1B3F",
+  "theme_color": "#0B1B3F",
+  "lang": "en",
+  "categories": ["finance", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Send Money",
+      "short_name": "Send",
+      "url": "/send-money",
+      "description": "Send money to a contact"
+    },
+    {
+      "name": "Pay Bills",
+      "short_name": "Bills",
+      "url": "/pay-bills",
+      "description": "Pay your bills"
+    },
+    {
+      "name": "Transactions",
+      "short_name": "History",
+      "url": "/transactions",
+      "description": "View recent transactions"
+    }
+  ]
+}
