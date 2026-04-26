@@ -25,6 +25,60 @@ export async function isBiometricAvailable(): Promise<boolean> {
   }
 }
 
+/** Detect if the page is currently inside an iframe (e.g. Replit preview pane). */
+export function isInIframe(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Detailed availability check used by the UI before showing enrollment buttons.
+ */
+export async function checkBiometricSupport(): Promise<{
+  ok: boolean;
+  reason?: string;
+  hint?: string;
+}> {
+  if (!window.PublicKeyCredential) {
+    return {
+      ok: false,
+      reason: "Your browser doesn't support biometric login (WebAuthn).",
+      hint: "Use a modern browser like Chrome, Safari or Edge.",
+    };
+  }
+  if (!window.isSecureContext) {
+    return {
+      ok: false,
+      reason: "Biometric login requires HTTPS.",
+      hint: "Open the app via its https:// address.",
+    };
+  }
+  if (isInIframe()) {
+    return {
+      ok: false,
+      reason: "Biometric login cannot run inside the preview frame.",
+      hint: "Open the app in a new tab (or in the installed mobile app) to add Face ID / Fingerprint.",
+    };
+  }
+  try {
+    const platformOk = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    if (!platformOk) {
+      return {
+        ok: false,
+        reason: "No fingerprint or face sensor was detected on this device.",
+        hint:
+          "Use a phone with Face ID / fingerprint, or a laptop with Touch ID / Windows Hello — and make sure it's set up in the OS first.",
+      };
+    }
+  } catch (e: any) {
+    return { ok: false, reason: e?.message || "Biometric check failed." };
+  }
+  return { ok: true };
+}
+
 /**
  * Enroll biometric credential for the currently logged-in user.
  */
@@ -82,8 +136,21 @@ export async function enrollBiometric(
     if (error) return { success: false, error: error.message };
     return { success: true };
   } catch (err: any) {
-    if (err.name === "NotAllowedError") return { success: false, error: "cancelled" };
-    return { success: false, error: err.message || "Biometric enrollment failed" };
+    const name = err?.name || "";
+    if (name === "NotAllowedError") return { success: false, error: "cancelled" };
+    if (name === "InvalidStateError") {
+      return { success: false, error: "This device is already enrolled. Remove the existing entry first." };
+    }
+    if (name === "NotSupportedError") {
+      return { success: false, error: "This device doesn't support the requested biometric type." };
+    }
+    if (name === "SecurityError") {
+      return { success: false, error: "Blocked by security policy. Open the app in a new tab (not inside the preview) and try again." };
+    }
+    if (name === "AbortError") {
+      return { success: false, error: "Biometric prompt was closed before finishing." };
+    }
+    return { success: false, error: err?.message || "Biometric enrollment failed" };
   }
 }
 

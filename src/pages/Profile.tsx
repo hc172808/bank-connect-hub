@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SetPinDialog } from '@/components/SetPinDialog';
-import { isBiometricAvailable, enrollBiometric, linkCredentialToPhone } from '@/lib/biometricAuth';
+import { isBiometricAvailable, enrollBiometric, linkCredentialToPhone, checkBiometricSupport, isInIframe } from '@/lib/biometricAuth';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -41,6 +41,7 @@ export default function Profile() {
   const [hasPin, setHasPin] = useState(false);
   const [showSetPinDialog, setShowSetPinDialog] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricSupport, setBiometricSupport] = useState<{ ok: boolean; reason?: string; hint?: string }>({ ok: false });
   const [biometricDevices, setBiometricDevices] = useState<any[]>([]);
   const [enrollingBiometric, setEnrollingBiometric] = useState(false);
   const [showBiometricPasswordDialog, setShowBiometricPasswordDialog] = useState(false);
@@ -64,6 +65,7 @@ export default function Profile() {
       checkPinStatus();
       fetchBiometricDevices();
       isBiometricAvailable().then(setBiometricAvailable);
+      checkBiometricSupport().then(setBiometricSupport);
     }
   }, [user]);
 
@@ -764,13 +766,14 @@ export default function Profile() {
               </div>
             )}
 
-            {biometricAvailable ? (
+            {biometricSupport.ok ? (
               <div className="flex gap-3">
                 <Button
                   variant="outline"
                   className="flex-1"
                   onClick={() => startBiometricEnroll('fingerprint')}
                   disabled={enrollingBiometric}
+                  data-testid="button-add-fingerprint"
                 >
                   <Fingerprint className="w-4 h-4 mr-2" />
                   Add Fingerprint
@@ -780,16 +783,32 @@ export default function Profile() {
                   className="flex-1"
                   onClick={() => startBiometricEnroll('face')}
                   disabled={enrollingBiometric}
+                  data-testid="button-add-faceid"
                 >
                   <ScanFace className="w-4 h-4 mr-2" />
                   Add Face ID
                 </Button>
               </div>
             ) : (
-              <div className="p-3 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  Biometric authentication is not available on this device/browser.
+              <div className="p-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10 space-y-2">
+                <p className="text-sm font-medium text-foreground flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                  <span>{biometricSupport.reason || "Biometric authentication is not available on this device/browser."}</span>
                 </p>
+                {biometricSupport.hint && (
+                  <p className="text-xs text-muted-foreground pl-6">{biometricSupport.hint}</p>
+                )}
+                {isInIframe() && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-2"
+                    onClick={() => window.open(window.location.href, '_blank', 'noopener')}
+                    data-testid="button-open-newtab"
+                  >
+                    Open app in new tab to enable biometrics →
+                  </Button>
+                )}
               </div>
             )}
           </CardContent>
