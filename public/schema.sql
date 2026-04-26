@@ -279,6 +279,23 @@ CREATE TABLE public.mobile_money_providers (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Changelog Entries (release notes shown in app)
+CREATE TABLE public.changelog_entries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  version text NOT NULL,
+  is_latest boolean NOT NULL DEFAULT false,
+  items jsonb NOT NULL DEFAULT '[]'::jsonb,
+  released_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  created_by uuid
+);
+
+-- NOTE: AI Security Helper (admin AI risk-scoring) and the user theme/palette
+-- selection are CLIENT-SIDE only. Settings live in the browser's localStorage:
+--   vb.aiSecurity.settings   (admin AI thresholds, watch/trust list, master switch)
+--   vb.themeId / vb.themeMode (per-user palette + light/dark choice)
+-- No additional Supabase tables are required for these features.
+
 -- ============================================
 -- ROW LEVEL SECURITY
 -- ============================================
