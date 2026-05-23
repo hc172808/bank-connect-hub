@@ -156,17 +156,18 @@ export default function Profile() {
     setHasPin(!!data?.pin_hash);
   };
 
-  const fetchWallet = async () => {
-    if (!user) return;
+  const walletStorageKey = user ? `vb.wallet.${user.id}` : null;
 
-    const { data } = await supabase
-      .from('user_wallets')
-      .select('wallet_address')
-      .eq('user_id', user.id)
-      .single();
-
-    if (data) {
-      setWalletAddress(data.wallet_address);
+  const fetchWallet = () => {
+    if (!walletStorageKey) return;
+    const raw = localStorage.getItem(walletStorageKey);
+    if (raw) {
+      try {
+        const { address } = JSON.parse(raw);
+        setWalletAddress(address);
+      } catch {
+        setShowCreateWallet(true);
+      }
     } else {
       setShowCreateWallet(true);
     }
@@ -198,13 +199,13 @@ export default function Profile() {
         wallet = ethers.Wallet.fromPhrase(phrase);
       }
       const encryptedKey = await encryptPrivateKey(wallet.privateKey, importPassword);
-      const { error } = await supabase.from('user_wallets').upsert({
-        user_id: user.id,
-        wallet_address: wallet.address,
-        encrypted_private_key: encryptedKey,
-      }, { onConflict: 'user_id' });
-      if (error) throw error;
-      await supabase.from('profiles').update({ wallet_address: wallet.address }).eq('id', user.id);
+
+      // Store ONLY in localStorage — private key never leaves this device
+      if (!walletStorageKey) throw new Error('Not logged in');
+      localStorage.setItem(walletStorageKey, JSON.stringify({
+        address: wallet.address,
+        encryptedJson: encryptedKey,
+      }));
       setWalletAddress(wallet.address);
       setShowCreateWallet(false);
       setImportKey(''); setImportMnemonic(''); setImportPassword('');
@@ -232,24 +233,12 @@ export default function Profile() {
       const wallet = generateWallet();
       const encryptedKey = await encryptPrivateKey(wallet.privateKey, walletPassword);
 
-      const { error } = await supabase
-        .from('user_wallets')
-        .insert({
-          user_id: user.id,
-          wallet_address: wallet.address,
-          encrypted_private_key: encryptedKey,
-        });
-
-      if (error) throw error;
-
-      // Update profile with wallet address
-      await supabase
-        .from('profiles')
-        .update({
-          wallet_address: wallet.address,
-          wallet_created_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
+      // Store ONLY in localStorage — private key never leaves this device
+      if (!walletStorageKey) throw new Error('Not logged in');
+      localStorage.setItem(walletStorageKey, JSON.stringify({
+        address: wallet.address,
+        encryptedJson: encryptedKey,
+      }));
 
       setWalletAddress(wallet.address);
       setNewWalletData(wallet);
