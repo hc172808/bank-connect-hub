@@ -60,23 +60,37 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       .in("key", ["default_theme", "enabled_themes", "lock_theme"])
       .then(({ data }) => {
         if (!data) return;
+
+        let adminDefault: ThemeId | null = null;
+        let enabledIds: ThemeId[] | null = null;
+        let locked = false;
+
         for (const row of data) {
-          if (row.key === "default_theme") {
-            // Only apply admin default if the user has never picked their own
-            const stored = localStorage.getItem(STORAGE_KEY_THEME);
-            if (!stored) {
-              setThemeIdState(row.value as ThemeId);
-            }
-          }
+          if (row.key === "default_theme") adminDefault = row.value as ThemeId;
           if (row.key === "enabled_themes") {
             try {
               const ids: ThemeId[] = JSON.parse(row.value);
               const filtered = THEME_PRESETS.filter((p) => ids.includes(p.id as ThemeId));
-              if (filtered.length > 0) setEnabledPresets(filtered);
+              if (filtered.length > 0) { enabledIds = ids; setEnabledPresets(filtered); }
             } catch { /* keep all presets as fallback */ }
           }
           if (row.key === "lock_theme") {
-            setThemeLocked(row.value === "true");
+            locked = row.value === "true";
+            setThemeLocked(locked);
+          }
+        }
+
+        // Apply admin default when: theme is locked, OR user's current theme is not in enabled list
+        if (adminDefault) {
+          const stored = localStorage.getItem(STORAGE_KEY_THEME) as ThemeId | null;
+          const notEnabled = enabledIds && stored && !enabledIds.includes(stored);
+          if (locked || !stored || notEnabled) {
+            setThemeIdState(adminDefault);
+            if (locked) {
+              // Don't save to localStorage so lock stays effective on reload
+            } else {
+              try { localStorage.setItem(STORAGE_KEY_THEME, adminDefault); } catch { /* ignore */ }
+            }
           }
         }
       })

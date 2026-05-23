@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Virtual Bank</string>
+    <string name="title_activity_main">Virtual Bank</string>
+    <string name="package_name">app.virtualbank.mobile</string>
+    <string name="custom_url_scheme">app.virtualbank.mobile</string>
+</resources>

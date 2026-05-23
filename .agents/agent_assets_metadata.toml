@@ -6,3 +6,9 @@ id = "P-eRMQC9iWH6V4IF7JuAh"
 uri = "file://public/supabase-migrations.zip"
 type = "unspecified"
 title = "supabase-migrations.sql (zipped)"
+
+[[outputs]]
+id = "fe9A8gNuq_BRNuzwUMvDH"
+uri = "file://virtualbank-android.tar.gz"
+type = "unspecified"
+title = "Virtual Bank — Android Project (open in Android Studio)"
