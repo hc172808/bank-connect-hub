@@ -1,0 +1,23 @@
+[
+  {
+    "id": "redeploy",
+    "execute-command": "/usr/bin/docker",
+    "command-working-directory": "/",
+    "pass-arguments-to-command": [
+      { "source": "string", "name": "compose" },
+      { "source": "string", "name": "-f" },
+      { "source": "string", "name": "/opt/virtualbank/docker-compose.yml" },
+      { "source": "string", "name": "pull" }
+    ],
+    "trigger-rule": {
+      "match": {
+        "type": "value",
+        "value": "REPLACE_WITH_YOUR_WEBHOOK_SECRET",
+        "parameter": {
+          "source": "header",
+          "name": "X-Webhook-Secret"
+        }
+      }
+    }
+  }
+]

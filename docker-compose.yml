@@ -1,0 +1,92 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Virtual Bank — Docker Compose stack
+#
+# Usage (Portainer):
+#   1. Stacks → Add Stack → "Repository" → point at your GitHub repo
+#   2. Set the env vars below in the Portainer "Environment variables" section
+#   3. Deploy — Portainer pulls the image, Watchtower keeps it updated
+#
+# Usage (CLI):
+#   cp .env.example .env   # fill in values
+#   docker compose up -d
+#
+# Auto-rebuild:
+#   Watchtower polls GHCR every 5 min. When GitHub Actions pushes a new image,
+#   Watchtower pulls it and restarts the app container automatically.
+#   You can also trigger an immediate rebuild via the Portainer webhook (see
+#   setup-ubuntu.sh for how to configure it).
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Main app ───────────────────────────────────────────────────────────────
+  virtualbank:
+    image: ghcr.io/${GITHUB_USER}/${GITHUB_REPO}:latest
+    container_name: virtualbank
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:80"
+    labels:
+      # Watchtower watches only containers with this label
+      - "com.centurylinklabs.watchtower.enable=true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Watchtower — auto-pull & restart when a new image is pushed ────────────
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      # Needed to restart other containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Docker auth for GHCR (created by setup-ubuntu.sh)
+      - /root/.docker/config.json:/config.json:ro
+    environment:
+      # Poll interval in seconds (300 = every 5 minutes)
+      - WATCHTOWER_POLL_INTERVAL=${WATCHTOWER_INTERVAL:-300}
+      # Only watch containers that have the watchtower label
+      - WATCHTOWER_LABEL_ENABLE=true
+      # Remove old images after update
+      - WATCHTOWER_CLEANUP=true
+      # Send a notification to a Slack / Discord webhook (optional)
+      # - WATCHTOWER_NOTIFICATION_URL=${WATCHTOWER_NOTIFY_URL:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ── Portainer webhook receiver (instant redeploy on git push) ──────────────
+  # This tiny container listens for the GitHub Actions webhook call and
+  # triggers `docker compose pull && docker compose up -d` immediately,
+  # without waiting for the next Watchtower poll.
+  webhook:
+    image: almir/webhook:latest
+    container_name: virtualbank-webhook
+    restart: unless-stopped
+    ports:
+      - "${WEBHOOK_PORT:-9000}:9000"
+    volumes:
+      - ./webhook-hooks.json:/etc/webhook/hooks.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+    command: ["-hooks=/etc/webhook/hooks.json", "-verbose"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  default:
+    name: virtualbank-net
