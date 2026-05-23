@@ -1,4 +1,6 @@
 import { lazy, Suspense } from "react";
+import { UpdateBanner } from "@/components/UpdateBanner";
+import { ForceUpdateGate } from "@/components/ForceUpdateGate";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -62,6 +64,7 @@ const VerifyWhatsApp = lazy(() => import("./pages/VerifyWhatsApp"));
 const AdminAISecurity = lazy(() => import("./pages/AdminAISecurity"));
 const AdminAppReleases = lazy(() => import("./pages/AdminAppReleases"));
 const AdminThemes = lazy(() => import("./pages/AdminThemes"));
+const AdminAppManager = lazy(() => import("./pages/AdminAppManager"));
 const VendorStore = lazy(() => import("./pages/VendorStore"));
 const VendorList = lazy(() => import("./pages/VendorList"));
 const VendorRegistrationFees = lazy(() => import("./pages/VendorRegistrationFees"));
@@ -227,6 +230,7 @@ const AppRoutes = () => {
         <Route path="/admin/ai-security" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAISecurity /></ProtectedRoute>} />
         <Route path="/admin/app-releases" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppReleases /></ProtectedRoute>} />
         <Route path="/admin/themes" element={<ProtectedRoute allowedRoles={["admin"]}><AdminThemes /></ProtectedRoute>} />
+        <Route path="/admin/app-manager" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppManager /></ProtectedRoute>} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
@@ -252,10 +256,13 @@ const App = () => (
         <BrowserRouter
           future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
         >
-          <ScrollToTop />
-          <Suspense fallback={<FullScreenLoader />}>
-            <AppRoutes />
-          </Suspense>
+          <ForceUpdateGate>
+            <ScrollToTop />
+            <Suspense fallback={<FullScreenLoader />}>
+              <AppRoutes />
+            </Suspense>
+            <UpdateBanner />
+          </ForceUpdateGate>
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>

@@ -342,11 +342,11 @@ const AdminDashboard = () => {
               <Button
                 className="w-full justify-start gap-3 h-14 rounded-xl"
                 variant="secondary"
-                onClick={() => navigate("/admin/app-releases")}
-                data-testid="button-app-releases"
+                onClick={() => navigate("/admin/app-manager")}
+                data-testid="button-app-manager"
               >
                 <Smartphone size={20} />
-                App Releases (APK/IPA)
+                App Manager (Builds · OTA · Share)
               </Button>
               <Button
                 className="w-full justify-start gap-3 h-14 rounded-xl"

@@ -955,3 +955,10 @@ INSERT INTO public.app_settings (key, value) VALUES
   ('enabled_themes',  '["midnight-gold","indigo-emerald","cash-green","royal-cyan","vintage-yellow"]'),
   ('lock_theme',      'false')
 ON CONFLICT (key) DO NOTHING;
+
+-- seed new app_settings keys for app manager (idempotent)
+INSERT INTO public.app_settings (key, value) VALUES
+  ('ota_url',                  ''),
+  ('force_update_enabled',     'false'),
+  ('force_update_min_version', '0.0.0')
+ON CONFLICT (key) DO NOTHING;
