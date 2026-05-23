@@ -140,8 +140,12 @@ const AgentDashboard = () => {
             <Button className="h-20 rounded-xl bg-secondary hover:bg-secondary/90">
               Process Transaction
             </Button>
-            <Button className="h-20 rounded-xl bg-primary hover:bg-primary/90">
-              View Reports
+            <Button
+              className="h-20 rounded-xl bg-primary hover:bg-primary/90"
+              onClick={() => navigate("/print-qr")}
+              data-testid="button-print-qr"
+            >
+              Print QR Cards
             </Button>
             <Button className="h-20 rounded-xl bg-secondary hover:bg-secondary/90">
               Client Support

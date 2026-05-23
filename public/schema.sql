@@ -875,6 +875,33 @@ CREATE POLICY "admins manage releases" ON public.app_releases
 CREATE INDEX IF NOT EXISTS idx_app_releases_latest ON public.app_releases(platform, is_latest);
 
 -- ============================================
+-- QR CARD REQUESTS (users request printed cards)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.qr_card_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','fulfilled','cancelled')),
+  notes text,
+  fulfilled_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  fulfilled_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.qr_card_requests ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "users view own requests" ON public.qr_card_requests
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "users insert own requests" ON public.qr_card_requests
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "users cancel own requests" ON public.qr_card_requests
+  FOR UPDATE USING (auth.uid() = user_id AND status = 'pending')
+  WITH CHECK (status = 'cancelled');
+CREATE POLICY "admin_agent view all requests" ON public.qr_card_requests
+  FOR SELECT USING (public.has_role(auth.uid(),'admin') OR public.has_role(auth.uid(),'agent'));
+CREATE POLICY "admin_agent fulfil requests" ON public.qr_card_requests
+  FOR UPDATE USING (public.has_role(auth.uid(),'admin') OR public.has_role(auth.uid(),'agent'));
+CREATE INDEX IF NOT EXISTS idx_qr_requests_user ON public.qr_card_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_qr_requests_status ON public.qr_card_requests(status);
+
+-- ============================================
 -- TRANSACTION FEES
 -- ============================================
 INSERT INTO public.transaction_fees (transaction_type, fee_percentage, fixed_fee) VALUES

@@ -188,6 +188,7 @@ const AppRoutes = () => {
       <Routes>
         <Route path="/agent" element={<AgentDashboard />} />
         <Route path="/agent-deposit" element={<AgentDeposit />} />
+        <Route path="/print-qr" element={<AdminPrintQRCodes />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
