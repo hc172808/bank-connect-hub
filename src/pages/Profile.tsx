@@ -7,11 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2, MessageCircle, ShieldCheck, LogOut, Palette, Sun, Moon, Check, Smartphone } from 'lucide-react';
+import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2, MessageCircle, ShieldCheck, LogOut, Palette, Sun, Moon, Check, Smartphone, Download, Plus, Eye, EyeOff } from 'lucide-react';
 import { isVerified as isWhatsAppVerified } from '@/lib/whatsapp';
 import { useTheme } from '@/components/ThemeProvider';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { generateWallet, encryptPrivateKey } from '@/lib/wallet';
+import { ethers } from 'ethers';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -29,7 +31,7 @@ export default function Profile() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { themeId, mode, setThemeId, toggleMode, presets } = useTheme();
+  const { themeId, mode, setThemeId, toggleMode, enabledPresets, themeLocked } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -45,6 +47,12 @@ export default function Profile() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricSupport, setBiometricSupport] = useState<{ ok: boolean; reason?: string; hint?: string }>({ ok: false });
   const [pwaInstallEnabled, setPwaInstallEnabled] = useState(true);
+  // Wallet import state
+  const [importKey, setImportKey] = useState('');
+  const [importMnemonic, setImportMnemonic] = useState('');
+  const [importPassword, setImportPassword] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [showImportKey, setShowImportKey] = useState(false);
   const [biometricDevices, setBiometricDevices] = useState<any[]>([]);
   const [enrollingBiometric, setEnrollingBiometric] = useState(false);
   const [showBiometricPasswordDialog, setShowBiometricPasswordDialog] = useState(false);
@@ -169,6 +177,43 @@ export default function Profile() {
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
     toast({ title: "Copied to clipboard" });
+  };
+
+  const handleImportWallet = async (method: 'privateKey' | 'mnemonic') => {
+    if (!user) return;
+    if (!importPassword || importPassword.length < 6) {
+      toast({ variant: 'destructive', title: 'Password too short', description: 'At least 6 characters required.' });
+      return;
+    }
+    setImporting(true);
+    try {
+      let wallet: ethers.Wallet;
+      if (method === 'privateKey') {
+        const key = importKey.trim();
+        if (!key) throw new Error('Enter a private key');
+        wallet = new ethers.Wallet(key.startsWith('0x') ? key : `0x${key}`);
+      } else {
+        const phrase = importMnemonic.trim();
+        if (!phrase) throw new Error('Enter a seed phrase');
+        wallet = ethers.Wallet.fromPhrase(phrase);
+      }
+      const encryptedKey = await encryptPrivateKey(wallet.privateKey, importPassword);
+      const { error } = await supabase.from('user_wallets').upsert({
+        user_id: user.id,
+        wallet_address: wallet.address,
+        encrypted_private_key: encryptedKey,
+      }, { onConflict: 'user_id' });
+      if (error) throw error;
+      await supabase.from('profiles').update({ wallet_address: wallet.address }).eq('id', user.id);
+      setWalletAddress(wallet.address);
+      setShowCreateWallet(false);
+      setImportKey(''); setImportMnemonic(''); setImportPassword('');
+      toast({ title: 'Wallet imported!', description: `Address: ${wallet.address.slice(0,10)}…` });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Import failed', description: e.message ?? String(e) });
+    } finally {
+      setImporting(false);
+    }
   };
 
   const handleCreateWallet = async () => {
@@ -516,7 +561,7 @@ export default function Profile() {
           </CardContent>
         </Card>
 
-        {/* Wallet Address Card */}
+        {/* Blockchain Wallet Card */}
         <Card className="shadow-xl border-primary/20">
           <CardHeader>
             <CardTitle className="text-xl flex items-center gap-2">
@@ -526,49 +571,132 @@ export default function Profile() {
           </CardHeader>
           <CardContent>
             {walletAddress ? (
+              /* ── Wallet exists ── */
               <div className="space-y-3">
-                <label className="text-sm font-medium text-muted-foreground">Your Wallet Address</label>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 p-3 bg-muted rounded-lg text-xs break-all font-mono">
-                    {walletAddress}
-                  </code>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    onClick={() => copyToClipboard(walletAddress, 'walletAddress')}
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
+                <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-xl flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                  <span className="text-xs text-green-700 dark:text-green-400 font-medium">Wallet connected</span>
                 </div>
-                {copiedField === 'walletAddress' && <span className="text-xs text-green-500">Copied!</span>}
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Address</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="flex-1 p-3 bg-muted rounded-lg text-xs break-all font-mono">
+                      {walletAddress}
+                    </code>
+                    <Button size="icon" variant="outline" onClick={() => copyToClipboard(walletAddress, 'walletAddress')} data-testid="button-copy-wallet">
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  {copiedField === 'walletAddress' && <span className="text-xs text-green-500 mt-1 block">Copied!</span>}
+                </div>
               </div>
             ) : showCreateWallet ? (
+              /* ── No wallet yet — create or import ── */
               <div className="space-y-4">
-                <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
+                <div className="p-3 bg-yellow-500/10 rounded-xl border border-yellow-500/20">
                   <p className="text-sm text-yellow-700 dark:text-yellow-300 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4" />
-                    You don't have a wallet yet. Create one to use blockchain features.
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    No wallet yet. Create a new one or import an existing wallet.
                   </p>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Enter your password to create wallet</label>
-                  <Input
-                    type="password"
-                    value={walletPassword}
-                    onChange={(e) => setWalletPassword(e.target.value)}
-                    placeholder="Enter your password"
-                  />
-                </div>
-                <Button
-                  onClick={handleCreateWallet}
-                  disabled={creatingWallet || !walletPassword}
-                  className="w-full"
-                >
-                  {creatingWallet ? 'Creating Wallet...' : 'Create Wallet'}
-                </Button>
+
+                <Tabs defaultValue="create">
+                  <TabsList className="w-full">
+                    <TabsTrigger value="create" className="flex-1 gap-1.5" data-testid="tab-create-wallet">
+                      <Plus className="w-3.5 h-3.5" /> Create New
+                    </TabsTrigger>
+                    <TabsTrigger value="import" className="flex-1 gap-1.5" data-testid="tab-import-wallet">
+                      <Download className="w-3.5 h-3.5" /> Import
+                    </TabsTrigger>
+                  </TabsList>
+
+                  {/* Create tab */}
+                  <TabsContent value="create" className="space-y-3 pt-3">
+                    <p className="text-xs text-muted-foreground">
+                      A brand-new wallet will be generated for you. Save your seed phrase — it's the only way to recover your wallet.
+                    </p>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Encryption password</label>
+                      <Input
+                        type="password"
+                        value={walletPassword}
+                        onChange={(e) => setWalletPassword(e.target.value)}
+                        placeholder="Min 6 characters"
+                        data-testid="input-create-wallet-password"
+                      />
+                      <p className="text-[11px] text-muted-foreground">Used to encrypt your private key on this device.</p>
+                    </div>
+                    <Button onClick={handleCreateWallet} disabled={creatingWallet || !walletPassword} className="w-full" data-testid="button-create-wallet">
+                      {creatingWallet ? 'Creating…' : 'Generate wallet'}
+                    </Button>
+                  </TabsContent>
+
+                  {/* Import tab */}
+                  <TabsContent value="import" className="pt-3">
+                    <Tabs defaultValue="privateKey">
+                      <TabsList className="w-full mb-3">
+                        <TabsTrigger value="privateKey" className="flex-1 text-xs" data-testid="tab-import-pk">Private Key</TabsTrigger>
+                        <TabsTrigger value="mnemonic" className="flex-1 text-xs" data-testid="tab-import-mnemonic">Seed Phrase</TabsTrigger>
+                      </TabsList>
+
+                      {/* Private key import */}
+                      <TabsContent value="privateKey" className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium">Private key</label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={showImportKey ? 'text' : 'password'}
+                              value={importKey}
+                              onChange={(e) => setImportKey(e.target.value)}
+                              placeholder="0x… or without 0x prefix"
+                              className="flex-1 font-mono text-xs"
+                              data-testid="input-private-key"
+                            />
+                            <Button variant="ghost" size="icon" onClick={() => setShowImportKey((v) => !v)} type="button">
+                              {showImportKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium">Encryption password</label>
+                          <Input type="password" value={importPassword} onChange={(e) => setImportPassword(e.target.value)} placeholder="Min 6 characters" data-testid="input-import-password-pk" />
+                        </div>
+                        <Button onClick={() => handleImportWallet('privateKey')} disabled={importing || !importKey || !importPassword} className="w-full" data-testid="button-import-pk">
+                          {importing ? 'Importing…' : 'Import wallet'}
+                        </Button>
+                      </TabsContent>
+
+                      {/* Mnemonic import */}
+                      <TabsContent value="mnemonic" className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium">Seed phrase (12 or 24 words)</label>
+                          <Textarea
+                            value={importMnemonic}
+                            onChange={(e) => setImportMnemonic(e.target.value)}
+                            placeholder="word1 word2 word3 … word12"
+                            rows={3}
+                            className="font-mono text-xs resize-none"
+                            data-testid="input-mnemonic"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium">Encryption password</label>
+                          <Input type="password" value={importPassword} onChange={(e) => setImportPassword(e.target.value)} placeholder="Min 6 characters" data-testid="input-import-password-mn" />
+                        </div>
+                        <Button onClick={() => handleImportWallet('mnemonic')} disabled={importing || !importMnemonic || !importPassword} className="w-full" data-testid="button-import-mnemonic">
+                          {importing ? 'Importing…' : 'Import wallet'}
+                        </Button>
+                      </TabsContent>
+                    </Tabs>
+
+                    <p className="text-[11px] text-muted-foreground mt-2 p-2 bg-muted rounded-lg">
+                      Your private key / seed phrase never leaves your device. It is encrypted with your password before being stored.
+                    </p>
+                  </TabsContent>
+                </Tabs>
               </div>
             ) : (
-              <p className="text-muted-foreground">Loading wallet information...</p>
+              <p className="text-muted-foreground text-sm">Loading wallet…</p>
             )}
           </CardContent>
         </Card>
@@ -616,43 +744,48 @@ export default function Profile() {
             </div>
 
             <div>
-              <p className="font-medium text-sm mb-2">Color theme</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {presets.map((p) => {
+              <div className="flex items-center justify-between mb-3">
+                <p className="font-medium text-sm">Color theme</p>
+                {themeLocked && (
+                  <Badge variant="outline" className="text-[10px] gap-1">
+                    <Lock className="w-3 h-3" /> Set by admin
+                  </Badge>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {enabledPresets.map((p) => {
                   const active = themeId === p.id;
                   return (
                     <button
                       key={p.id}
-                      onClick={() => setThemeId(p.id)}
-                      className={`text-left p-3 rounded-xl border transition-all ${
+                      onClick={() => !themeLocked && setThemeId(p.id)}
+                      disabled={themeLocked}
+                      className={`text-left rounded-xl border-2 overflow-hidden transition-all ${
                         active
-                          ? 'border-primary ring-2 ring-primary/30 bg-primary/5'
-                          : 'border-border hover:border-primary/40'
+                          ? 'border-primary shadow-md'
+                          : themeLocked
+                          ? 'border-border opacity-70 cursor-not-allowed'
+                          : 'border-border hover:border-primary/50 hover:shadow-sm'
                       }`}
                       data-testid={`theme-option-${p.id}`}
                     >
-                      <div className="flex items-center justify-between gap-2 mb-1">
+                      {/* Colour swatch header */}
+                      <div
+                        className="h-16 w-full flex items-center justify-center gap-2 relative"
+                        style={{ background: p.swatch.bg }}
+                      >
+                        <span className="w-8 h-8 rounded-full border-2 border-white/40 shadow" style={{ background: p.swatch.primary }} />
+                        <span className="w-5 h-5 rounded-full border-2 border-white/30" style={{ background: p.swatch.accent }} />
+                        {active && (
+                          <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                            <Check className="w-3 h-3 text-primary-foreground" />
+                          </span>
+                        )}
+                      </div>
+                      <div className="p-2.5">
                         <div className="font-semibold text-sm">{p.name}</div>
-                        {active && <Check className="w-4 h-4 text-primary" />}
+                        <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">{p.description}</p>
                       </div>
-                      <div className="flex items-center gap-1 mb-1">
-                        <span
-                          className="w-5 h-5 rounded-full border border-black/10"
-                          style={{ background: p.swatch.bg }}
-                          aria-hidden
-                        />
-                        <span
-                          className="w-5 h-5 rounded-full border border-black/10"
-                          style={{ background: p.swatch.primary }}
-                          aria-hidden
-                        />
-                        <span
-                          className="w-5 h-5 rounded-full border border-black/10"
-                          style={{ background: p.swatch.accent }}
-                          aria-hidden
-                        />
-                      </div>
-                      <p className="text-[11px] text-muted-foreground line-clamp-2">{p.description}</p>
                     </button>
                   );
                 })}

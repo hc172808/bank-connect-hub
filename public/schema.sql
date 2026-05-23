@@ -933,3 +933,25 @@ INSERT INTO public.mobile_money_providers (name, ussd_code, logo_letter, color, 
   ('Digicel MoMo', '*129#', 'D', 'bg-red-500', '+592-000-0001', NULL, true, 1),
   ('GTT Mobile Money', '*888#', 'G', 'bg-green-600', '+592-000-0002', NULL, true, 2),
   ('M-Pesa', '*334#', 'M', 'bg-green-500', '+592-000-0003', NULL, true, 3);
+
+-- ============================================
+-- APP SETTINGS (admin theme management)
+-- ============================================
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  key         text        PRIMARY KEY,
+  value       text        NOT NULL,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY IF NOT EXISTS "anyone reads settings" ON public.app_settings
+  FOR SELECT USING (true);
+CREATE POLICY IF NOT EXISTS "admins manage settings" ON public.app_settings
+  FOR ALL USING (public.has_role(auth.uid(), 'admin'))
+  WITH CHECK (public.has_role(auth.uid(), 'admin'));
+
+-- seed defaults (idempotent)
+INSERT INTO public.app_settings (key, value) VALUES
+  ('default_theme',   'midnight-gold'),
+  ('enabled_themes',  '["midnight-gold","indigo-emerald","cash-green","royal-cyan","vintage-yellow"]'),
+  ('lock_theme',      'false')
+ON CONFLICT (key) DO NOTHING;
