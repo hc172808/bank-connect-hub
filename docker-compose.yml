@@ -1,34 +1,61 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Virtual Bank — Docker Compose stack
+# Virtual Bank — Production Docker Compose stack
+#
+# Services:
+#   virtualbank  — React SPA served by nginx
+#   litenode     — Go Ethereum JSON-RPC proxy (double-spend guard, rate limit)
+#   watchtower   — Auto-pulls new images from GHCR on push
+#   webhook      — Instant redeploy trigger from GitHub Actions
 #
 # Usage (Portainer):
-#   1. Stacks → Add Stack → "Repository" → point at your GitHub repo
-#   2. Set the env vars below in the Portainer "Environment variables" section
-#   3. Deploy — Portainer pulls the image, Watchtower keeps it updated
+#   Stacks → Add Stack → Repository → point at your GitHub repo
+#   Set env vars in the "Environment variables" section
 #
 # Usage (CLI):
-#   cp .env.example .env   # fill in values
+#   cp .env.example .env && nano .env
 #   docker compose up -d
-#
-# Auto-rebuild:
-#   Watchtower polls GHCR every 5 min. When GitHub Actions pushes a new image,
-#   Watchtower pulls it and restarts the app container automatically.
-#   You can also trigger an immediate rebuild via the Portainer webhook (see
-#   setup-ubuntu.sh for how to configure it).
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
 
-  # ── Main app ───────────────────────────────────────────────────────────────
+  # ── React SPA ──────────────────────────────────────────────────────────────
   virtualbank:
     image: ghcr.io/${GITHUB_USER}/${GITHUB_REPO}:latest
     container_name: virtualbank
     restart: unless-stopped
     ports:
       - "${APP_PORT:-3000}:80"
+    networks:
+      - frontend
+    depends_on:
+      litenode:
+        condition: service_healthy
     labels:
-      # Watchtower watches only containers with this label
       - "com.centurylinklabs.watchtower.enable=true"
+    # ── Security hardening ────────────────────────────────────────────────
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64m,mode=0755
+      - /var/run:size=4m,mode=0755
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE   # needed to bind port 80
+    # ── Resource limits ───────────────────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+        reservations:
+          memory: 64M
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
       interval: 30s
@@ -41,39 +68,87 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ── Watchtower — auto-pull & restart when a new image is pushed ────────────
+  # ── Go Lite-node (Ethereum JSON-RPC proxy) ─────────────────────────────────
+  litenode:
+    build:
+      context: ./litenode
+      dockerfile: Dockerfile
+    image: virtualbank-litenode:local
+    container_name: litenode
+    restart: unless-stopped
+    networks:
+      - frontend
+      - backend
+    environment:
+      - LISTEN_ADDR=:8545
+      - UPSTREAM_RPC=${UPSTREAM_RPC:-https://bsc-dataseed.binance.org}
+      - RATE_PER_MIN=${LITENODE_RATE_PER_MIN:-120}
+      - CACHE_BLOCKS=${LITENODE_CACHE_BLOCKS:-64}
+      - DEDUP_TTL=${LITENODE_DEDUP_TTL:-60s}
+      - NONCE_TTL=${LITENODE_NONCE_TTL:-5m}
+      - LOG_LEVEL=${LITENODE_LOG_LEVEL:-info}
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          memory: 32M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8545/health | grep -q '\"status\":\"ok\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Do not expose port externally — nginx proxies /rpc → litenode:8545
+    expose:
+      - "8545"
+
+  # ── Watchtower — auto-pull & restart on new image ──────────────────────────
   watchtower:
     image: containrrr/watchtower:latest
     container_name: watchtower
     restart: unless-stopped
+    networks:
+      - backend
     volumes:
-      # Needed to restart other containers
       - /var/run/docker.sock:/var/run/docker.sock
-      # Docker auth for GHCR (created by setup-ubuntu.sh)
       - /root/.docker/config.json:/config.json:ro
     environment:
-      # Poll interval in seconds (300 = every 5 minutes)
       - WATCHTOWER_POLL_INTERVAL=${WATCHTOWER_INTERVAL:-300}
-      # Only watch containers that have the watchtower label
       - WATCHTOWER_LABEL_ENABLE=true
-      # Remove old images after update
       - WATCHTOWER_CLEANUP=true
-      # Send a notification to a Slack / Discord webhook (optional)
-      # - WATCHTOWER_NOTIFICATION_URL=${WATCHTOWER_NOTIFY_URL:-}
+      # Optional: WATCHTOWER_NOTIFICATION_URL=slack://...
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 32M
     logging:
       driver: "json-file"
       options:
         max-size: "5m"
         max-file: "2"
 
-  # ── Portainer webhook receiver (instant redeploy on git push) ──────────────
-  # This tiny container listens for the GitHub Actions webhook call and
-  # triggers `docker compose pull && docker compose up -d` immediately,
-  # without waiting for the next Watchtower poll.
+  # ── Webhook receiver — instant redeploy from GitHub Actions ───────────────
   webhook:
     image: almir/webhook:latest
     container_name: virtualbank-webhook
     restart: unless-stopped
+    networks:
+      - backend
     ports:
       - "${WEBHOOK_PORT:-9000}:9000"
     volumes:
@@ -81,12 +156,25 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
     command: ["-hooks=/etc/webhook/hooks.json", "-verbose"]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 32M
     logging:
       driver: "json-file"
       options:
         max-size: "5m"
         max-file: "2"
 
+# ── Networks ───────────────────────────────────────────────────────────────────
 networks:
-  default:
-    name: virtualbank-net
+  frontend:
+    name: virtualbank-frontend
+    driver: bridge
+  backend:
+    name: virtualbank-backend
+    driver: bridge
+    internal: false  # watchtower/webhook need internet access

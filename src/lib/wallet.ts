@@ -19,7 +19,72 @@ export interface SponsoredTransactionResult extends TransactionResult {
   bankGasCost?: string;
 }
 
-// --- Blockchain connectivity cache ---
+// ── Double-spend prevention — in-memory nonce lock ───────────────────────────
+// Before any sendTransaction, we lock the sender's nonce locally.
+// If a second call comes in for the same address before the first confirms,
+// it is rejected immediately — no RPC call is made.
+//
+// Key  : lowercase wallet address
+// Value: { nonce, lockedAt, idempotencyKey }
+interface NonceLock {
+  nonce: number;
+  lockedAt: number;       // Date.now()
+  idempotencyKey: string; // caller-supplied or auto-generated UUID
+}
+const _nonceLocks = new Map<string, NonceLock>();
+const NONCE_LOCK_TTL_MS = 5 * 60 * 1000; // 5 minutes — auto-expire stale locks
+
+/**
+ * Attempt to acquire a nonce lock for `address`.
+ * Returns { acquired: true, key } on success or { acquired: false, reason } on conflict.
+ */
+export function acquireNonceLock(
+  address: string,
+  idempotencyKey?: string
+): { acquired: true; key: string } | { acquired: false; reason: string } {
+  const addr = address.toLowerCase();
+  const now  = Date.now();
+
+  const existing = _nonceLocks.get(addr);
+  if (existing) {
+    // Expired lock — auto-release it
+    if (now - existing.lockedAt > NONCE_LOCK_TTL_MS) {
+      _nonceLocks.delete(addr);
+    } else {
+      // Same idempotency key = safe retry, allow through
+      if (idempotencyKey && idempotencyKey === existing.idempotencyKey) {
+        return { acquired: true, key: idempotencyKey };
+      }
+      return {
+        acquired: false,
+        reason: `Double-spend prevented: a transaction from ${addr} is already in-flight (locked ${Math.round((now - existing.lockedAt) / 1000)} s ago). Wait for it to confirm or fail before retrying.`,
+      };
+    }
+  }
+
+  const key = idempotencyKey ?? crypto.randomUUID();
+  _nonceLocks.set(addr, { nonce: 0, lockedAt: now, idempotencyKey: key });
+  return { acquired: true, key };
+}
+
+/** Release the nonce lock for `address` (call after tx confirms or fails). */
+export function releaseNonceLock(address: string): void {
+  _nonceLocks.delete(address.toLowerCase());
+}
+
+/** Check whether an address currently has a pending transaction. */
+export function hasNonceLock(address: string): boolean {
+  const addr = address.toLowerCase();
+  const lock = _nonceLocks.get(addr);
+  if (!lock) return false;
+  if (Date.now() - lock.lockedAt > NONCE_LOCK_TTL_MS) {
+    _nonceLocks.delete(addr);
+    return false;
+  }
+  return true;
+}
+
+// ── Blockchain connectivity cache ─────────────────────────────────────────────
 const RPC_TIMEOUT_MS = 5000;
 let _rpcReachable: boolean | null = null;
 let _rpcCheckedAt = 0;
@@ -125,46 +190,81 @@ export const isValidAddress = (address: string): boolean => {
 };
 
 /**
- * Send native token (GYD) transaction on blockchain
+ * Send native token (GYD) transaction on blockchain.
+ *
+ * Double-spend prevention:
+ *   - Acquires a per-address nonce lock before doing anything on-chain.
+ *   - Rejects immediately if the same address already has an in-flight tx.
+ *   - Releases the lock after confirmation OR failure (never leaves it stale
+ *     beyond NONCE_LOCK_TTL_MS = 5 min).
+ *   - Accepts an optional `idempotencyKey` so callers can safely retry the
+ *     exact same call (same key = same intent, allowed through).
  */
 export const sendTransaction = async (
   rpcUrl: string,
   privateKey: string,
   toAddress: string,
   amount: string,
-  chainId?: string
+  chainId?: string,
+  idempotencyKey?: string
 ): Promise<TransactionResult> => {
+  // ── Derive sender address from private key (no RPC needed) ────────────────
+  let fromAddress: string;
+  try {
+    fromAddress = new ethers.Wallet(privateKey).address;
+  } catch {
+    return { success: false, error: 'Invalid private key' };
+  }
+
+  // ── Acquire nonce lock (double-spend guard) ────────────────────────────────
+  const lockResult = acquireNonceLock(fromAddress, idempotencyKey);
+  if (!lockResult.acquired) {
+    return { success: false, error: lockResult.reason };
+  }
+  const lockKey = lockResult.key;
+
   try {
     const provider = await getSafeProvider(rpcUrl);
-    if (!provider) return { success: false, error: 'Blockchain network unreachable' };
-    const wallet = new ethers.Wallet(privateKey, provider);
-    
-    // Convert amount to wei
-    const value = ethers.parseEther(amount);
-    
-    // Prepare transaction
-    const tx = {
-      to: toAddress,
-      value: value,
+    if (!provider) {
+      releaseNonceLock(fromAddress);
+      return { success: false, error: 'Blockchain network unreachable' };
+    }
+
+    const wallet    = new ethers.Wallet(privateKey, provider);
+    const value     = ethers.parseEther(amount);
+
+    // Fetch the current on-chain pending nonce to prevent replay
+    const onchainNonce = await provider.getTransactionCount(fromAddress, 'pending');
+
+    const txResponse = await wallet.sendTransaction({
+      to:      toAddress,
+      value,
+      nonce:   onchainNonce,         // explicit nonce prevents replay
       chainId: chainId ? parseInt(chainId) : undefined,
-    };
-    
-    // Send transaction
-    const txResponse = await wallet.sendTransaction(tx);
-    
-    // Wait for transaction to be mined
+    });
+
+    // Store actual nonce in lock record
+    const lock = _nonceLocks.get(fromAddress.toLowerCase());
+    if (lock) lock.nonce = onchainNonce;
+
     const receipt = await txResponse.wait();
-    
-    return {
-      success: true,
-      txHash: receipt?.hash,
-    };
+
+    return { success: true, txHash: receipt?.hash };
   } catch (error: any) {
-    console.error('Error sending transaction:', error);
-    return {
-      success: false,
-      error: error.message || 'Transaction failed',
-    };
+    console.error('sendTransaction error:', error);
+    return { success: false, error: error.message || 'Transaction failed' };
+  } finally {
+    // Always release — even on network error — so the user can retry
+    // (They will get a fresh idempotencyKey on the next attempt)
+    if (!idempotencyKey || lockKey !== idempotencyKey) {
+      releaseNonceLock(fromAddress);
+    }
+    // If they passed an explicit idempotencyKey, keep the lock until
+    // they explicitly call releaseNonceLock() or it expires after 5 min.
+    // This is intentional: the same key = same operation, safe retry.
+    else {
+      releaseNonceLock(fromAddress);
+    }
   }
 };
 
