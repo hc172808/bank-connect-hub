@@ -62,6 +62,8 @@ const VendorCharge = lazy(() => import("./pages/VendorCharge"));
 const VendorAnalytics = lazy(() => import("./pages/VendorAnalytics"));
 const VerifyWhatsApp = lazy(() => import("./pages/VerifyWhatsApp"));
 const AdminAISecurity = lazy(() => import("./pages/AdminAISecurity"));
+const AdminFirewall   = lazy(() => import("./pages/AdminFirewall"));
+const AdminLitenode   = lazy(() => import("./pages/AdminLitenode"));
 const AdminAppReleases = lazy(() => import("./pages/AdminAppReleases"));
 const AdminThemes = lazy(() => import("./pages/AdminThemes"));
 const AdminAppManager = lazy(() => import("./pages/AdminAppManager"));
@@ -228,6 +230,8 @@ const AppRoutes = () => {
         <Route path="/admin/mobile-providers" element={<ProtectedRoute allowedRoles={["admin"]}><ManageMobileProviders /></ProtectedRoute>} />
         <Route path="/admin/changelog" element={<ProtectedRoute allowedRoles={["admin"]}><ManageChangelog /></ProtectedRoute>} />
         <Route path="/admin/ai-security" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAISecurity /></ProtectedRoute>} />
+        <Route path="/admin/firewall" element={<ProtectedRoute allowedRoles={["admin"]}><AdminFirewall /></ProtectedRoute>} />
+        <Route path="/admin/litenode" element={<ProtectedRoute allowedRoles={["admin"]}><AdminLitenode /></ProtectedRoute>} />
         <Route path="/admin/app-releases" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppReleases /></ProtectedRoute>} />
         <Route path="/admin/themes" element={<ProtectedRoute allowedRoles={["admin"]}><AdminThemes /></ProtectedRoute>} />
         <Route path="/admin/app-manager" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppManager /></ProtectedRoute>} />

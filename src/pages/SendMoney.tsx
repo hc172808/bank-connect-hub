@@ -10,6 +10,8 @@ import { QRScanner } from "@/components/QRScanner";
 import { ArrowLeft, QrCode, User, Wallet, Info, Fuel, ArrowRightLeft, AlertTriangle } from "lucide-react";
 import { isValidAddress, sendSponsoredTransaction, decryptPrivateKey, estimateGas } from "@/lib/wallet";
 import { useDashboardHome } from "@/hooks/useDashboardHome";
+import { checkFirewall } from "@/lib/aiFirewall";
+import { TransferAnimation, TransferState } from "@/components/TransferAnimation";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +52,9 @@ interface ConversionFee {
   fee_percentage: number;
 }
 
+const ANIM_SUCCESS_DURATION = 2200;
+const ANIM_BLOCKED_DURATION = 3200;
+
 const SendMoney = () => {
   const [amount, setAmount] = useState("");
   const [receiverId, setReceiverId] = useState("");
@@ -66,14 +71,18 @@ const SendMoney = () => {
   const [gasEstimate, setGasEstimate] = useState<string | null>(null);
   const [estimatingGas, setEstimatingGas] = useState(false);
   const [userWalletAddress, setUserWalletAddress] = useState<string | null>(null);
-  
-  // Coin conversion states
+  const [senderName, setSenderName] = useState("You");
+
   const [selectedCoin, setSelectedCoin] = useState("");
   const [supportedCoins, setSupportedCoins] = useState<SupportedCoin[]>([]);
   const [conversionFees, setConversionFees] = useState<ConversionFee[]>([]);
   const [showConversionDialog, setShowConversionDialog] = useState(false);
   const [nativeCoinSymbol, setNativeCoinSymbol] = useState("");
-  
+
+  // Transfer animation
+  const [animState, setAnimState] = useState<TransferState>("idle");
+  const [animReason, setAnimReason] = useState<string | undefined>();
+
   const navigate = useNavigate();
   const { toast } = useToast();
   const homeRoute = useDashboardHome();
@@ -84,7 +93,6 @@ const SendMoney = () => {
     fetchSupportedCoins();
   }, []);
 
-  // Estimate gas when amount or wallet address changes
   useEffect(() => {
     if (sendMode === "blockchain" && amount && (walletAddress || receiverWalletAddress)) {
       estimateGasFee();
@@ -98,7 +106,6 @@ const SendMoney = () => {
       .from("blockchain_settings")
       .select("rpc_url, chain_id, native_coin_symbol, is_active, liquidity_pool_address, fee_wallet_address, fee_wallet_encrypted_key, gas_fee_gyd")
       .maybeSingle();
-
     if (data) {
       setBlockchainSettings({
         ...data,
@@ -111,16 +118,13 @@ const SendMoney = () => {
   const fetchUserWallet = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-
     const { data } = await supabase
       .from("profiles")
-      .select("wallet_address")
+      .select("wallet_address, full_name")
       .eq("id", user.id)
       .single();
-
-    if (data?.wallet_address) {
-      setUserWalletAddress(data.wallet_address);
-    }
+    if (data?.wallet_address) setUserWalletAddress(data.wallet_address);
+    if (data?.full_name) setSenderName(data.full_name);
   };
 
   const fetchSupportedCoins = async () => {
@@ -128,100 +132,86 @@ const SendMoney = () => {
       supabase.from("supported_coins").select("*").eq("is_active", true),
       supabase.from("conversion_fees").select("from_coin, to_coin, fee_percentage").eq("is_active", true),
     ]);
-
     if (coinsRes.data) {
       setSupportedCoins(coinsRes.data);
       const nativeCoin = coinsRes.data.find(c => c.is_native);
-      if (nativeCoin) {
-        setSelectedCoin(nativeCoin.coin_symbol);
-        setNativeCoinSymbol(nativeCoin.coin_symbol);
-      }
+      if (nativeCoin) { setSelectedCoin(nativeCoin.coin_symbol); setNativeCoinSymbol(nativeCoin.coin_symbol); }
     }
     if (feesRes.data) setConversionFees(feesRes.data);
   };
 
-  const isNativeCoin = (coinSymbol: string) => {
-    const coin = supportedCoins.find(c => c.coin_symbol === coinSymbol);
-    return coin?.is_native ?? false;
-  };
+  const isNativeCoin = (coinSymbol: string) =>
+    supportedCoins.find(c => c.coin_symbol === coinSymbol)?.is_native ?? false;
 
-  const getConversionFee = (fromCoin: string, toCoin: string) => {
-    const fee = conversionFees.find(f => f.from_coin === fromCoin && f.to_coin === toCoin);
-    return fee?.fee_percentage ?? 0;
-  };
+  const getConversionFee = (fromCoin: string, toCoin: string) =>
+    conversionFees.find(f => f.from_coin === fromCoin && f.to_coin === toCoin)?.fee_percentage ?? 0;
 
   const calculateConvertedAmount = () => {
-    if (!selectedCoin || !nativeCoinSymbol || selectedCoin === nativeCoinSymbol) {
-      return parseFloat(amount) || 0;
-    }
-    const feePercentage = getConversionFee(selectedCoin, nativeCoinSymbol);
-    const inputAmount = parseFloat(amount) || 0;
-    return inputAmount * (1 - feePercentage / 100);
+    if (!selectedCoin || !nativeCoinSymbol || selectedCoin === nativeCoinSymbol) return parseFloat(amount) || 0;
+    return (parseFloat(amount) || 0) * (1 - getConversionFee(selectedCoin, nativeCoinSymbol) / 100);
   };
 
   const estimateGasFee = async () => {
     if (!blockchainSettings?.rpc_url || !userWalletAddress) return;
-    
     const targetAddress = walletAddress || receiverWalletAddress;
     if (!targetAddress || !isValidAddress(targetAddress) || !amount) return;
-
     setEstimatingGas(true);
     try {
-      const gas = await estimateGas(
-        blockchainSettings.rpc_url,
-        userWalletAddress,
-        targetAddress,
-        amount
-      );
+      const gas = await estimateGas(blockchainSettings.rpc_url, userWalletAddress, targetAddress, amount);
       setGasEstimate(gas);
-    } catch (error) {
-      console.error("Gas estimation error:", error);
-      setGasEstimate(null);
-    }
+    } catch { setGasEstimate(null); }
     setEstimatingGas(false);
   };
 
   const handleScanSuccess = async (userId: string) => {
     setReceiverId(userId);
     setShowScanner(false);
-    
-    const { data } = await supabase
-      .from("profiles")
-      .select("full_name, wallet_address")
-      .eq("id", userId)
-      .single();
-    
-    if (data) {
-      setReceiverName(data.full_name || "Unknown User");
-      setReceiverWalletAddress(data.wallet_address || "");
+    const { data } = await supabase.from("profiles").select("full_name, wallet_address").eq("id", userId).single();
+    if (data) { setReceiverName(data.full_name || "Unknown User"); setReceiverWalletAddress(data.wallet_address || ""); }
+  };
+
+  // ── AI Firewall check (runs before every transfer) ────────────────────────
+  const runFirewallCheck = async (txType: "internal" | "blockchain"): Promise<boolean> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    const result = await checkFirewall({
+      senderId: user.id,
+      receiverId: receiverId || undefined,
+      toAddress: walletAddress || receiverWalletAddress || undefined,
+      amount: parseFloat(amount) || 0,
+      txType,
+    });
+
+    if (result.blocked) {
+      setAnimReason(result.reason);
+      setAnimState("blocked");
+      setTimeout(() => {
+        setAnimState("idle");
+        setAnimReason(undefined);
+        setLoading(false);
+        setPendingBlockchainTx(false);
+      }, ANIM_BLOCKED_DURATION);
+      return false;
     }
+
+    return true;
   };
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (sendMode === "blockchain") {
-      // Check if selected coin is the native coin
-      if (selectedCoin && !isNativeCoin(selectedCoin)) {
-        setShowConversionDialog(true);
-        return;
-      }
 
-      // Validate wallet address
+    if (sendMode === "blockchain") {
+      if (selectedCoin && !isNativeCoin(selectedCoin)) { setShowConversionDialog(true); return; }
       const targetAddress = walletAddress || receiverWalletAddress;
       if (!targetAddress || !isValidAddress(targetAddress)) {
-        toast({
-          title: "Invalid Address",
-          description: "Please enter a valid wallet address",
-          variant: "destructive",
-        });
+        toast({ title: "Invalid Address", description: "Please enter a valid wallet address", variant: "destructive" });
         return;
       }
       setShowPasswordDialog(true);
       return;
     }
 
-    // Internal transfer
     await processInternalTransfer();
   };
 
@@ -230,8 +220,13 @@ const SendMoney = () => {
     navigate(`/coin-convert?from=${selectedCoin}&to=${nativeCoinSymbol}&amount=${amount}&returnTo=/send-money`);
   };
 
+  // ── Internal transfer ─────────────────────────────────────────────────────
   const processInternalTransfer = async () => {
     setLoading(true);
+    setAnimState("sending");
+
+    const passed = await runFirewallCheck("internal");
+    if (!passed) return;
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -242,92 +237,68 @@ const SendMoney = () => {
         _receiver_id: receiverId,
         _amount: parseFloat(amount),
         _transaction_type: "transfer",
-        _description: "Money transfer"
+        _description: "Money transfer",
       });
 
       if (error) throw error;
 
-      const result = data as { 
-        success: boolean; 
-        error?: string; 
-        fee?: number;
-        sender_cashback?: number;
-        liquidity_pool_fee?: number;
-      };
-      
+      const result = data as { success: boolean; error?: string; fee?: number; sender_cashback?: number; };
+
       if (result.success) {
-        toast({
-          title: "Transfer Successful",
-          description: `Sent $${amount} to ${receiverName}. Fee: $${result.fee?.toFixed(2)} (Cashback: $${result.sender_cashback?.toFixed(2)})`,
-        });
-        navigate(homeRoute);
+        setAnimState("success");
+        setTimeout(() => {
+          setAnimState("idle");
+          toast({
+            title: "Transfer Successful",
+            description: `Sent $${amount} to ${receiverName}. Fee: $${result.fee?.toFixed(2)} (Cashback: $${result.sender_cashback?.toFixed(2)})`,
+          });
+          navigate(homeRoute);
+        }, ANIM_SUCCESS_DURATION);
       } else {
-        toast({
-          title: "Transfer Failed",
-          description: result.error || "Unknown error",
-          variant: "destructive",
-        });
+        setAnimState("idle");
+        toast({ title: "Transfer Failed", description: result.error || "Unknown error", variant: "destructive" });
       }
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      setAnimState("idle");
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Blockchain transfer ───────────────────────────────────────────────────
   const processBlockchainTransfer = async () => {
     if (!blockchainSettings?.rpc_url) {
-      toast({
-        title: "Blockchain Not Configured",
-        description: "Please contact admin to configure blockchain settings",
-        variant: "destructive",
-      });
+      toast({ title: "Blockchain Not Configured", description: "Please contact admin to configure blockchain settings", variant: "destructive" });
       return;
     }
-
     if (!blockchainSettings?.fee_wallet_address || !blockchainSettings?.fee_wallet_encrypted_key) {
-      toast({
-        title: "Bank Fee Wallet Not Configured",
-        description: "Please contact admin to configure the bank fee wallet for gas sponsorship",
-        variant: "destructive",
-      });
+      toast({ title: "Bank Fee Wallet Not Configured", description: "Please contact admin to configure the bank fee wallet for gas sponsorship", variant: "destructive" });
       return;
     }
 
     setPendingBlockchainTx(true);
     setShowPasswordDialog(false);
+    setAnimState("sending");
+
+    const passed = await runFirewallCheck("blockchain");
+    if (!passed) return;
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      // Get encrypted private key
       const { data: walletData, error: walletError } = await supabase
-        .from("user_wallets")
-        .select("encrypted_private_key")
-        .eq("user_id", user.id)
-        .single();
+        .from("user_wallets").select("encrypted_private_key").eq("user_id", user.id).single();
+      if (walletError || !walletData) throw new Error("Wallet not found. Please contact support.");
 
-      if (walletError || !walletData) {
-        throw new Error("Wallet not found. Please contact support.");
-      }
-
-      // Decrypt user's private key
       let userPrivateKey: string;
-      try {
-        userPrivateKey = await decryptPrivateKey(walletData.encrypted_private_key, password);
-      } catch {
-        throw new Error("Incorrect password");
-      }
+      try { userPrivateKey = await decryptPrivateKey(walletData.encrypted_private_key, password); }
+      catch { throw new Error("Incorrect password"); }
 
       const targetAddress = walletAddress || receiverWalletAddress;
       const gasFeeGyd = blockchainSettings.gas_fee_gyd.toString();
-      
-      // Send sponsored transaction - bank pays gas, user pays fee in GYD
+
       const result = await sendSponsoredTransaction(
         blockchainSettings.rpc_url,
         userPrivateKey,
@@ -336,87 +307,82 @@ const SendMoney = () => {
         amount,
         gasFeeGyd,
         blockchainSettings.fee_wallet_address,
-        blockchainSettings.chain_id || undefined
+        blockchainSettings.chain_id || undefined,
       );
 
       if (result.success) {
-        // Record transaction metadata in PostgreSQL (source of truth is on-chain)
         await supabase.from("transactions").insert({
           sender_id: user.id,
-          receiver_id: user.id, // We don't know recipient user ID for blockchain transfers
+          receiver_id: user.id,
           amount: parseFloat(amount),
           fee: blockchainSettings.gas_fee_gyd,
-          status: 'completed',
-          transaction_type: 'blockchain_transfer',
+          status: "completed",
+          transaction_type: "blockchain_transfer",
           description: `Blockchain transfer to ${targetAddress.slice(0, 8)}...${targetAddress.slice(-6)}. TX: ${result.txHash}`,
           completed_at: new Date().toISOString(),
         });
 
-        toast({
-          title: "Blockchain Transfer Successful",
-          description: `Sent ${amount} ${blockchainSettings.native_coin_symbol} to ${targetAddress.slice(0, 8)}...${targetAddress.slice(-6)}. Fee: ${gasFeeGyd} ${blockchainSettings.native_coin_symbol}`,
-        });
-        navigate(homeRoute);
+        setAnimState("success");
+        setTimeout(() => {
+          setAnimState("idle");
+          toast({
+            title: "Blockchain Transfer Successful",
+            description: `Sent ${amount} ${blockchainSettings.native_coin_symbol} to ${targetAddress.slice(0, 8)}...${targetAddress.slice(-6)}.`,
+          });
+          navigate(homeRoute);
+        }, ANIM_SUCCESS_DURATION);
       } else {
-        toast({
-          title: "Transfer Failed",
-          description: result.error || "Blockchain transaction failed",
-          variant: "destructive",
-        });
+        setAnimState("idle");
+        toast({ title: "Transfer Failed", description: result.error || "Blockchain transaction failed", variant: "destructive" });
       }
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      setAnimState("idle");
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setPendingBlockchainTx(false);
       setPassword("");
     }
   };
 
+  const isBusy = loading || pendingBlockchainTx;
+  const toLabel = receiverName
+    || ((walletAddress || receiverWalletAddress)
+      ? `${(walletAddress || receiverWalletAddress).slice(0, 8)}…`
+      : "Recipient");
+
   return (
     <div className="min-h-screen bg-background p-4">
+      {/* ── Courier transfer animation overlay ── */}
+      <TransferAnimation
+        state={animState}
+        from={senderName}
+        to={toLabel}
+        amount={amount || "0"}
+        currency={sendMode === "blockchain" ? (blockchainSettings?.native_coin_symbol || "COIN") : "GYD"}
+        reason={animReason}
+      />
+
       <div className="max-w-md mx-auto">
-        <Button
-          variant="ghost"
-          onClick={() => navigate(homeRoute)}
-          className="mb-4"
-        >
+        <Button variant="ghost" onClick={() => navigate(homeRoute)} className="mb-4">
           <ArrowLeft size={20} className="mr-2" />
           Back
         </Button>
 
         <h1 className="text-2xl font-bold mb-6">Send Money</h1>
 
-        {/* Transfer Mode Selection */}
         {blockchainSettings?.is_active && (
           <div className="flex gap-2 mb-4">
-            <Button
-              variant={sendMode === "internal" ? "default" : "outline"}
-              onClick={() => setSendMode("internal")}
-              className="flex-1"
-            >
-              <User size={16} className="mr-2" />
-              Internal
+            <Button variant={sendMode === "internal" ? "default" : "outline"} onClick={() => setSendMode("internal")} className="flex-1">
+              <User size={16} className="mr-2" /> Internal
             </Button>
-            <Button
-              variant={sendMode === "blockchain" ? "default" : "outline"}
-              onClick={() => setSendMode("blockchain")}
-              className="flex-1"
-            >
-              <Wallet size={16} className="mr-2" />
-              Blockchain
+            <Button variant={sendMode === "blockchain" ? "default" : "outline"} onClick={() => setSendMode("blockchain")} className="flex-1">
+              <Wallet size={16} className="mr-2" /> Blockchain
             </Button>
           </div>
         )}
 
         {showScanner ? (
-          <QRScanner
-            onScanSuccess={handleScanSuccess}
-            onClose={() => setShowScanner(false)}
-          />
+          <QRScanner onScanSuccess={handleScanSuccess} onClose={() => setShowScanner(false)} />
         ) : (
           <Card className="p-6">
             <form onSubmit={handleSend} className="space-y-4">
@@ -429,19 +395,15 @@ const SendMoney = () => {
                       value={receiverName || receiverId}
                       onChange={(e) => setReceiverId(e.target.value)}
                       required
+                      data-testid="input-receiver"
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setShowScanner(true)}
-                    >
+                    <Button type="button" variant="outline" onClick={() => setShowScanner(true)}>
                       <QrCode size={20} />
                     </Button>
                   </div>
                   {receiverName && (
                     <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-                      <User size={14} />
-                      {receiverName}
+                      <User size={14} /> {receiverName}
                     </p>
                   )}
                 </div>
@@ -454,10 +416,10 @@ const SendMoney = () => {
                       value={walletAddress}
                       onChange={(e) => setWalletAddress(e.target.value)}
                       required
+                      data-testid="input-wallet-address"
                     />
                     <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                      <Info size={12} />
-                      Enter the recipient's {blockchainSettings?.native_coin_symbol} wallet address
+                      <Info size={12} /> Enter the recipient's {blockchainSettings?.native_coin_symbol} wallet address
                     </p>
                   </div>
 
@@ -465,22 +427,20 @@ const SendMoney = () => {
                     <div>
                       <Label>Select Coin</Label>
                       <Select value={selectedCoin} onValueChange={setSelectedCoin}>
-                        <SelectTrigger>
+                        <SelectTrigger data-testid="select-coin">
                           <SelectValue placeholder="Select coin" />
                         </SelectTrigger>
                         <SelectContent>
                           {supportedCoins.map((coin) => (
                             <SelectItem key={coin.id} value={coin.coin_symbol}>
-                              {coin.coin_name} ({coin.coin_symbol})
-                              {coin.is_native && " - Native"}
+                              {coin.coin_name} ({coin.coin_symbol}){coin.is_native && " - Native"}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                       {selectedCoin && !isNativeCoin(selectedCoin) && (
                         <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
-                          <AlertTriangle size={12} />
-                          This coin will be converted to {nativeCoinSymbol} before sending
+                          <AlertTriangle size={12} /> This coin will be converted to {nativeCoinSymbol} before sending
                         </p>
                       )}
                     </div>
@@ -497,18 +457,17 @@ const SendMoney = () => {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   required
+                  data-testid="input-amount"
                 />
                 {sendMode === "internal" ? (
                   <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                    <Info size={12} />
-                    60% of fees returned to you as cashback
+                    <Info size={12} /> 60% of fees returned to you as cashback
                   </p>
                 ) : (
                   <div className="mt-2 p-3 rounded-lg bg-muted/50 space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1 text-muted-foreground">
-                        <Fuel size={14} />
-                        Transaction Fee
+                        <Fuel size={14} /> Transaction Fee
                       </span>
                       <span className="font-medium">
                         {blockchainSettings?.gas_fee_gyd || 0.01} {blockchainSettings?.native_coin_symbol}
@@ -534,19 +493,15 @@ const SendMoney = () => {
                 )}
               </div>
 
-              <Button 
-                type="submit" 
-                className="w-full" 
-                disabled={loading || pendingBlockchainTx}
-              >
-                {loading || pendingBlockchainTx ? "Processing..." : `Send ${sendMode === "blockchain" ? blockchainSettings?.native_coin_symbol : "Money"}`}
+              <Button type="submit" className="w-full" disabled={isBusy} data-testid="button-send">
+                {isBusy ? "Processing…" : `Send ${sendMode === "blockchain" ? blockchainSettings?.native_coin_symbol : "Money"}`}
               </Button>
             </form>
           </Card>
         )}
       </div>
 
-      {/* Password Dialog for Blockchain Transactions */}
+      {/* Password Dialog */}
       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
         <DialogContent>
           <DialogHeader>
@@ -563,6 +518,7 @@ const SendMoney = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your account password"
+                data-testid="input-password"
               />
             </div>
             <div className="bg-muted/50 p-3 rounded-lg text-sm">
@@ -573,6 +529,7 @@ const SendMoney = () => {
               onClick={processBlockchainTransfer}
               className="w-full"
               disabled={!password}
+              data-testid="button-confirm-send"
             >
               Confirm & Send
             </Button>
@@ -580,13 +537,12 @@ const SendMoney = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Conversion Required Dialog */}
+      {/* Conversion Dialog */}
       <Dialog open={showConversionDialog} onOpenChange={setShowConversionDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ArrowRightLeft size={20} />
-              Conversion Required
+              <ArrowRightLeft size={20} /> Conversion Required
             </DialogTitle>
             <DialogDescription>
               You can only send {nativeCoinSymbol} on the blockchain. Your {selectedCoin} needs to be converted first.
@@ -607,17 +563,11 @@ const SendMoney = () => {
                 <span>{calculateConvertedAmount().toFixed(6)} {nativeCoinSymbol}</span>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Conversion fees go to the liquidity pool.
-            </p>
+            <p className="text-xs text-muted-foreground">Conversion fees go to the liquidity pool.</p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowConversionDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleConvertAndSend}>
-              Convert & Continue
-            </Button>
+            <Button variant="outline" onClick={() => setShowConversionDialog(false)}>Cancel</Button>
+            <Button onClick={handleConvertAndSend}>Convert & Continue</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

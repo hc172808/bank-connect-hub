@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil, Brain, Activity, AlertTriangle, Palette } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil, Brain, Activity, AlertTriangle, Palette, ShieldAlert, Cpu } from "lucide-react";
 import { loadAISettings, scoreTransactions, summarizeRisk } from "@/lib/aiSecurity";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -330,6 +330,24 @@ const AdminDashboard = () => {
                     {aiSummary.critical} critical
                   </span>
                 )}
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/firewall")}
+                data-testid="button-firewall"
+              >
+                <ShieldAlert size={20} />
+                AI Firewall
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/litenode")}
+                data-testid="button-litenode"
+              >
+                <Cpu size={20} />
+                Replit Litenode (Test RPC)
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
