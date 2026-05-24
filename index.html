@@ -16,6 +16,10 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@VirtualBank" />
 
+    <!-- Runtime environment config (injected by docker/generate-env.sh at container start) -->
+    <!-- In development this file doesn't exist; the app falls back to import.meta.env -->
+    <script src="/env-config.js" onerror="console.info('env-config.js not found — using build-time env vars (dev mode)')"></script>
+
     <!-- PWA -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icon.svg" />

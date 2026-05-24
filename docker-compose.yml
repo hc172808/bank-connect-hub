@@ -32,6 +32,17 @@ services:
         condition: service_healthy
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+    # ── Runtime env injection (shared DB, per-server config) ──────────────
+    # These vars are read by docker/generate-env.sh at container startup and
+    # written into /usr/share/nginx/html/env-config.js.
+    # All servers can share the same Docker image — just change .env per server.
+    environment:
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}
+      - VITE_SUPABASE_PROJECT_ID=${VITE_SUPABASE_PROJECT_ID:-}
+      - VITE_WHATSAPP_SUPPORT_NUMBER=${VITE_WHATSAPP_SUPPORT_NUMBER:-}
+      - NODE_ENV=${NODE_ENV:-production}
+      - APP_PORT=${APP_PORT:-3000}
     # ── Security hardening ────────────────────────────────────────────────
     security_opt:
       - no-new-privileges:true
