@@ -11,7 +11,8 @@ import {
   LogOut,
   ChevronRight,
   Shield,
-  Bell
+  Bell,
+  FileCheck
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -26,7 +27,8 @@ const menuItems = [
   { icon: User, label: "My Profile", path: "/profile" },
   { icon: Lock, label: "Change Password", path: "/change-password" },
   { icon: Bell, label: "Notifications", path: "/notifications" },
-  { icon: Shield, label: "Security", path: "/profile" },
+  { icon: Shield, label: "Security & 2FA", path: "/security" },
+  { icon: FileCheck, label: "Identity Verification (KYC)", path: "/kyc" },
   { icon: HelpCircle, label: "Help & Support", path: "/feedback" },
   { icon: MessageSquare, label: "Feedback", path: "/feedback" },
 ];
