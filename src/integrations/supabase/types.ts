@@ -17,6 +17,7 @@ export type Database = {
       app_releases: {
         Row: {
           created_at: string
+          created_by: string | null
           file_path: string | null
           file_size: number | null
           file_url: string
@@ -30,6 +31,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          created_by?: string | null
           file_path?: string | null
           file_size?: number | null
           file_url: string
@@ -43,6 +45,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          created_by?: string | null
           file_path?: string | null
           file_size?: number | null
           file_url?: string
@@ -608,6 +611,7 @@ export type Database = {
         Row: {
           created_at: string
           fulfilled_at: string | null
+          fulfilled_by: string | null
           id: string
           notes: string | null
           status: string
@@ -616,6 +620,7 @@ export type Database = {
         Insert: {
           created_at?: string
           fulfilled_at?: string | null
+          fulfilled_by?: string | null
           id?: string
           notes?: string | null
           status?: string
@@ -624,12 +629,21 @@ export type Database = {
         Update: {
           created_at?: string
           fulfilled_at?: string | null
+          fulfilled_by?: string | null
           id?: string
           notes?: string | null
           status?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "qr_card_requests_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       supported_coins: {
         Row: {
