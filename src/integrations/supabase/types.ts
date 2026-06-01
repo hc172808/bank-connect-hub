@@ -17,6 +17,8 @@ export type Database = {
       app_releases: {
         Row: {
           created_at: string
+          file_path: string | null
+          file_size: number | null
           file_url: string
           id: string
           is_force_update: boolean
@@ -28,6 +30,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          file_path?: string | null
+          file_size?: number | null
           file_url: string
           id?: string
           is_force_update?: boolean
@@ -39,6 +43,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          file_path?: string | null
+          file_size?: number | null
           file_url?: string
           id?: string
           is_force_update?: boolean
@@ -595,6 +601,33 @@ export type Database = {
           updated_at?: string
           wallet_address?: string | null
           wallet_created_at?: string | null
+        }
+        Relationships: []
+      }
+      qr_card_requests: {
+        Row: {
+          created_at: string
+          fulfilled_at: string | null
+          id: string
+          notes: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fulfilled_at?: string | null
+          id?: string
+          notes?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          fulfilled_at?: string | null
+          id?: string
+          notes?: string | null
+          status?: string
+          user_id?: string
         }
         Relationships: []
       }
