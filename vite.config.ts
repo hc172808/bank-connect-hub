@@ -8,12 +8,12 @@ export default defineConfig(() => ({
   server: {
     host: "0.0.0.0",
     port: 5000,
-    allowedHosts: true,
+    allowedHosts: true as const,
   },
   preview: {
     host: "0.0.0.0",
     port: 5000,
-    allowedHosts: true,
+    allowedHosts: true as const,
   },
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
@@ -45,7 +45,7 @@ export default defineConfig(() => ({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         runtimeCaching: [
           {
-            urlPattern: ({ url }) => url.origin === self.location.origin && /\.(?:png|jpg|jpeg|svg|gif|webp)$/i.test(url.pathname),
+            urlPattern: ({ url }) => /\.(?:png|jpg|jpeg|svg|gif|webp)$/i.test(url.pathname),
             handler: "CacheFirst",
             options: {
               cacheName: "img-cache",

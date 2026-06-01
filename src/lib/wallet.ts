@@ -218,7 +218,7 @@ export const sendTransaction = async (
 
   // ── Acquire nonce lock (double-spend guard) ────────────────────────────────
   const lockResult = acquireNonceLock(fromAddress, idempotencyKey);
-  if (!lockResult.acquired) {
+  if (lockResult.acquired === false) {
     return { success: false, error: lockResult.reason };
   }
   const lockKey = lockResult.key;

@@ -188,7 +188,7 @@ export default function Profile() {
     }
     setImporting(true);
     try {
-      let wallet: ethers.Wallet;
+      let wallet: ethers.Wallet | ethers.HDNodeWallet;
       if (method === 'privateKey') {
         const key = importKey.trim();
         if (!key) throw new Error('Enter a private key');

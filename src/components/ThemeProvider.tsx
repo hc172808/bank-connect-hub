@@ -66,16 +66,16 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
         let locked = false;
 
         for (const row of data) {
-          if (row.key === "default_theme") adminDefault = row.value as ThemeId;
+          if (row.key === "default_theme") adminDefault = String(row.value) as ThemeId;
           if (row.key === "enabled_themes") {
             try {
-              const ids: ThemeId[] = JSON.parse(row.value);
+              const ids: ThemeId[] = JSON.parse(String(row.value));
               const filtered = THEME_PRESETS.filter((p) => ids.includes(p.id as ThemeId));
               if (filtered.length > 0) { enabledIds = ids; setEnabledPresets(filtered); }
             } catch { /* keep all presets as fallback */ }
           }
           if (row.key === "lock_theme") {
-            locked = row.value === "true";
+            locked = String(row.value) === "true";
             setThemeLocked(locked);
           }
         }
@@ -93,8 +93,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
             }
           }
         }
-      })
-      .catch(() => { /* silently ignore — table may not exist yet */ });
+      });
   }, []);
 
   const setThemeId = (id: ThemeId) => {
