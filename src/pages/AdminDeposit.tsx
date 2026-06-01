@@ -18,14 +18,28 @@ const AdminDeposit = () => {
   const { toast } = useToast();
 
   const searchUsers = async () => {
-    if (!userSearch.trim()) return;
+    const term = userSearch.trim();
+    if (!term) return;
 
-    const { data } = await supabase
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(term);
+    const filter = isUuid
+      ? `full_name.ilike.%${term}%,phone_number.ilike.%${term}%,id.eq.${term}`
+      : `full_name.ilike.%${term}%,phone_number.ilike.%${term}%`;
+
+    const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name")
-      .or(`full_name.ilike.%${userSearch}%,id.eq.${userSearch}`)
-      .limit(5);
+      .select("id, full_name, phone_number")
+      .or(filter)
+      .limit(10);
 
+    if (error) {
+      toast({ title: "Search failed", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      toast({ title: "No users found", description: `No match for "${term}"` });
+    }
     setSearchResults(data || []);
   };
 
