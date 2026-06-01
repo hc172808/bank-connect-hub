@@ -14,6 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_releases: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          file_path: string | null
+          file_size: number | null
+          file_url: string
+          id: string
+          is_force_update: boolean
+          is_latest: boolean
+          platform: string
+          release_notes: string | null
+          updated_at: string
+          version: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          file_url: string
+          id?: string
+          is_force_update?: boolean
+          is_latest?: boolean
+          platform?: string
+          release_notes?: string | null
+          updated_at?: string
+          version: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          file_url?: string
+          id?: string
+          is_force_update?: boolean
+          is_latest?: boolean
+          platform?: string
+          release_notes?: string | null
+          updated_at?: string
+          version?: string
+        }
+        Relationships: []
+      }
+      app_settings: {
+        Row: {
+          id: string
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          id?: string
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Update: {
+          id?: string
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       biometric_credentials: {
         Row: {
           auth_type: string
@@ -537,6 +606,44 @@ export type Database = {
           wallet_created_at?: string | null
         }
         Relationships: []
+      }
+      qr_card_requests: {
+        Row: {
+          created_at: string
+          fulfilled_at: string | null
+          fulfilled_by: string | null
+          id: string
+          notes: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fulfilled_at?: string | null
+          fulfilled_by?: string | null
+          id?: string
+          notes?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          fulfilled_at?: string | null
+          fulfilled_by?: string | null
+          id?: string
+          notes?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qr_card_requests_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       supported_coins: {
         Row: {

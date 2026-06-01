@@ -44,11 +44,11 @@ export default function AdminThemes() {
 
     if (data) {
       for (const row of data) {
-        if (row.key === SETTINGS_KEY_DEFAULT) setDefaultTheme(row.value as ThemeId);
+        if (row.key === SETTINGS_KEY_DEFAULT) setDefaultTheme(String(row.value) as ThemeId);
         if (row.key === SETTINGS_KEY_ENABLED) {
-          try { setEnabledThemes(JSON.parse(row.value)); } catch { /* keep default */ }
+          try { setEnabledThemes(JSON.parse(String(row.value))); } catch { /* keep default */ }
         }
-        if (row.key === SETTINGS_KEY_LOCK) setLockTheme(row.value === "true");
+        if (row.key === SETTINGS_KEY_LOCK) setLockTheme(String(row.value) === "true");
       }
     }
     setLoading(false);

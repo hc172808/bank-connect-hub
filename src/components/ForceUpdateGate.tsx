@@ -23,8 +23,8 @@ export function ForceUpdateGate({ children }: ForceUpdateGateProps) {
 
       if (!settings) { setChecked(true); return; }
 
-      const enabled = settings.find((r) => r.key === "force_update_enabled")?.value === "true";
-      const minVer  = settings.find((r) => r.key === "force_update_min_version")?.value ?? "0.0.0";
+      const enabled = String(settings.find((r) => r.key === "force_update_enabled")?.value ?? "") === "true";
+      const minVer  = String(settings.find((r) => r.key === "force_update_min_version")?.value ?? "0.0.0");
 
       if (enabled && compareSemver(APP_VERSION, minVer) < 0) {
         setMinVersion(minVer);

@@ -89,9 +89,9 @@ export default function AdminAppManager() {
     setReleases((rels as AppRelease[]) || []);
     if (settings) {
       for (const r of settings) {
-        if (r.key === "ota_url") setOtaUrl(r.value);
-        if (r.key === "force_update_enabled") setForceEnabled(r.value === "true");
-        if (r.key === "force_update_min_version") setMinVersion(r.value);
+        if (r.key === "ota_url") setOtaUrl(String(r.value ?? ""));
+        if (r.key === "force_update_enabled") setForceEnabled(String(r.value) === "true");
+        if (r.key === "force_update_min_version") setMinVersion(String(r.value ?? ""));
       }
     }
     setLoadingRel(false);
