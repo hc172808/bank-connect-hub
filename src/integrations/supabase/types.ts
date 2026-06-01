@@ -14,6 +14,66 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_releases: {
+        Row: {
+          created_at: string
+          file_url: string
+          id: string
+          is_force_update: boolean
+          is_latest: boolean
+          platform: string
+          release_notes: string | null
+          updated_at: string
+          version: string
+        }
+        Insert: {
+          created_at?: string
+          file_url: string
+          id?: string
+          is_force_update?: boolean
+          is_latest?: boolean
+          platform?: string
+          release_notes?: string | null
+          updated_at?: string
+          version: string
+        }
+        Update: {
+          created_at?: string
+          file_url?: string
+          id?: string
+          is_force_update?: boolean
+          is_latest?: boolean
+          platform?: string
+          release_notes?: string | null
+          updated_at?: string
+          version?: string
+        }
+        Relationships: []
+      }
+      app_settings: {
+        Row: {
+          id: string
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          id?: string
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Update: {
+          id?: string
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       biometric_credentials: {
         Row: {
           auth_type: string
