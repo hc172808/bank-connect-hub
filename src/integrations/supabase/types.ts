@@ -83,6 +83,45 @@ export type Database = {
         }
         Relationships: []
       }
+      audit_logs: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_role: string | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string | null
+          id: string
+          ip_address: string | null
+          metadata: Json
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          ip_address?: string | null
+          metadata?: Json
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+          ip_address?: string | null
+          metadata?: Json
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       biometric_credentials: {
         Row: {
           auth_type: string
@@ -271,6 +310,51 @@ export type Database = {
           },
         ]
       }
+      device_sessions: {
+        Row: {
+          browser: string | null
+          created_at: string
+          device_name: string | null
+          id: string
+          ip_address: string | null
+          is_current: boolean
+          last_active_at: string
+          location: string | null
+          os: string | null
+          revoked_at: string | null
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          browser?: string | null
+          created_at?: string
+          device_name?: string | null
+          id?: string
+          ip_address?: string | null
+          is_current?: boolean
+          last_active_at?: string
+          location?: string | null
+          os?: string | null
+          revoked_at?: string | null
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          browser?: string | null
+          created_at?: string
+          device_name?: string | null
+          id?: string
+          ip_address?: string | null
+          is_current?: boolean
+          last_active_at?: string
+          location?: string | null
+          os?: string | null
+          revoked_at?: string | null
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       external_databases: {
         Row: {
           created_at: string
@@ -448,6 +532,66 @@ export type Database = {
         }
         Relationships: []
       }
+      kyc_submissions: {
+        Row: {
+          address: string
+          country: string
+          created_at: string
+          date_of_birth: string
+          document_back_url: string | null
+          document_front_url: string | null
+          document_number: string
+          document_type: string
+          full_name: string
+          id: string
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          selfie_url: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address: string
+          country: string
+          created_at?: string
+          date_of_birth: string
+          document_back_url?: string | null
+          document_front_url?: string | null
+          document_number: string
+          document_type: string
+          full_name: string
+          id?: string
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          selfie_url?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address?: string
+          country?: string
+          created_at?: string
+          date_of_birth?: string
+          document_back_url?: string | null
+          document_front_url?: string | null
+          document_number?: string
+          document_type?: string
+          full_name?: string
+          id?: string
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          selfie_url?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mobile_money_providers: {
         Row: {
           color: string
@@ -564,9 +708,11 @@ export type Database = {
           date_of_birth: string | null
           full_name: string | null
           id: string
+          kyc_status: string
           phone_number: string | null
           pin_hash: string | null
           store_name: string | null
+          two_factor_enabled: boolean
           updated_at: string
           wallet_address: string | null
           wallet_created_at: string | null
@@ -581,9 +727,11 @@ export type Database = {
           date_of_birth?: string | null
           full_name?: string | null
           id: string
+          kyc_status?: string
           phone_number?: string | null
           pin_hash?: string | null
           store_name?: string | null
+          two_factor_enabled?: boolean
           updated_at?: string
           wallet_address?: string | null
           wallet_created_at?: string | null
@@ -598,9 +746,11 @@ export type Database = {
           date_of_birth?: string | null
           full_name?: string | null
           id?: string
+          kyc_status?: string
           phone_number?: string | null
           pin_hash?: string | null
           store_name?: string | null
+          two_factor_enabled?: boolean
           updated_at?: string
           wallet_address?: string | null
           wallet_created_at?: string | null
@@ -678,6 +828,45 @@ export type Database = {
         }
         Relationships: []
       }
+      suspicious_activity_alerts: {
+        Row: {
+          alert_type: string
+          created_at: string
+          description: string
+          id: string
+          metadata: Json
+          reviewed_at: string | null
+          reviewed_by: string | null
+          severity: string
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          alert_type: string
+          created_at?: string
+          description: string
+          id?: string
+          metadata?: Json
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          severity?: string
+          status?: string
+          user_id?: string | null
+        }
+        Update: {
+          alert_type?: string
+          created_at?: string
+          description?: string
+          id?: string
+          metadata?: Json
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          severity?: string
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       transaction_fees: {
         Row: {
           fee_percentage: number
@@ -741,6 +930,39 @@ export type Database = {
           sender_id?: string
           status?: string
           transaction_type?: string
+        }
+        Relationships: []
+      }
+      two_factor_auth: {
+        Row: {
+          backup_codes: string[]
+          created_at: string
+          enabled: boolean
+          id: string
+          secret: string
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          backup_codes?: string[]
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          secret: string
+          updated_at?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          backup_codes?: string[]
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          secret?: string
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
         }
         Relationships: []
       }
@@ -900,6 +1122,15 @@ export type Database = {
         Returns: boolean
       }
       hash_pin: { Args: { pin: string }; Returns: string }
+      log_audit_event: {
+        Args: {
+          _action: string
+          _entity_id?: string
+          _entity_type?: string
+          _metadata?: Json
+        }
+        Returns: string
+      }
       process_pending_reversals: { Args: never; Returns: Json }
       process_transaction: {
         Args: {
