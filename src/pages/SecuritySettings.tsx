@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Trash2 } from "lucide-react";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
-import UAParser from "ua-parser-js";
+import { UAParser } from "ua-parser-js";
 
 interface DeviceSession {
   id: string;

@@ -76,6 +76,11 @@ const ManageMobileProviders = lazy(() => import("./pages/ManageMobileProviders")
 const RequestReversal = lazy(() => import("./pages/RequestReversal"));
 const ManageReversals = lazy(() => import("./pages/ManageReversals"));
 const ManageChangelog = lazy(() => import("./pages/ManageChangelog"));
+const SecuritySettings = lazy(() => import("./pages/SecuritySettings"));
+const KYCSubmission = lazy(() => import("./pages/KYCSubmission"));
+const AdminAuditLogs = lazy(() => import("./pages/AdminAuditLogs"));
+const AdminKYCReview = lazy(() => import("./pages/AdminKYCReview"));
+const AdminSuspiciousAlerts = lazy(() => import("./pages/AdminSuspiciousAlerts"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -161,6 +166,8 @@ const AppRoutes = () => {
         <Route path="/vendor-store" element={<VendorStore />} />
         <Route path="/vendors" element={<VendorList />} />
         <Route path="/request-reversal" element={<RequestReversal />} />
+        <Route path="/security" element={<SecuritySettings />} />
+        <Route path="/kyc" element={<KYCSubmission />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -184,6 +191,8 @@ const AppRoutes = () => {
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />
+        <Route path="/security" element={<SecuritySettings />} />
+        <Route path="/kyc" element={<KYCSubmission />} />
         <Route path="*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     );
@@ -199,6 +208,8 @@ const AppRoutes = () => {
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />
+        <Route path="/security" element={<SecuritySettings />} />
+        <Route path="/kyc" element={<KYCSubmission />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
     );
@@ -235,6 +246,10 @@ const AppRoutes = () => {
         <Route path="/admin/app-releases" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppReleases /></ProtectedRoute>} />
         <Route path="/admin/themes" element={<ProtectedRoute allowedRoles={["admin"]}><AdminThemes /></ProtectedRoute>} />
         <Route path="/admin/app-manager" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppManager /></ProtectedRoute>} />
+        <Route path="/admin/audit-logs" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAuditLogs /></ProtectedRoute>} />
+        <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={["admin"]}><AdminKYCReview /></ProtectedRoute>} />
+        <Route path="/admin/alerts" element={<ProtectedRoute allowedRoles={["admin"]}><AdminSuspiciousAlerts /></ProtectedRoute>} />
+        <Route path="/security" element={<SecuritySettings />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
