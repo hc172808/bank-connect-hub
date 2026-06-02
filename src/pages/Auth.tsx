@@ -165,16 +165,6 @@ const Auth = () => {
         toast({ title: "Welcome back!", description: "Signed in successfully" });
         return;
       }
-      // unreachable, but keeps the original control flow
-      if (false) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: ``,
-          password,
-        });
-        if (error) throw error;
-
-        toast({ title: "Welcome back!", description: "Signed in successfully" });
-      }
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message });
     } finally {
