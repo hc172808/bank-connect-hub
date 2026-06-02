@@ -101,14 +101,13 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      const normalizedPhone = normalizeGuyanaPhone(phoneNumber);
-      if (!normalizedPhone) {
-        toast({ variant: "destructive", title: "Invalid phone", description: "Enter a valid Guyana number (+592 followed by 7 digits)." });
-        setLoading(false);
-        return;
-      }
-
       if (mode === "signup") {
+        const normalizedPhone = normalizeGuyanaPhone(phoneNumber);
+        if (!normalizedPhone) {
+          toast({ variant: "destructive", title: "Invalid phone", description: "Enter a valid Guyana number (+592 followed by 7 digits)." });
+          setLoading(false);
+          return;
+        }
         const wallet = generateWallet();
         setWalletData(wallet);
         const encryptedKey = await encryptPrivateKey(wallet.privateKey, password);
@@ -145,8 +144,31 @@ const Auth = () => {
 
         setShowWalletDialog(true);
       } else {
+        // Sign-in: accept normalized OR legacy raw phone for backward-compat
+        const normalizedPhone = normalizeGuyanaPhone(phoneNumber);
+        const rawDigits = phoneNumber.replace(/\D+/g, "");
+        const emailCandidates = [
+          normalizedPhone ? `${normalizedPhone.replace("+", "")}@vbank.com` : null,
+          rawDigits ? `${rawDigits}@vbank.com` : null,
+          `${phoneNumber}@vbank.com`,
+        ].filter((x, i, arr): x is string => !!x && arr.indexOf(x) === i);
+
+        let signedIn = false;
+        let lastError: any = null;
+        for (const email of emailCandidates) {
+          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          if (!error) { signedIn = true; break; }
+          lastError = error;
+        }
+        if (!signedIn) throw lastError ?? new Error("Sign-in failed");
+
+        toast({ title: "Welcome back!", description: "Signed in successfully" });
+        return;
+      }
+      // unreachable, but keeps the original control flow
+      if (false) {
         const { error } = await supabase.auth.signInWithPassword({
-          email: `${normalizedPhone.replace("+", "")}@vbank.com`,
+          email: ``,
           password,
         });
         if (error) throw error;
