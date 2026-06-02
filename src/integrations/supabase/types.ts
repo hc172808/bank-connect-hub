@@ -706,6 +706,9 @@ export type Database = {
           country: string | null
           created_at: string
           date_of_birth: string | null
+          disabled: boolean
+          disabled_at: string | null
+          disabled_by: string | null
           full_name: string | null
           id: string
           kyc_status: string
@@ -725,6 +728,9 @@ export type Database = {
           country?: string | null
           created_at?: string
           date_of_birth?: string | null
+          disabled?: boolean
+          disabled_at?: string | null
+          disabled_by?: string | null
           full_name?: string | null
           id: string
           kyc_status?: string
@@ -744,6 +750,9 @@ export type Database = {
           country?: string | null
           created_at?: string
           date_of_birth?: string | null
+          disabled?: boolean
+          disabled_at?: string | null
+          disabled_by?: string | null
           full_name?: string | null
           id?: string
           kyc_status?: string

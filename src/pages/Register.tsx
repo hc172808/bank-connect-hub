@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff, Mail, Phone, User, Copy, AlertTriangle, Store, Users } from 'lucide-react';
 import { generateWallet, encryptPrivateKey } from '@/lib/wallet';
+import { GuyanaPhoneInput } from '@/components/GuyanaPhoneInput';
+import { normalizeGuyanaPhone } from '@/lib/phone';
 import {
   Dialog,
   DialogContent,
@@ -53,6 +55,11 @@ export default function Register() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    const normalizedPhone = normalizeGuyanaPhone(phoneNumber);
+    if (!normalizedPhone) {
+      toast({ variant: "destructive", title: "Invalid phone", description: "Enter a valid Guyana number (+592 followed by 7 digits)." });
+      return;
+    }
     
     if (password !== confirmPassword) {
       toast({
@@ -82,7 +89,7 @@ export default function Register() {
       // Encrypt private key with user's password
       const encryptedKey = await encryptPrivateKey(wallet.privateKey, password);
 
-      const emailToUse = email || `${phoneNumber}@virtualbank.app`;
+      const emailToUse = email || `${normalizedPhone.replace("+", "")}@virtualbank.app`;
       
       const { data, error } = await supabase.auth.signUp({
         email: emailToUse,
@@ -90,7 +97,7 @@ export default function Register() {
         options: {
           data: {
             full_name: fullName,
-            phone_number: phoneNumber,
+            phone_number: normalizedPhone,
             wallet_address: wallet.address,
             account_type: accountType,
           },
@@ -192,13 +199,7 @@ export default function Register() {
                 <Phone className="w-4 h-4" />
                 Phone Number
               </label>
-              <Input
-                type="tel"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="+1234567890"
-                required
-              />
+              <GuyanaPhoneInput value={phoneNumber} onChange={setPhoneNumber} required />
             </div>
 
             <div className="space-y-2">
