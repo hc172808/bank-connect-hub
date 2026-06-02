@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { QRScanner } from "@/components/QRScanner";
-import { ArrowLeft, QrCode, User, Wallet, Info, Fuel, ArrowRightLeft, AlertTriangle } from "lucide-react";
+import { ArrowLeft, QrCode, User, Wallet, Info, Fuel, ArrowRightLeft, AlertTriangle, Search, RotateCcw, X } from "lucide-react";
 import { isValidAddress, sendSponsoredTransaction, decryptPrivateKey, estimateGas } from "@/lib/wallet";
 import { useDashboardHome } from "@/hooks/useDashboardHome";
 import { checkFirewall } from "@/lib/aiFirewall";
@@ -83,6 +83,12 @@ const SendMoney = () => {
   const [animState, setAnimState] = useState<TransferState>("idle");
   const [animReason, setAnimReason] = useState<string | undefined>();
 
+  // User lookup + recent recipients
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Array<{ id: string; full_name: string | null; phone_number: string | null; wallet_address: string | null }>>([]);
+  const [searching, setSearching] = useState(false);
+  const [recentRecipients, setRecentRecipients] = useState<Array<{ id: string; full_name: string | null; phone_number: string | null; last_amount: number }>>([]);
+
   const navigate = useNavigate();
   const { toast } = useToast();
   const homeRoute = useDashboardHome();
@@ -91,7 +97,84 @@ const SendMoney = () => {
     fetchBlockchainSettings();
     fetchUserWallet();
     fetchSupportedCoins();
+    fetchRecentRecipients();
   }, []);
+
+  // Debounced lookup of users by name/phone
+  useEffect(() => {
+    if (sendMode !== "internal") return;
+    if (receiverId) return; // already locked to a recipient
+    const q = searchQuery.trim();
+    if (q.length < 2) { setSearchResults([]); return; }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, full_name, phone_number, wallet_address")
+        .or(`full_name.ilike.%${q}%,phone_number.ilike.%${q}%`)
+        .limit(8);
+      setSearchResults(data || []);
+      setSearching(false);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchQuery, sendMode, receiverId]);
+
+  const fetchRecentRecipients = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: txs } = await supabase
+      .from("transactions")
+      .select("receiver_id, amount, created_at")
+      .eq("sender_id", user.id)
+      .eq("transaction_type", "transfer")
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (!txs?.length) return;
+    const seen = new Set<string>();
+    const unique: Array<{ id: string; amount: number }> = [];
+    for (const t of txs) {
+      if (t.receiver_id && t.receiver_id !== user.id && !seen.has(t.receiver_id)) {
+        seen.add(t.receiver_id);
+        unique.push({ id: t.receiver_id, amount: Number(t.amount) });
+      }
+      if (unique.length >= 5) break;
+    }
+    if (!unique.length) return;
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("id, full_name, phone_number")
+      .in("id", unique.map((u) => u.id));
+    setRecentRecipients(
+      unique
+        .map((u) => {
+          const p = profs?.find((pr) => pr.id === u.id);
+          return p ? { id: p.id, full_name: p.full_name, phone_number: p.phone_number, last_amount: u.amount } : null;
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null),
+    );
+  };
+
+  const selectRecipient = (r: { id: string; full_name: string | null; phone_number: string | null; wallet_address?: string | null }) => {
+    setReceiverId(r.id);
+    setReceiverName(r.full_name || r.phone_number || "User");
+    setReceiverWalletAddress(r.wallet_address || "");
+    setSearchQuery("");
+    setSearchResults([]);
+  };
+
+  const clearRecipient = () => {
+    setReceiverId("");
+    setReceiverName("");
+    setReceiverWalletAddress("");
+    setSearchQuery("");
+    setSearchResults([]);
+  };
+
+  const resendTo = (r: { id: string; full_name: string | null; phone_number: string | null; last_amount: number }) => {
+    selectRecipient(r);
+    setAmount(String(r.last_amount));
+  };
 
   useEffect(() => {
     if (sendMode === "blockchain" && amount && (walletAddress || receiverWalletAddress)) {
@@ -387,24 +470,80 @@ const SendMoney = () => {
           <Card className="p-6">
             <form onSubmit={handleSend} className="space-y-4">
               {sendMode === "internal" ? (
-                <div>
+                <div className="space-y-3">
                   <Label>Receiver</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="User ID or Name"
-                      value={receiverName || receiverId}
-                      onChange={(e) => setReceiverId(e.target.value)}
-                      required
-                      data-testid="input-receiver"
-                    />
-                    <Button type="button" variant="outline" onClick={() => setShowScanner(true)}>
-                      <QrCode size={20} />
-                    </Button>
-                  </div>
-                  {receiverName && (
-                    <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-                      <User size={14} /> {receiverName}
-                    </p>
+                  {receiverId ? (
+                    <div className="flex items-center justify-between rounded-lg border border-input bg-muted/40 p-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <User size={16} className="text-primary shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{receiverName || "Selected user"}</p>
+                        </div>
+                      </div>
+                      <Button type="button" variant="ghost" size="icon" onClick={clearRecipient} aria-label="Clear">
+                        <X size={16} />
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            placeholder="Search by name or phone (+592…)"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="pl-9"
+                            data-testid="input-receiver"
+                          />
+                        </div>
+                        <Button type="button" variant="outline" onClick={() => setShowScanner(true)} aria-label="Scan QR">
+                          <QrCode size={20} />
+                        </Button>
+                      </div>
+                      {searchQuery.trim().length >= 2 && (
+                        <div className="rounded-lg border border-input divide-y max-h-56 overflow-y-auto">
+                          {searching && <p className="p-3 text-xs text-muted-foreground">Searching…</p>}
+                          {!searching && searchResults.length === 0 && (
+                            <p className="p-3 text-xs text-muted-foreground">No users found.</p>
+                          )}
+                          {searchResults.map((u) => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => selectRecipient(u)}
+                              className="w-full text-left p-3 hover:bg-muted/60 flex items-center justify-between gap-2"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{u.full_name || "Unnamed user"}</p>
+                                <p className="text-xs text-muted-foreground truncate">{u.phone_number || u.id.slice(0, 8)}</p>
+                              </div>
+                              <User size={14} className="text-muted-foreground shrink-0" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {recentRecipients.length > 0 && (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                            <RotateCcw size={12} /> Resend to recent recipients
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {recentRecipients.map((r) => (
+                              <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => resendTo(r)}
+                                className="text-xs rounded-full border border-input bg-background px-3 py-1.5 hover:bg-muted/60"
+                              >
+                                <span className="font-medium">{r.full_name || r.phone_number || "User"}</span>
+                                <span className="text-muted-foreground"> · ${r.last_amount}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ) : (

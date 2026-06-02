@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle, Store, Users, ScanFace } from "lucide-react";
 import { generateWallet, encryptPrivateKey } from "@/lib/wallet";
+import { GuyanaPhoneInput } from "@/components/GuyanaPhoneInput";
+import { isValidGuyanaPhone, normalizeGuyanaPhone } from "@/lib/phone";
 import {
   Dialog,
   DialogContent,
@@ -99,18 +101,25 @@ const Auth = () => {
     setLoading(true);
 
     try {
+      const normalizedPhone = normalizeGuyanaPhone(phoneNumber);
+      if (!normalizedPhone) {
+        toast({ variant: "destructive", title: "Invalid phone", description: "Enter a valid Guyana number (+592 followed by 7 digits)." });
+        setLoading(false);
+        return;
+      }
+
       if (mode === "signup") {
         const wallet = generateWallet();
         setWalletData(wallet);
         const encryptedKey = await encryptPrivateKey(wallet.privateKey, password);
 
         const { data: authData, error } = await supabase.auth.signUp({
-          email: `${phoneNumber}@vbank.com`,
+          email: `${normalizedPhone.replace("+", "")}@vbank.com`,
           password,
           options: {
             data: {
               full_name: fullName,
-              phone_number: phoneNumber,
+              phone_number: normalizedPhone,
               account_type: accountType,
               wallet_address: wallet.address,
             },
@@ -137,7 +146,7 @@ const Auth = () => {
         setShowWalletDialog(true);
       } else {
         const { error } = await supabase.auth.signInWithPassword({
-          email: `${phoneNumber}@vbank.com`,
+          email: `${normalizedPhone.replace("+", "")}@vbank.com`,
           password,
         });
         if (error) throw error;
@@ -235,16 +244,13 @@ const Auth = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="phoneNumber">Mobile Number</Label>
-                <Input
+                <GuyanaPhoneInput
                   id="phoneNumber"
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  placeholder="Enter Mobile Number"
                   value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  required
+                  onChange={setPhoneNumber}
                   className="h-14 rounded-xl"
+                  inputClassName="h-14"
+                  required
                 />
               </div>
 
