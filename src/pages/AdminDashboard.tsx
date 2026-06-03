@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil, Brain, Activity, AlertTriangle, Palette, ShieldAlert, Cpu, ShieldCheck } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil, Brain, Activity, AlertTriangle, Palette, ShieldAlert, Cpu, ShieldCheck, Megaphone, Globe, Terminal } from "lucide-react";
 import { loadAISettings, scoreTransactions, summarizeRisk } from "@/lib/aiSecurity";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -473,6 +473,30 @@ const AdminDashboard = () => {
               >
                 <AlertTriangle size={20} />
                 Suspicious Activity Alerts
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/announcements")}
+              >
+                <Megaphone size={20} />
+                Announcements & Ads
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/countries")}
+              >
+                <Globe size={20} />
+                Countries (allow / ban)
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/console")}
+              >
+                <Terminal size={20} />
+                Admin Console
               </Button>
             </CardContent>
           </Card>

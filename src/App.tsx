@@ -81,6 +81,9 @@ const KYCSubmission = lazy(() => import("./pages/KYCSubmission"));
 const AdminAuditLogs = lazy(() => import("./pages/AdminAuditLogs"));
 const AdminKYCReview = lazy(() => import("./pages/AdminKYCReview"));
 const AdminSuspiciousAlerts = lazy(() => import("./pages/AdminSuspiciousAlerts"));
+const AdminAnnouncements = lazy(() => import("./pages/AdminAnnouncements"));
+const AdminCountries = lazy(() => import("./pages/AdminCountries"));
+const AdminConsole = lazy(() => import("./pages/AdminConsole"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -249,6 +252,9 @@ const AppRoutes = () => {
         <Route path="/admin/audit-logs" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAuditLogs /></ProtectedRoute>} />
         <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={["admin"]}><AdminKYCReview /></ProtectedRoute>} />
         <Route path="/admin/alerts" element={<ProtectedRoute allowedRoles={["admin"]}><AdminSuspiciousAlerts /></ProtectedRoute>} />
+        <Route path="/admin/announcements" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAnnouncements /></ProtectedRoute>} />
+        <Route path="/admin/countries" element={<ProtectedRoute allowedRoles={["admin"]}><AdminCountries /></ProtectedRoute>} />
+        <Route path="/admin/console" element={<ProtectedRoute allowedRoles={["admin"]}><AdminConsole /></ProtectedRoute>} />
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />

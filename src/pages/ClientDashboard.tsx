@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { NotificationBell } from "@/components/NotificationBell";
+import { AnnouncementCarousel } from "@/components/AnnouncementCarousel";
+import { ReversalHoldBanner } from "@/components/ReversalHoldBanner";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { getWalletBalance } from "@/lib/wallet";
@@ -246,6 +248,8 @@ const ClientDashboard = () => {
 
       {/* Main Content */}
       <main className="p-4 space-y-6 pb-32">
+        <ReversalHoldBanner />
+        <AnnouncementCarousel />
         {/* Wallet Card */}
         <div className="relative">
           <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-card-stripe-1 via-card-stripe-2 to-card-stripe-3 blur-xl opacity-50" />
