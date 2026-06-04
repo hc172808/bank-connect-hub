@@ -215,7 +215,6 @@ const ClientDashboard = () => {
       { icon: Store, label: "Shop", path: "/vendors", featureKey: null },
       { icon: UserPlus, label: "Refer & Earn", path: "/refer", featureKey: null },
       { icon: Ticket, label: "Transactions", path: "/transactions", featureKey: null },
-      { icon: Import, label: "Import Wallet", path: "/wallet-import", featureKey: null },
     ];
 
     return allServices.filter(service => 
