@@ -166,10 +166,10 @@ export default function Profile() {
         const { address } = JSON.parse(raw);
         setWalletAddress(address);
       } catch {
-        setShowCreateWallet(true);
+        setShowCreateWallet(false);
       }
     } else {
-      setShowCreateWallet(true);
+      setShowCreateWallet(false);
     }
   };
 
