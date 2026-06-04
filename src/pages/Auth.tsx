@@ -5,17 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, Fingerprint, Copy, AlertTriangle, Store, Users, ScanFace } from "lucide-react";
-import { generateWallet, encryptPrivateKey } from "@/lib/wallet";
+import { Eye, EyeOff, Fingerprint, Store, Users, ScanFace } from "lucide-react";
 import { GuyanaPhoneInput } from "@/components/GuyanaPhoneInput";
 import { isValidGuyanaPhone, normalizeGuyanaPhone } from "@/lib/phone";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   isBiometricAvailable,
@@ -36,22 +28,12 @@ const Auth = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [showWalletDialog, setShowWalletDialog] = useState(false);
-  const [walletData, setWalletData] = useState<{ address: string; privateKey: string; mnemonic?: string } | null>(null);
-  const [copiedField, setCopiedField] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     isBiometricAvailable().then(setBiometricAvailable);
   }, []);
-
-  const copyToClipboard = async (text: string, field: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
-    toast({ title: "Copied to clipboard" });
-  };
 
   const handleBiometricLogin = async (type: "fingerprint" | "face") => {
     // Check if any biometric is enrolled locally first
@@ -108,10 +90,6 @@ const Auth = () => {
           setLoading(false);
           return;
         }
-        const wallet = generateWallet();
-        setWalletData(wallet);
-        const encryptedKey = await encryptPrivateKey(wallet.privateKey, password);
-
         const { data: authData, error } = await supabase.auth.signUp({
           email: `${normalizedPhone.replace("+", "")}@vbank.com`,
           password,
@@ -120,7 +98,6 @@ const Auth = () => {
               full_name: fullName,
               phone_number: normalizedPhone,
               account_type: accountType,
-              wallet_address: wallet.address,
             },
             emailRedirectTo: `${window.location.origin}/`,
           },
@@ -128,21 +105,10 @@ const Auth = () => {
 
         if (error) throw error;
 
-        if (authData.user) {
-          const { error: walletError } = await supabase.from("user_wallets").insert({
-            user_id: authData.user.id,
-            wallet_address: wallet.address,
-            encrypted_private_key: encryptedKey,
-          });
-          if (walletError) console.error("Error saving wallet:", walletError);
-
-          await supabase.from("profiles").update({
-            wallet_address: wallet.address,
-            wallet_created_at: new Date().toISOString(),
-          }).eq("id", authData.user.id);
-        }
-
-        setShowWalletDialog(true);
+        toast({
+          title: "Account created!",
+          description: "You can create or import a blockchain wallet later from Profile → Blockchain Wallet.",
+        });
       } else {
         // Sign-in: accept normalized OR legacy raw phone for backward-compat
         const normalizedPhone = normalizeGuyanaPhone(phoneNumber);
@@ -170,12 +136,6 @@ const Auth = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleCloseWalletDialog = () => {
-    setShowWalletDialog(false);
-    setWalletData(null);
-    toast({ title: "Account created!", description: "Welcome to Virtual Bank" });
   };
 
   return (
