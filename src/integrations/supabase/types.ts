@@ -883,6 +883,13 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "qr_card_requests_user_id_profiles_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "public_vendors"
+            referencedColumns: ["id"]
+          },
         ]
       }
       supported_coins: {
@@ -1196,7 +1203,30 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      public_vendors: {
+        Row: {
+          avatar_url: string | null
+          full_name: string | null
+          id: string | null
+          store_name: string | null
+          wallet_address: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          full_name?: string | null
+          id?: string | null
+          store_name?: string | null
+          wallet_address?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          full_name?: string | null
+          id?: string | null
+          store_name?: string | null
+          wallet_address?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       admin_add_funds: {

@@ -51,8 +51,12 @@ export default function WalletImport() {
   };
 
   const validateAndImport = async () => {
-    if (!password || password.length < 6) {
-      toast({ title: 'Error', description: 'Password must be at least 6 characters', variant: 'destructive' });
+    if (!password || password.length < 8) {
+      toast({ title: 'Error', description: 'Password must be at least 8 characters', variant: 'destructive' });
+      return;
+    }
+    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      toast({ title: 'Error', description: 'Password must contain letters and numbers', variant: 'destructive' });
       return;
     }
 
@@ -67,19 +71,28 @@ export default function WalletImport() {
       let walletPrivateKey: string;
 
       if (importMethod === 'privateKey') {
-        if (!privateKey.trim()) {
+        const cleanKey = privateKey.trim();
+        if (!cleanKey) {
           throw new Error('Please enter a private key');
         }
+        if (!/^(0x)?[0-9a-fA-F]{64}$/.test(cleanKey)) {
+          throw new Error('Invalid private key format (must be 64 hex characters)');
+        }
         // Validate and create wallet from private key
-        const wallet = new ethers.Wallet(privateKey.trim());
+        const wallet = new ethers.Wallet(cleanKey);
         walletAddress = wallet.address;
         walletPrivateKey = wallet.privateKey;
       } else {
-        if (!mnemonic.trim()) {
+        const cleanMnemonic = mnemonic.trim().replace(/\s+/g, ' ');
+        if (!cleanMnemonic) {
           throw new Error('Please enter a mnemonic phrase');
         }
+        const wordCount = cleanMnemonic.split(' ').length;
+        if (![12, 15, 18, 21, 24].includes(wordCount)) {
+          throw new Error('Mnemonic must be 12, 15, 18, 21, or 24 words');
+        }
         // Validate and create wallet from mnemonic
-        const hdWallet = ethers.Wallet.fromPhrase(mnemonic.trim());
+        const hdWallet = ethers.Wallet.fromPhrase(cleanMnemonic);
         walletAddress = hdWallet.address;
         walletPrivateKey = hdWallet.privateKey;
       }

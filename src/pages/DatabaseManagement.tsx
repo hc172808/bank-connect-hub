@@ -140,7 +140,7 @@ const DatabaseManagement = () => {
         port: parseInt(newDb.port),
         database_name: newDb.database_name,
         username: newDb.username,
-        secret_key: `db_${Date.now()}`,
+        secret_key: crypto.randomUUID() + '-' + crypto.randomUUID(),
         created_by: user?.id,
       });
 
