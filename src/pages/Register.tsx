@@ -5,17 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Mail, Phone, User, Copy, AlertTriangle, Store, Users } from 'lucide-react';
-import { generateWallet, encryptPrivateKey } from '@/lib/wallet';
+import { Eye, EyeOff, Mail, Phone, User, Store, Users } from 'lucide-react';
 import { GuyanaPhoneInput } from '@/components/GuyanaPhoneInput';
 import { normalizeGuyanaPhone } from '@/lib/phone';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 
@@ -29,29 +21,9 @@ export default function Register() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showWalletDialog, setShowWalletDialog] = useState(false);
-  const [walletData, setWalletData] = useState<{ address: string; privateKey: string; mnemonic?: string } | null>(null);
-  const [copiedField, setCopiedField] = useState<string | null>(null);
   const [accountType, setAccountType] = useState<AccountType>('client');
   const navigate = useNavigate();
   const { toast } = useToast();
-
-  const copyToClipboard = async (text: string, field: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
-    toast({ title: "Copied to clipboard" });
-  };
-
-  const handleCloseWalletDialog = () => {
-    setShowWalletDialog(false);
-    setWalletData(null);
-    toast({
-      title: "Account created!",
-      description: "Welcome to Virtual Bank",
-    });
-    navigate('/auth');
-  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,13 +54,6 @@ export default function Register() {
     setLoading(true);
 
     try {
-      // Generate wallet for new user
-      const wallet = generateWallet();
-      setWalletData(wallet);
-
-      // Encrypt private key with user's password
-      const encryptedKey = await encryptPrivateKey(wallet.privateKey, password);
-
       const emailToUse = email || `${normalizedPhone.replace("+", "")}@virtualbank.app`;
       
       const { data, error } = await supabase.auth.signUp({
@@ -98,7 +63,6 @@ export default function Register() {
           data: {
             full_name: fullName,
             phone_number: normalizedPhone,
-            wallet_address: wallet.address,
             account_type: accountType,
           },
           emailRedirectTo: `${window.location.origin}/`,
@@ -108,21 +72,11 @@ export default function Register() {
       if (error) throw error;
 
       if (data.user) {
-        // Save wallet to user_wallets table
-        const { error: walletSaveError } = await supabase
-          .from('user_wallets')
-          .insert({
-            user_id: data.user.id,
-            wallet_address: wallet.address,
-            encrypted_private_key: encryptedKey,
-          });
-
-        if (walletSaveError) {
-          console.error('Error saving wallet:', walletSaveError);
-        }
-
-        // Show wallet dialog with private key
-        setShowWalletDialog(true);
+        toast({
+          title: "Account created!",
+          description: "You can create or import a blockchain wallet from your Profile settings.",
+        });
+        navigate('/auth');
       }
     } catch (error: any) {
       toast({
@@ -130,7 +84,6 @@ export default function Register() {
         title: "Registration failed",
         description: error.message,
       });
-      setWalletData(null);
     } finally {
       setLoading(false);
     }
