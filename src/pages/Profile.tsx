@@ -166,10 +166,10 @@ export default function Profile() {
         const { address } = JSON.parse(raw);
         setWalletAddress(address);
       } catch {
-        setShowCreateWallet(true);
+        setShowCreateWallet(false);
       }
     } else {
-      setShowCreateWallet(true);
+      setShowCreateWallet(false);
     }
   };
 
@@ -685,7 +685,35 @@ export default function Profile() {
                 </Tabs>
               </div>
             ) : (
-              <p className="text-muted-foreground text-sm">Loading wallet…</p>
+              /* ── No wallet — explicit action required ── */
+              <div className="space-y-3">
+                <div className="p-3 bg-muted/50 border border-border rounded-xl">
+                  <p className="text-sm text-muted-foreground flex items-start gap-2">
+                    <Wallet className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span>
+                      You don't have a blockchain wallet yet. Your private key stays on this device only — it is never sent to our servers.
+                    </span>
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="default"
+                    onClick={() => setShowCreateWallet(true)}
+                    className="gap-1.5"
+                    data-testid="button-show-create-wallet"
+                  >
+                    <Plus className="w-4 h-4" /> Create New
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowCreateWallet(true)}
+                    className="gap-1.5"
+                    data-testid="button-show-import-wallet"
+                  >
+                    <Download className="w-4 h-4" /> Import
+                  </Button>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>
