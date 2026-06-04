@@ -92,7 +92,7 @@ export default function WalletImport() {
           throw new Error('Mnemonic must be 12, 15, 18, 21, or 24 words');
         }
         // Validate and create wallet from mnemonic
-        const hdWallet = ethers.Wallet.fromPhrase(mnemonic.trim());
+        const hdWallet = ethers.Wallet.fromPhrase(cleanMnemonic);
         walletAddress = hdWallet.address;
         walletPrivateKey = hdWallet.privateKey;
       }
