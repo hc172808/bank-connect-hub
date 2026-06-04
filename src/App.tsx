@@ -52,7 +52,6 @@ const AddMoneyAgent = lazy(() => import("./pages/AddMoneyAgent"));
 const AddMoneyMobile = lazy(() => import("./pages/AddMoneyMobile"));
 const ReceiveMoney = lazy(() => import("./pages/ReceiveMoney"));
 const BlockchainSettings = lazy(() => import("./pages/BlockchainSettings"));
-const WalletImport = lazy(() => import("./pages/WalletImport"));
 const CoinManagement = lazy(() => import("./pages/CoinManagement"));
 const ConversionFees = lazy(() => import("./pages/ConversionFees"));
 const FeatureToggles = lazy(() => import("./pages/FeatureToggles"));
@@ -164,7 +163,6 @@ const AppRoutes = () => {
         <Route path="/add-money/agent" element={<AddMoneyAgent />} />
         <Route path="/add-money/mobile" element={<AddMoneyMobile />} />
         <Route path="/receive-money" element={<ReceiveMoney />} />
-        <Route path="/wallet-import" element={<WalletImport />} />
         <Route path="/coin-convert" element={<CoinConvert />} />
         <Route path="/vendor-store" element={<VendorStore />} />
         <Route path="/vendors" element={<VendorList />} />
