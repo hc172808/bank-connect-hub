@@ -26,7 +26,6 @@ import {
   Coins,
   Copy,
   RefreshCw,
-  Import,
   RotateCcw,
   TrendingUp,
   TrendingDown,
