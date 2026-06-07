@@ -3,7 +3,7 @@ set -euo pipefail
 
 export ANDROID_HOME=/home/runner/android-sdk
 export JAVA_HOME=/nix/store/xad649j61kwkh0id5wvyiab5rliprp4d-openjdk-17.0.15+6/lib/openjdk
-export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0
 
 VERSION="1.0.0"
 BUILD_TYPE="debug"
@@ -26,6 +26,24 @@ echo "  RPC Node  : $INCLUDE_RPC"
 echo "========================================"
 echo ""
 
+# ── 0. Debug keystore ─────────────────────────────────────────────────────────
+KEYSTORE="android/debug.keystore"
+if [[ ! -f "$KEYSTORE" ]]; then
+  echo "=== Generating debug keystore ==="
+  "$JAVA_HOME/bin/keytool" -genkeypair \
+    -keystore "$KEYSTORE" \
+    -alias androiddebugkey \
+    -keypass android \
+    -storepass android \
+    -dname "CN=Android Debug,O=Android,C=US" \
+    -keyalg RSA \
+    -keysize 2048 \
+    -validity 10000 \
+    -v 2>&1
+  echo "Keystore created at $KEYSTORE"
+  echo ""
+fi
+
 # ── 1. RPC Node ───────────────────────────────────────────────────────────────
 if [[ "$INCLUDE_RPC" == "true" ]]; then
   echo "=== Setting up RPC Node ==="
@@ -33,7 +51,7 @@ if [[ "$INCLUDE_RPC" == "true" ]]; then
 
   if [[ -d "$RPC_DIR/.git" ]]; then
     echo "Updating existing rpcnode clone..."
-    git -C "$RPC_DIR" pull --ff-only 2>&1 || echo "Pull skipped (no remote changes or conflicts)"
+    git -C "$RPC_DIR" pull --ff-only 2>&1 || echo "Pull skipped"
   else
     echo "Cloning rpcnode from GitHub..."
     rm -rf "$RPC_DIR"
@@ -43,19 +61,13 @@ if [[ "$INCLUDE_RPC" == "true" ]]; then
   if [[ -f "$RPC_DIR/package.json" ]]; then
     echo "Installing RPC node dependencies..."
     (cd "$RPC_DIR" && npm install --production 2>&1)
-    echo "RPC node dependencies installed."
-  else
-    echo "RPC node has no package.json — skipping npm install."
   fi
-
-  echo "RPC node ready at $RPC_DIR"
+  echo "RPC node ready."
   echo ""
 fi
 
-# ── 2. Stamp version into source files ───────────────────────────────────────
+# ── 2. Stamp version ──────────────────────────────────────────────────────────
 echo "=== Stamping version $VERSION ==="
-
-# capacitor.config.ts
 node -e "
 const fs = require('fs');
 let cfg = fs.readFileSync('capacitor.config.ts','utf8');
@@ -64,7 +76,6 @@ fs.writeFileSync('capacitor.config.ts', cfg);
 console.log('  capacitor.config.ts updated');
 " 2>/dev/null || true
 
-# src/lib/appVersion.ts — this is what the UpdateBanner compares at runtime
 sed -i "s/export const APP_VERSION = \"[^\"]*\"/export const APP_VERSION = \"$VERSION\"/" src/lib/appVersion.ts
 echo "  src/lib/appVersion.ts → $VERSION"
 echo ""
@@ -80,31 +91,51 @@ npx cap sync android
 echo ""
 
 # ── 5. Gradle build ───────────────────────────────────────────────────────────
-echo "=== Building ${BUILD_TYPE} APK with Gradle ==="
+echo "=== Building ${BUILD_TYPE} APK ==="
 cd android
 
+# Pass version as Gradle project property for dynamic versionCode/Name
 if [[ "$BUILD_TYPE" == "release" ]]; then
-  gradle assembleRelease --no-daemon
-  APK_REL="app/build/outputs/apk/release/app-release-unsigned.apk"
-  [[ -f "$APK_REL" ]] || APK_REL="app/build/outputs/apk/release/app-release.apk"
-  APK="$APK_REL"
+  gradle assembleRelease --no-daemon -PapkVersion="$VERSION"
+  RAW_APK="app/build/outputs/apk/release/app-release.apk"
+  [[ -f "$RAW_APK" ]] || RAW_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
 else
-  gradle assembleDebug --no-daemon
-  APK="app/build/outputs/apk/debug/app-debug.apk"
+  gradle assembleDebug --no-daemon -PapkVersion="$VERSION"
+  RAW_APK="app/build/outputs/apk/debug/app-debug.apk"
 fi
 
-OUTPUT_NAME="VirtualBank-${VERSION}-${BUILD_TYPE}.apk"
-OUTPUT="../${OUTPUT_NAME}"
-
-if [[ -f "$APK" ]]; then
-  cp "$APK" "$OUTPUT"
-  echo ""
-  echo "========================================"
-  echo "  BUILD SUCCESSFUL"
-  echo "  APK : $OUTPUT_NAME"
-  ls -lh "$OUTPUT"
-  echo "========================================"
-else
-  echo "❌ APK not found at $APK"
+if [[ ! -f "$RAW_APK" ]]; then
+  echo "❌ Gradle output APK not found at $RAW_APK"
   exit 1
 fi
+
+cd ..
+
+# ── 6. Re-sign with apksigner (V1 + V2 + V3) ──────────────────────────────────
+echo ""
+echo "=== Signing APK (V1+V2+V3) ==="
+UNSIGNED_APK="android/$RAW_APK"
+OUTPUT_NAME="VirtualBank-${VERSION}-${BUILD_TYPE}.apk"
+OUTPUT="${OUTPUT_NAME}"
+
+apksigner sign \
+  --ks "$KEYSTORE" \
+  --ks-pass pass:android \
+  --ks-key-alias androiddebugkey \
+  --key-pass pass:android \
+  --v1-signing-enabled true \
+  --v2-signing-enabled true \
+  --v3-signing-enabled true \
+  --out "$OUTPUT" \
+  "$UNSIGNED_APK"
+
+echo ""
+echo "=== Verifying signature ==="
+apksigner verify --verbose "$OUTPUT" 2>&1 | grep -E "Verified|v1|v2|v3|error" || true
+
+echo ""
+echo "========================================"
+echo "  BUILD SUCCESSFUL"
+echo "  APK : $OUTPUT_NAME"
+ls -lh "$OUTPUT"
+echo "========================================"

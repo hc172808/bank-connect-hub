@@ -1,31 +1,57 @@
 apply plugin: 'com.android.application'
 
+// Read version info injected by build-apk.sh (or fall back to defaults)
+def apkVersion = project.hasProperty('apkVersion') ? project.apkVersion : "1.0.0"
+def parts = apkVersion.tokenize('.')
+def vCode = (parts[0].toInteger() * 10000) + (parts[1].toInteger() * 100) + (parts[2].toInteger())
+
 android {
     namespace "app.virtualbank.mobile"
     compileSdk rootProject.ext.compileSdkVersion
+
     defaultConfig {
         applicationId "app.virtualbank.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode vCode
+        versionName apkVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
-             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+
+    signingConfigs {
+        debug {
+            def ks = rootProject.file("debug.keystore")
+            storeFile ks
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
+            signingConfig signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+
+    packagingOptions {
+        // Strip unprotected META-INF version files that cause signature warnings
+        // on strict Android skins (Samsung/MIUI/OPPO)
+        exclude 'META-INF/*.version'
+        exclude 'META-INF/com/android/build/gradle/app-metadata.properties'
+    }
 }
 
 repositories {
-    flatDir{
+    flatDir {
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
 }
@@ -50,5 +76,5 @@ try {
         apply plugin: 'com.google.gms.google-services'
     }
 } catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+    logger.info("google-services.json not found, google-services plugin not applied.")
 }
