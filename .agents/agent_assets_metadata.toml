@@ -12,3 +12,9 @@ id = "fe9A8gNuq_BRNuzwUMvDH"
 uri = "file://virtualbank-android.tar.gz"
 type = "unspecified"
 title = "Virtual Bank — Android Project (open in Android Studio)"
+
+[[outputs]]
+id = "JCh7dvTJw5Tx-Otd4pNPC"
+uri = "file://VirtualBank-debug.zip"
+type = "unspecified"
+title = "VirtualBank-debug.apk (zipped)"
