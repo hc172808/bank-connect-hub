@@ -83,6 +83,7 @@ const AdminSuspiciousAlerts = lazy(() => import("./pages/AdminSuspiciousAlerts")
 const AdminAnnouncements = lazy(() => import("./pages/AdminAnnouncements"));
 const AdminCountries = lazy(() => import("./pages/AdminCountries"));
 const AdminConsole = lazy(() => import("./pages/AdminConsole"));
+const AdminApkBuilder = lazy(() => import("./pages/AdminApkBuilder"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -253,6 +254,7 @@ const AppRoutes = () => {
         <Route path="/admin/announcements" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAnnouncements /></ProtectedRoute>} />
         <Route path="/admin/countries" element={<ProtectedRoute allowedRoles={["admin"]}><AdminCountries /></ProtectedRoute>} />
         <Route path="/admin/console" element={<ProtectedRoute allowedRoles={["admin"]}><AdminConsole /></ProtectedRoute>} />
+        <Route path="/admin/apk-builder" element={<ProtectedRoute allowedRoles={["admin"]}><AdminApkBuilder /></ProtectedRoute>} />
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />

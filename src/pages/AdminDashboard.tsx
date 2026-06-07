@@ -368,6 +368,14 @@ const AdminDashboard = () => {
               </Button>
               <Button
                 className="w-full justify-start gap-3 h-14 rounded-xl"
+                onClick={() => navigate("/admin/apk-builder")}
+                data-testid="button-apk-builder"
+              >
+                <Terminal size={20} />
+                APK Builder (Version · RPC · Download)
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
                 variant="outline"
                 onClick={() => navigate("/admin/themes")}
                 data-testid="button-app-themes"
