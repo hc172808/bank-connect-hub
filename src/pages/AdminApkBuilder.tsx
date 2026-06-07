@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   ArrowLeft,
   Play,
@@ -19,8 +28,12 @@ import {
   Loader2,
   Clock,
   Cpu,
+  Upload,
+  Megaphone,
+  ShieldAlert,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Build {
   id: string;
@@ -64,20 +77,31 @@ const elapsed = (startedAt: string, finishedAt?: string) => {
 export default function AdminApkBuilder() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
 
+  // ── Build form state ────────────────────────────────────────────────────────
   const [version, setVersion] = useState("1.0.0");
   const [buildType, setBuildType] = useState<"debug" | "release">("debug");
   const [includeRpcNode, setIncludeRpcNode] = useState(true);
   const [building, setBuilding] = useState(false);
-  const [currentBuildId, setCurrentBuildId] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
   const [buildStatus, setBuildStatus] = useState<"idle" | "running" | "success" | "failed">("idle");
-  const [history, setHistory] = useState<Build[]>([]);
+
+  // ── Logs ────────────────────────────────────────────────────────────────────
+  const [logs, setLogs] = useState<string[]>([]);
   const [selectedLogBuild, setSelectedLogBuild] = useState<Build | null>(null);
   const [loadingLogs, setLoadingLogs] = useState(false);
-
   const logEndRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
+
+  // ── History ─────────────────────────────────────────────────────────────────
+  const [history, setHistory] = useState<Build[]>([]);
+
+  // ── Publish dialog ──────────────────────────────────────────────────────────
+  const [publishTarget, setPublishTarget] = useState<Build | null>(null);
+  const [publishNotes, setPublishNotes] = useState("");
+  const [forceUpdate, setForceUpdate] = useState(false);
+  const [forceMinVersion, setForceMinVersion] = useState("");
+  const [publishing, setPublishing] = useState(false);
 
   const scrollToBottom = () => logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   useEffect(scrollToBottom, [logs]);
@@ -102,7 +126,6 @@ export default function AdminApkBuilder() {
       if (data.status === "running") {
         setBuilding(true);
         setBuildStatus("running");
-        setCurrentBuildId(data.id);
         setLogs([]);
         streamLogs();
       }
@@ -125,6 +148,9 @@ export default function AdminApkBuilder() {
         loadHistory();
         toast({
           title: msg.status === "success" ? "Build successful!" : "Build failed",
+          description: msg.status === "success"
+            ? "APK is ready — click Publish to push the update to users."
+            : "Check the logs for details.",
           variant: msg.status === "success" ? "default" : "destructive",
         });
       } else if (msg.type === "idle") {
@@ -141,6 +167,7 @@ export default function AdminApkBuilder() {
       return;
     }
     setLogs([]);
+    setSelectedLogBuild(null);
     setBuildStatus("running");
     setBuilding(true);
 
@@ -157,11 +184,8 @@ export default function AdminApkBuilder() {
         setBuildStatus("idle");
         return;
       }
-
       if (!r.ok) throw new Error("Failed to start build");
 
-      const data = await r.json();
-      setCurrentBuildId(data.id);
       streamLogs();
     } catch (err) {
       toast({ title: "Could not reach build server", description: String(err), variant: "destructive" });
@@ -187,6 +211,95 @@ export default function AdminApkBuilder() {
     setLoadingLogs(false);
   };
 
+  // ── Publish flow ─────────────────────────────────────────────────────────────
+  const openPublishDialog = (build: Build) => {
+    setPublishTarget(build);
+    setPublishNotes("");
+    setForceUpdate(false);
+    setForceMinVersion(build.version);
+  };
+
+  const doPublish = async () => {
+    if (!publishTarget || !user) return;
+    setPublishing(true);
+
+    try {
+      // 1. Fetch the APK blob from the build server
+      toast({ title: "Uploading APK…", description: "This may take a few seconds." });
+      const apkRes = await fetch(`/api/download/${publishTarget.apkFile}`);
+      if (!apkRes.ok) throw new Error("Could not fetch APK from build server");
+      const blob = await apkRes.blob();
+
+      // 2. Upload to Supabase Storage
+      const storagePath = `android/${publishTarget.version}/${Date.now()}-${publishTarget.apkFile}`;
+      const { error: upErr } = await supabase.storage
+        .from("app-releases")
+        .upload(storagePath, blob, {
+          contentType: "application/vnd.android.package-archive",
+          cacheControl: "3600",
+          upsert: false,
+        });
+      if (upErr) throw new Error(`Storage upload failed: ${upErr.message}`);
+
+      const { data: pub } = supabase.storage.from("app-releases").getPublicUrl(storagePath);
+      const fileUrl = pub.publicUrl;
+
+      // 3. Mark existing android releases as not-latest
+      await supabase
+        .from("app_releases")
+        .update({ is_latest: false })
+        .eq("platform", "android")
+        .eq("is_latest", true);
+
+      // 4. Insert new release record
+      const { error: insErr } = await supabase.from("app_releases").insert({
+        version: publishTarget.version,
+        platform: "android",
+        file_path: storagePath,
+        file_url: fileUrl,
+        file_size: blob.size,
+        release_notes: publishNotes.trim() || null,
+        is_latest: true,
+        created_by: user.id,
+      });
+      if (insErr) throw new Error(`DB insert failed: ${insErr.message}`);
+
+      // 5. Handle force-update settings
+      if (forceUpdate) {
+        // Upsert force_update_enabled = true
+        await supabase.from("app_settings").upsert(
+          { key: "force_update_enabled", value: "true" },
+          { onConflict: "key" }
+        );
+        // Upsert min version
+        await supabase.from("app_settings").upsert(
+          { key: "force_update_min_version", value: forceMinVersion || publishTarget.version },
+          { onConflict: "key" }
+        );
+      } else {
+        // Ensure force update is off
+        await supabase.from("app_settings").upsert(
+          { key: "force_update_enabled", value: "false" },
+          { onConflict: "key" }
+        );
+      }
+
+      toast({
+        title: "Update published!",
+        description: `v${publishTarget.version} is live. Users on older versions will see a download prompt.`,
+      });
+      setPublishTarget(null);
+    } catch (err: unknown) {
+      toast({
+        title: "Publish failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const logText = selectedLogBuild
     ? (selectedLogBuild.logs ?? []).join("")
     : logs.join("");
@@ -202,7 +315,9 @@ export default function AdminApkBuilder() {
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Smartphone className="h-6 w-6" /> APK Builder
           </h1>
-          <p className="text-sm text-muted-foreground">Build & version Android APKs from the admin panel</p>
+          <p className="text-sm text-muted-foreground">
+            Build versioned Android APKs and push updates directly to users
+          </p>
         </div>
       </div>
 
@@ -213,7 +328,6 @@ export default function AdminApkBuilder() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Version */}
             <div className="space-y-1">
               <Label>Version (x.x.x)</Label>
               <Input
@@ -224,7 +338,6 @@ export default function AdminApkBuilder() {
               />
             </div>
 
-            {/* Build type */}
             <div className="space-y-1">
               <Label>Build Type</Label>
               <div className="flex gap-2 pt-1">
@@ -243,7 +356,6 @@ export default function AdminApkBuilder() {
               </div>
             </div>
 
-            {/* RPC node toggle */}
             <div className="space-y-1">
               <Label className="flex items-center gap-1">
                 <Cpu className="h-3.5 w-3.5" /> Include RPC Node
@@ -261,7 +373,6 @@ export default function AdminApkBuilder() {
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex gap-2 pt-2">
             {!building ? (
               <Button onClick={startBuild} className="gap-2">
@@ -277,7 +388,11 @@ export default function AdminApkBuilder() {
                 </Button>
               </>
             )}
-            <Button variant="outline" onClick={() => { loadHistory(); checkRunningBuild(); }} className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { loadHistory(); checkRunningBuild(); }}
+              className="gap-2"
+            >
               <RefreshCw className="h-4 w-4" /> Refresh
             </Button>
           </div>
@@ -298,7 +413,7 @@ export default function AdminApkBuilder() {
               {buildStatus !== "idle" && !selectedLogBuild && <StatusBadge status={buildStatus} />}
               {selectedLogBuild && (
                 <Button size="sm" variant="ghost" onClick={() => setSelectedLogBuild(null)}>
-                  Clear
+                  Close
                 </Button>
               )}
             </div>
@@ -351,17 +466,27 @@ export default function AdminApkBuilder() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <Button size="sm" variant="outline" onClick={() => viewBuildLogs(b)}>
                       <Terminal className="h-3.5 w-3.5 mr-1" /> Logs
                     </Button>
                     {b.apkFile && (
                       <Button
                         size="sm"
+                        variant="outline"
                         onClick={() => window.open(`/api/download/${b.apkFile}`, "_blank")}
                         className="gap-1"
                       >
                         <Download className="h-3.5 w-3.5" /> APK
+                      </Button>
+                    )}
+                    {b.status === "success" && b.apkFile && (
+                      <Button
+                        size="sm"
+                        onClick={() => openPublishDialog(b)}
+                        className="gap-1 bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        <Megaphone className="h-3.5 w-3.5" /> Publish Update
                       </Button>
                     )}
                   </div>
@@ -371,6 +496,79 @@ export default function AdminApkBuilder() {
           )}
         </CardContent>
       </Card>
+
+      {/* Publish dialog */}
+      <Dialog open={!!publishTarget} onOpenChange={(o) => { if (!o) setPublishTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5 text-primary" />
+              Publish v{publishTarget?.version} as Update
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              This will upload the APK to Supabase Storage and mark it as the latest release.
+              Users on older versions will see a download banner in the app.
+            </p>
+
+            {/* Release notes */}
+            <div className="space-y-1">
+              <Label>Release notes (shown to users)</Label>
+              <Textarea
+                value={publishNotes}
+                onChange={(e) => setPublishNotes(e.target.value)}
+                placeholder={"• New feature added\n• Bug fixes\n• Performance improvements"}
+                rows={4}
+              />
+            </div>
+
+            {/* Force update */}
+            <div className="rounded-lg border p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-1.5">
+                    <ShieldAlert className="h-4 w-4 text-orange-500" /> Force Update
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Block users on older versions until they update
+                  </p>
+                </div>
+                <Switch checked={forceUpdate} onCheckedChange={setForceUpdate} />
+              </div>
+
+              {forceUpdate && (
+                <div className="space-y-1 pt-1">
+                  <Label className="text-xs">Minimum required version</Label>
+                  <Input
+                    value={forceMinVersion}
+                    onChange={(e) => setForceMinVersion(e.target.value)}
+                    placeholder="1.0.0"
+                    className="h-8 text-sm"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Users below this version will see a full-screen update wall.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setPublishTarget(null)} disabled={publishing}>
+              Cancel
+            </Button>
+            <Button onClick={doPublish} disabled={publishing} className="gap-2">
+              {publishing ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Publishing…</>
+              ) : (
+                <><Megaphone className="h-4 w-4" /> Publish to Users</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

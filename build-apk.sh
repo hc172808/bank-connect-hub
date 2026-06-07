@@ -52,15 +52,21 @@ if [[ "$INCLUDE_RPC" == "true" ]]; then
   echo ""
 fi
 
-# ── 2. Stamp version into capacitor config ────────────────────────────────────
+# ── 2. Stamp version into source files ───────────────────────────────────────
 echo "=== Stamping version $VERSION ==="
+
+# capacitor.config.ts
 node -e "
 const fs = require('fs');
 let cfg = fs.readFileSync('capacitor.config.ts','utf8');
 cfg = cfg.replace(/appVersion:\s*'[^']*'/, \"appVersion: '$VERSION'\");
 fs.writeFileSync('capacitor.config.ts', cfg);
-console.log('capacitor.config.ts updated');
-" 2>/dev/null || echo "Version stamp skipped (node unavailable)"
+console.log('  capacitor.config.ts updated');
+" 2>/dev/null || true
+
+# src/lib/appVersion.ts — this is what the UpdateBanner compares at runtime
+sed -i "s/export const APP_VERSION = \"[^\"]*\"/export const APP_VERSION = \"$VERSION\"/" src/lib/appVersion.ts
+echo "  src/lib/appVersion.ts → $VERSION"
 echo ""
 
 # ── 3. Web bundle ─────────────────────────────────────────────────────────────
