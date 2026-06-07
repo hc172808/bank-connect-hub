@@ -1,37 +1,38 @@
-# ---------- Base image ----------
-FROM node:20-alpine AS base
+# ---------- Build Stage ----------
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies first (cache layer)
+# install dependencies first (better cache)
 COPY package*.json ./
+RUN npm ci || npm install
 
-RUN npm install --production
-
-# ---------- Build stage ----------
-FROM node:20-alpine AS build
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm install
-
+# copy source
 COPY . .
 
-RUN npm run build || true
+# build (fail-safe memory increase)
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+RUN npm run build
 
-# ---------- Production runtime ----------
+
+# ---------- Production Stage ----------
 FROM node:20-alpine
 
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3000
 
-# Copy only production artifacts
-COPY --from=base /app/node_modules ./node_modules
-COPY --from=build /app ./
+# only production deps
+COPY package*.json ./
+RUN npm ci --omit=dev || npm install --omit=dev
+
+# copy build output
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/public ./public
+
+# copy config
+COPY . .
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start"]
+CMD ["node", "dist/index.js"]
