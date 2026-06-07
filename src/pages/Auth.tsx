@@ -6,8 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff, Fingerprint, Store, Users, ScanFace } from "lucide-react";
-import { GuyanaPhoneInput } from "@/components/GuyanaPhoneInput";
-import { isValidGuyanaPhone, normalizeGuyanaPhone } from "@/lib/phone";
+import { CountryPhoneInput } from "@/components/CountryPhoneInput";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   isBiometricAvailable,
@@ -18,6 +17,8 @@ import {
 
 type AuthMode = "signin" | "signup";
 type AccountType = "client" | "vendor";
+
+const phoneToEmail = (e164: string) => `${e164.replace("+", "")}@vbank.com`;
 
 const Auth = () => {
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -36,7 +37,6 @@ const Auth = () => {
   }, []);
 
   const handleBiometricLogin = async (type: "fingerprint" | "face") => {
-    // Check if any biometric is enrolled locally first
     const storedCredential = hasStoredBiometric();
     if (!storedCredential) {
       toast({
@@ -64,12 +64,11 @@ const Auth = () => {
       }
 
       const { error } = await supabase.auth.signInWithPassword({
-        email: `${authData.phone}@vbank.com`,
+        email: phoneToEmail(authData.phone),
         password: authData.password,
       });
 
       if (error) throw error;
-
       toast({ title: "Welcome back!", description: `Signed in with ${type === "face" ? "Face ID" : "Fingerprint"}` });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message });
@@ -84,19 +83,18 @@ const Auth = () => {
 
     try {
       if (mode === "signup") {
-        const normalizedPhone = normalizeGuyanaPhone(phoneNumber);
-        if (!normalizedPhone) {
-          toast({ variant: "destructive", title: "Invalid phone", description: "Enter a valid Guyana number (+592 followed by 7 digits)." });
+        if (!phoneNumber) {
+          toast({ variant: "destructive", title: "Invalid phone", description: "Please enter a valid phone number." });
           setLoading(false);
           return;
         }
-        const { data: authData, error } = await supabase.auth.signUp({
-          email: `${normalizedPhone.replace("+", "")}@vbank.com`,
+        const { error } = await supabase.auth.signUp({
+          email: phoneToEmail(phoneNumber),
           password,
           options: {
             data: {
               full_name: fullName,
-              phone_number: normalizedPhone,
+              phone_number: phoneNumber,
               account_type: accountType,
             },
             emailRedirectTo: `${window.location.origin}/`,
@@ -110,14 +108,18 @@ const Auth = () => {
           description: "You can create or import a blockchain wallet later from Profile → Blockchain Wallet.",
         });
       } else {
-        // Sign-in: accept normalized OR legacy raw phone for backward-compat
-        const normalizedPhone = normalizeGuyanaPhone(phoneNumber);
-        const rawDigits = phoneNumber.replace(/\D+/g, "");
+        if (!phoneNumber) {
+          toast({ variant: "destructive", title: "Invalid phone", description: "Please enter a valid phone number." });
+          setLoading(false);
+          return;
+        }
+
+        const digits = phoneNumber.replace(/\D+/g, "");
         const emailCandidates = [
-          normalizedPhone ? `${normalizedPhone.replace("+", "")}@vbank.com` : null,
-          rawDigits ? `${rawDigits}@vbank.com` : null,
-          `${phoneNumber}@vbank.com`,
-        ].filter((x, i, arr): x is string => !!x && arr.indexOf(x) === i);
+          phoneToEmail(phoneNumber),
+          `${digits}@vbank.com`,
+          `${digits}@virtualbank.app`,
+        ].filter((x, i, arr) => arr.indexOf(x) === i);
 
         let signedIn = false;
         let lastError: any = null;
@@ -215,14 +217,11 @@ const Auth = () => {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="phoneNumber">Mobile Number</Label>
-                <GuyanaPhoneInput
-                  id="phoneNumber"
+                <Label>Mobile Number</Label>
+                <CountryPhoneInput
                   value={phoneNumber}
                   onChange={setPhoneNumber}
-                  className="h-14 rounded-xl"
-                  inputClassName="h-14"
-                  required
+                  className="h-14"
                 />
               </div>
 

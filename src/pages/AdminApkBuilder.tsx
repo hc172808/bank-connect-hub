@@ -31,6 +31,9 @@ import {
   Upload,
   Megaphone,
   ShieldAlert,
+  Globe,
+  Apple,
+  Package,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -85,6 +88,9 @@ export default function AdminApkBuilder() {
   const [includeRpcNode, setIncludeRpcNode] = useState(true);
   const [building, setBuilding] = useState(false);
   const [buildStatus, setBuildStatus] = useState<"idle" | "running" | "success" | "failed">("idle");
+  const [currentApkFile, setCurrentApkFile] = useState<string | null>(null);
+  const [buildTab, setBuildTab] = useState<"apk" | "pwa" | "ipa">("apk");
+  const [pwaBuilding, setPwaBuilding] = useState(false);
 
   // ── Logs ────────────────────────────────────────────────────────────────────
   const [logs, setLogs] = useState<string[]>([]);
@@ -144,6 +150,7 @@ export default function AdminApkBuilder() {
       } else if (msg.type === "done") {
         setBuildStatus(msg.status);
         setBuilding(false);
+        if (msg.apkFile) setCurrentApkFile(msg.apkFile);
         es.close();
         loadHistory();
         toast({
@@ -170,6 +177,7 @@ export default function AdminApkBuilder() {
     setSelectedLogBuild(null);
     setBuildStatus("running");
     setBuilding(true);
+    setCurrentApkFile(null);
 
     try {
       const r = await fetch("/api/build", {
@@ -195,7 +203,12 @@ export default function AdminApkBuilder() {
   };
 
   const cancelBuild = async () => {
-    await fetch("/api/build/cancel", { method: "POST" });
+    try { await fetch("/api/build/cancel", { method: "POST" }); } catch {}
+    if (esRef.current) { esRef.current.close(); esRef.current = null; }
+    setBuilding(false);
+    setBuildStatus("idle");
+    setCurrentApkFile(null);
+    toast({ title: "Build cancelled" });
   };
 
   const viewBuildLogs = async (build: Build) => {
@@ -313,18 +326,118 @@ export default function AdminApkBuilder() {
         </Button>
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Smartphone className="h-6 w-6" /> APK Builder
+            <Package className="h-6 w-6" /> App Builder
           </h1>
           <p className="text-sm text-muted-foreground">
-            Build versioned Android APKs and push updates directly to users
+            Build Android APKs, Progressive Web Apps, and iOS archives
           </p>
         </div>
       </div>
 
+      {/* Platform tabs */}
+      <div className="flex gap-2 border-b pb-2">
+        {([
+          { key: "apk", label: "Android APK", icon: <Smartphone className="h-4 w-4" /> },
+          { key: "pwa", label: "PWA / Web", icon: <Globe className="h-4 w-4" /> },
+          { key: "ipa", label: "iOS IPA", icon: <Apple className="h-4 w-4" /> },
+        ] as const).map(({ key, label, icon }) => (
+          <Button
+            key={key}
+            size="sm"
+            variant={buildTab === key ? "default" : "ghost"}
+            onClick={() => setBuildTab(key)}
+            className="gap-2"
+          >
+            {icon} {label}
+          </Button>
+        ))}
+      </div>
+
+      {/* ── PWA tab ─────────────────────────────────────────────────────────── */}
+      {buildTab === "pwa" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Globe className="h-4 w-4" /> Progressive Web App Build
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Runs <code className="bg-muted px-1 rounded text-xs">vite build</code> and packages the{" "}
+              <code className="bg-muted px-1 rounded text-xs">dist/</code> folder as a zip archive.
+              Deploy the zip to any static host (Netlify, Vercel, nginx, etc.).
+            </p>
+            <Button
+              onClick={async () => {
+                setPwaBuilding(true);
+                try {
+                  const r = await fetch("/api/build/pwa", { method: "POST" });
+                  if (r.ok) {
+                    const { file } = await r.json();
+                    window.open(`/api/download/${file}`, "_blank");
+                    toast({ title: "PWA build complete!", description: "Your zip download has started." });
+                  } else {
+                    const { error } = await r.json();
+                    toast({ title: "PWA build failed", description: error, variant: "destructive" });
+                  }
+                } catch (err: any) {
+                  toast({ title: "Error", description: err.message, variant: "destructive" });
+                } finally {
+                  setPwaBuilding(false);
+                }
+              }}
+              disabled={pwaBuilding}
+              className="gap-2"
+            >
+              {pwaBuilding
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Building PWA…</>
+                : <><Globe className="h-4 w-4" /> Build &amp; Download PWA</>}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── IPA tab ─────────────────────────────────────────────────────────── */}
+      {buildTab === "ipa" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Apple className="h-4 w-4" /> iOS IPA Build
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 p-4 space-y-2">
+              <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300">macOS + Xcode required</p>
+              <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                iOS IPA builds must be compiled on a Mac using Xcode. This server runs Linux, so a full IPA cannot be
+                generated here.
+              </p>
+            </div>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground">To build an IPA on your Mac:</p>
+              <ol className="list-decimal list-inside space-y-1 ml-2">
+                <li>Clone the repository and install dependencies: <code className="bg-muted px-1 rounded text-xs">npm install</code></li>
+                <li>Add iOS platform: <code className="bg-muted px-1 rounded text-xs">npx cap add ios</code></li>
+                <li>Build the web app: <code className="bg-muted px-1 rounded text-xs">npm run build</code></li>
+                <li>Sync to Capacitor: <code className="bg-muted px-1 rounded text-xs">npx cap sync ios</code></li>
+                <li>Open in Xcode: <code className="bg-muted px-1 rounded text-xs">npx cap open ios</code></li>
+                <li>Archive and export the IPA from Xcode → Product → Archive</li>
+              </ol>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Alternatively, use a CI service like GitHub Actions with a macOS runner to automate IPA builds.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── APK tab ─────────────────────────────────────────────────────────── */}
+      {buildTab === "apk" && (
+      <>
       {/* Build form */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">New Build</CardTitle>
+          <CardTitle className="text-base">New Android Build</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -398,6 +511,23 @@ export default function AdminApkBuilder() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Immediate download after successful live build */}
+      {buildStatus === "success" && currentApkFile && !selectedLogBuild && (
+        <div className="flex gap-2 items-center p-3 rounded-lg border border-green-300 bg-green-50 dark:bg-green-900/20">
+          <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+          <p className="text-sm font-medium text-green-800 dark:text-green-300 flex-1">
+            Build complete — <span className="font-mono">{currentApkFile}</span>
+          </p>
+          <Button
+            size="sm"
+            className="gap-1 bg-green-600 hover:bg-green-700 text-white"
+            onClick={() => window.open(`/api/download/${currentApkFile}`, "_blank")}
+          >
+            <Download className="h-3.5 w-3.5" /> Download APK
+          </Button>
+        </div>
+      )}
 
       {/* Log console */}
       {(buildStatus !== "idle" || selectedLogBuild) && (
@@ -496,6 +626,9 @@ export default function AdminApkBuilder() {
           )}
         </CardContent>
       </Card>
+
+      </>
+      )}
 
       {/* Publish dialog */}
       <Dialog open={!!publishTarget} onOpenChange={(o) => { if (!o) setPublishTarget(null); }}>

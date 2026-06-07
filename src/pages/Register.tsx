@@ -6,8 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff, Mail, Phone, User, Store, Users } from 'lucide-react';
-import { GuyanaPhoneInput } from '@/components/GuyanaPhoneInput';
-import { normalizeGuyanaPhone } from '@/lib/phone';
+import { CountryPhoneInput } from '@/components/CountryPhoneInput';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 
@@ -27,42 +26,35 @@ export default function Register() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    const normalizedPhone = normalizeGuyanaPhone(phoneNumber);
-    if (!normalizedPhone) {
-      toast({ variant: "destructive", title: "Invalid phone", description: "Enter a valid Guyana number (+592 followed by 7 digits)." });
+
+    if (!phoneNumber) {
+      toast({ variant: "destructive", title: "Invalid phone", description: "Please enter a valid phone number." });
       return;
     }
-    
+
     if (password !== confirmPassword) {
-      toast({
-        variant: "destructive",
-        title: "Password mismatch",
-        description: "Passwords do not match",
-      });
+      toast({ variant: "destructive", title: "Password mismatch", description: "Passwords do not match" });
       return;
     }
 
     if (password.length < 6) {
-      toast({
-        variant: "destructive",
-        title: "Weak password",
-        description: "Password must be at least 6 characters",
-      });
+      toast({ variant: "destructive", title: "Weak password", description: "Password must be at least 6 characters" });
       return;
     }
 
     setLoading(true);
 
     try {
-      const emailToUse = email || `${normalizedPhone.replace("+", "")}@virtualbank.app`;
-      
+      const digits = phoneNumber.replace(/\D+/g, "");
+      const emailToUse = email || `${digits}@virtualbank.app`;
+
       const { data, error } = await supabase.auth.signUp({
         email: emailToUse,
         password,
         options: {
           data: {
             full_name: fullName,
-            phone_number: normalizedPhone,
+            phone_number: phoneNumber,
             account_type: accountType,
           },
           emailRedirectTo: `${window.location.origin}/`,
@@ -79,11 +71,7 @@ export default function Register() {
         navigate('/auth');
       }
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Registration failed",
-        description: error.message,
-      });
+      toast({ variant: "destructive", title: "Registration failed", description: error.message });
     } finally {
       setLoading(false);
     }
@@ -152,7 +140,7 @@ export default function Register() {
                 <Phone className="w-4 h-4" />
                 Phone Number
               </label>
-              <GuyanaPhoneInput value={phoneNumber} onChange={setPhoneNumber} required />
+              <CountryPhoneInput value={phoneNumber} onChange={setPhoneNumber} />
             </div>
 
             <div className="space-y-2">

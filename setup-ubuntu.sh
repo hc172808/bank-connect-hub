@@ -42,40 +42,91 @@ echo -e "${BLU}╚════════════════════�
 echo ""
 
 # =============================================================================
-# STEP 1 — Gather config
+# STEP 0 — .env bootstrap  (idempotent: source .env if present)
 # =============================================================================
-log "Gathering configuration…"
+SCRIPT_DIR_EARLY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$SCRIPT_DIR_EARLY/.env"
+ENV_EXAMPLE="$SCRIPT_DIR_EARLY/.env.example"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  if [[ -f "$ENV_EXAMPLE" ]]; then
+    cp "$ENV_EXAMPLE" "$ENV_FILE"
+    echo -e "${YLW}[setup]${NC} Created .env from .env.example"
+    echo ""
+    echo -e "${CYN}Action required:${NC} Fill in all values in ${ENV_FILE}"
+    echo "  Then re-run this script:  sudo bash $0"
+    echo ""
+    exit 0
+  else
+    echo -e "${YLW}[warn ]${NC} No .env or .env.example found — will prompt interactively."
+  fi
+fi
+
+if [[ -f "$ENV_FILE" ]]; then
+  log "Loading configuration from .env…"
+  set +u  # allow unset vars while sourcing
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set -u
+  log ".env sourced ✓"
+  echo ""
+fi
+
+# =============================================================================
+# STEP 1 — Gather config (skipped if .env provided all required values)
+# =============================================================================
+log "Verifying configuration…"
 echo ""
 
-ask "GitHub username (lowercase):"
-read -r GITHUB_USER
+# Prompt only for values still missing after .env sourcing
+if [[ -z "${GITHUB_USER:-}" ]]; then
+  ask "GitHub username (lowercase):"
+  read -r GITHUB_USER
+fi
 
-ask "GitHub repository name (lowercase):"
-read -r GITHUB_REPO
+if [[ -z "${GITHUB_REPO:-}" ]]; then
+  ask "GitHub repository name (lowercase):"
+  read -r GITHUB_REPO
+fi
 
-ask "GitHub Personal Access Token (PAT) with 'read:packages' scope"
-ask "  (create at https://github.com/settings/tokens):"
-read -rs GITHUB_PAT; echo ""
+if [[ -z "${GITHUB_PAT:-}" ]]; then
+  ask "GitHub Personal Access Token (PAT) with 'read:packages' scope"
+  ask "  (create at https://github.com/settings/tokens):"
+  read -rs GITHUB_PAT; echo ""
+fi
 
-ask "Upstream Ethereum RPC URL (leave blank for BSC mainnet):"
-read -r UPSTREAM_RPC
+if [[ -z "${UPSTREAM_RPC:-}" ]]; then
+  ask "Upstream Ethereum RPC URL (leave blank for BSC mainnet):"
+  read -r UPSTREAM_RPC
+fi
 UPSTREAM_RPC="${UPSTREAM_RPC:-https://bsc-dataseed.binance.org}"
 
-ask "Domain name (e.g. bank.example.com) — blank = use server IP only:"
-read -r DOMAIN_NAME
+if [[ -z "${DOMAIN_NAME:-}" ]]; then
+  ask "Domain name (e.g. bank.example.com) — blank = use server IP only:"
+  read -r DOMAIN_NAME
+fi
+DOMAIN_NAME="${DOMAIN_NAME:-}"
 
-ask "Email for Let's Encrypt SSL (blank = skip SSL):"
-read -r SSL_EMAIL
+if [[ -z "${SSL_EMAIL:-}" ]]; then
+  ask "Email for Let's Encrypt SSL (blank = skip SSL):"
+  read -r SSL_EMAIL
+fi
+SSL_EMAIL="${SSL_EMAIL:-}"
 
-ask "App port on host (default 3000):"
-read -r APP_PORT
+if [[ -z "${APP_PORT:-}" ]]; then
+  ask "App port on host (default 3000):"
+  read -r APP_PORT
+fi
 APP_PORT="${APP_PORT:-3000}"
 
-ask "Enable ModSecurity WAF? [y/N]:"
-read -r ENABLE_WAF
+if [[ -z "${ENABLE_WAF:-}" ]]; then
+  ask "Enable ModSecurity WAF? [y/N]:"
+  read -r ENABLE_WAF
+fi
 ENABLE_WAF="${ENABLE_WAF:-n}"
 
-WEBHOOK_SECRET=$(openssl rand -hex 32)
+# Generate a webhook secret only if not already set
+WEBHOOK_SECRET="${WEBHOOK_SECRET:-$(openssl rand -hex 32)}"
 APP_DIR="/opt/virtualbank"
 SERVER_IP=$(curl -sf https://api.ipify.org || hostname -I | awk '{print $1}')
 
