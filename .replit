@@ -66,3 +66,9 @@ externalPort = 3000
 [[ports]]
 localPort = 5002
 externalPort = 3001
+
+[userenv]
+
+[userenv.shared]
+PORT = "3000"
+NODE_ENV = "development"
