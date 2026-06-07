@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -75,7 +75,7 @@ app.get("/api/build/stream", (req, res) => {
   }
 
   if (current.status !== "running") {
-    sseSend(res, { type: "done", status: current.status });
+    sseSend(res, { type: "done", status: current.status, apkFile: current.apkFile || null });
     res.end();
     return;
   }
@@ -89,7 +89,7 @@ app.get("/api/build/stream", (req, res) => {
   });
 });
 
-// POST /api/build — start a new build
+// POST /api/build — start a new APK build
 app.post("/api/build", (req, res) => {
   if (current && current.status === "running") {
     return res.status(409).json({ error: "A build is already in progress" });
@@ -114,6 +114,7 @@ app.post("/api/build", (req, res) => {
     buildType,
     includeRpcNode,
     startedAt,
+    apkFile: null,
   };
 
   // Persist to history
@@ -136,16 +137,16 @@ app.post("/api/build", (req, res) => {
 
   proc.on("close", (code) => {
     const status = code === 0 ? "success" : "failed";
+    const apkFile = code === 0 ? `VirtualBank-${version}-${buildType}.apk` : null;
     current.status = status;
-    for (const l of current.listeners) l({ type: "done", status });
+    current.apkFile = apkFile;
+    for (const l of current.listeners) l({ type: "done", status, apkFile });
 
     const idx = builds.findIndex((b) => b.id === id);
     if (idx >= 0) {
       builds[idx].status = status;
       builds[idx].finishedAt = new Date().toISOString();
-      if (code === 0) {
-        builds[idx].apkFile = `VirtualBank-${version}-${buildType}.apk`;
-      }
+      builds[idx].apkFile = apkFile;
       saveBuilds(builds);
     }
   });
@@ -159,13 +160,78 @@ app.post("/api/build/cancel", (_req, res) => {
     return res.status(400).json({ error: "No running build" });
   }
   current.proc.kill("SIGTERM");
+  current.status = "cancelled";
+  for (const l of current.listeners) l({ type: "done", status: "failed", apkFile: null });
   res.json({ ok: true });
 });
 
-// GET /api/download/:filename — download an APK
+// POST /api/build/pwa — run vite build and zip the dist folder
+app.post("/api/build/pwa", async (_req, res) => {
+  try {
+    console.log("[build-server] Starting PWA build…");
+    execSync("npm run build", { cwd: __dirname, stdio: "inherit", timeout: 300_000 });
+
+    const zipFile = `pwa-build-${Date.now()}.zip`;
+    const zipPath = path.join(__dirname, zipFile);
+
+    // Use the zip CLI (available on Linux) or fall back to a JS zip
+    try {
+      execSync(`cd "${path.join(__dirname, "dist")}" && zip -r "${zipPath}" .`, { stdio: "inherit" });
+    } catch {
+      // Fallback: write a tar.gz if zip is not available
+      const tarFile = zipFile.replace(".zip", ".tar.gz");
+      const tarPath = path.join(__dirname, tarFile);
+      execSync(`tar -czf "${tarPath}" -C "${path.join(__dirname, "dist")}" .`, { stdio: "inherit" });
+      return res.json({ file: tarFile });
+    }
+
+    console.log("[build-server] PWA build complete →", zipFile);
+    res.json({ file: zipFile });
+  } catch (err) {
+    console.error("[build-server] PWA build error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/git-pull — pull latest code from git
+app.post("/api/git-pull", (req, res) => {
+  try {
+    const { remote, branch = "main" } = req.body || {};
+    const output = [];
+
+    if (remote) {
+      try {
+        const setRemote = execSync(`git remote get-url origin`, { cwd: __dirname }).toString().trim();
+        if (setRemote !== remote) {
+          execSync(`git remote set-url origin "${remote}"`, { cwd: __dirname });
+          output.push(`Remote updated to: ${remote}`);
+        }
+      } catch {
+        execSync(`git remote add origin "${remote}"`, { cwd: __dirname });
+        output.push(`Remote set to: ${remote}`);
+      }
+    }
+
+    const pullOut = execSync(`git pull origin "${branch}" 2>&1`, {
+      cwd: __dirname,
+      timeout: 120_000,
+    }).toString();
+
+    output.push(...pullOut.split("\n").filter(Boolean));
+    console.log("[build-server] git pull output:", pullOut);
+    res.json({ ok: true, output });
+  } catch (err) {
+    const errMsg = err.stderr?.toString() || err.stdout?.toString() || err.message;
+    console.error("[build-server] git pull error:", errMsg);
+    res.status(500).json({ error: errMsg, output: errMsg.split("\n").filter(Boolean) });
+  }
+});
+
+// GET /api/download/:filename — download an APK or zip
 app.get("/api/download/:filename", (req, res) => {
   const { filename } = req.params;
-  if (!filename.endsWith(".apk")) return res.status(400).json({ error: "Invalid file type" });
+  const allowed = filename.endsWith(".apk") || filename.endsWith(".zip") || filename.endsWith(".tar.gz");
+  if (!allowed) return res.status(400).json({ error: "Invalid file type" });
   const filepath = path.join(__dirname, filename);
   if (!fs.existsSync(filepath)) return res.status(404).json({ error: "File not found" });
   res.download(filepath, filename);
