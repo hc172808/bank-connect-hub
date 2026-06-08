@@ -84,6 +84,7 @@ const AdminAnnouncements = lazy(() => import("./pages/AdminAnnouncements"));
 const AdminCountries = lazy(() => import("./pages/AdminCountries"));
 const AdminConsole = lazy(() => import("./pages/AdminConsole"));
 const AdminApkBuilder = lazy(() => import("./pages/AdminApkBuilder"));
+const LegalCompliance = lazy(() => import("./pages/LegalCompliance"));
 const BudgetPlanner       = lazy(() => import("./pages/BudgetPlanner"));
 const SavingsGoals        = lazy(() => import("./pages/SavingsGoals"));
 const Beneficiaries       = lazy(() => import("./pages/Beneficiaries"));
@@ -271,6 +272,7 @@ const AppRoutes = () => {
         <Route path="/admin/countries" element={<ProtectedRoute allowedRoles={["admin"]}><AdminCountries /></ProtectedRoute>} />
         <Route path="/admin/console" element={<ProtectedRoute allowedRoles={["admin"]}><AdminConsole /></ProtectedRoute>} />
         <Route path="/admin/apk-builder" element={<ProtectedRoute allowedRoles={["admin"]}><AdminApkBuilder /></ProtectedRoute>} />
+        <Route path="/admin/legal" element={<ProtectedRoute allowedRoles={["admin"]}><LegalCompliance /></ProtectedRoute>} />
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
