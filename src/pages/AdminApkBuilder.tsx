@@ -43,7 +43,7 @@ interface Build {
   version: string;
   buildType: "debug" | "release";
   includeRpcNode: boolean;
-  status: "running" | "success" | "failed";
+  status: "running" | "success" | "failed" | "cancelled";
   startedAt: string;
   finishedAt?: string;
   apkFile?: string;
@@ -61,6 +61,12 @@ const StatusBadge = ({ status }: { status: Build["status"] }) => {
     return (
       <Badge className="gap-1 bg-green-600 text-white">
         <CheckCircle2 className="h-3 w-3" /> Success
+      </Badge>
+    );
+  if (status === "cancelled")
+    return (
+      <Badge variant="outline" className="gap-1 text-muted-foreground">
+        <XCircle className="h-3 w-3" /> Cancelled
       </Badge>
     );
   return (
@@ -87,7 +93,7 @@ export default function AdminApkBuilder() {
   const [buildType, setBuildType] = useState<"debug" | "release">("debug");
   const [includeRpcNode, setIncludeRpcNode] = useState(true);
   const [building, setBuilding] = useState(false);
-  const [buildStatus, setBuildStatus] = useState<"idle" | "running" | "success" | "failed">("idle");
+  const [buildStatus, setBuildStatus] = useState<"idle" | "running" | "success" | "failed" | "cancelled">("idle");
   const [currentApkFile, setCurrentApkFile] = useState<string | null>(null);
   const [buildTab, setBuildTab] = useState<"apk" | "pwa" | "ipa">("apk");
   const [pwaBuilding, setPwaBuilding] = useState(false);
@@ -153,13 +159,15 @@ export default function AdminApkBuilder() {
         if (msg.apkFile) setCurrentApkFile(msg.apkFile);
         es.close();
         loadHistory();
-        toast({
-          title: msg.status === "success" ? "Build successful!" : "Build failed",
-          description: msg.status === "success"
-            ? "APK is ready — click Publish to push the update to users."
-            : "Check the logs for details.",
-          variant: msg.status === "success" ? "default" : "destructive",
-        });
+        if (msg.status !== "cancelled") {
+          toast({
+            title: msg.status === "success" ? "Build successful!" : "Build failed",
+            description: msg.status === "success"
+              ? "APK is ready — click Publish to push the update to users."
+              : "Check the logs for details.",
+            variant: msg.status === "success" ? "default" : "destructive",
+          });
+        }
       } else if (msg.type === "idle") {
         es.close();
       }
@@ -203,12 +211,16 @@ export default function AdminApkBuilder() {
   };
 
   const cancelBuild = async () => {
-    try { await fetch("/api/build/cancel", { method: "POST" }); } catch {}
+    // Close the SSE stream FIRST so we don't process the server's "done" event
+    // (the server sends it immediately on cancel; we handle UI here instead)
     if (esRef.current) { esRef.current.close(); esRef.current = null; }
+    try { await fetch("/api/build/cancel", { method: "POST" }); } catch {}
     setBuilding(false);
-    setBuildStatus("idle");
+    setBuildStatus("cancelled");
     setCurrentApkFile(null);
-    toast({ title: "Build cancelled" });
+    // Refresh history so the build row shows "Cancelled" not "Running"
+    setTimeout(loadHistory, 500);
+    toast({ title: "Build cancelled", description: "The build process was stopped." });
   };
 
   const viewBuildLogs = async (build: Build) => {
