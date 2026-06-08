@@ -1,0 +1,177 @@
+# =============================================================================
+#  Virtual Bank / NETLIFE CASH — Portainer Stack
+#
+#  HOW TO DEPLOY IN PORTAINER:
+#    1. Portainer → Stacks → + Add Stack
+#    2. Name: virtualbank
+#    3. Paste this file (or use "Repository" method and point at your repo)
+#    4. Scroll down to "Environment variables" and fill in the values below
+#    5. Click "Deploy the stack"
+#
+#  REQUIRED ENVIRONMENT VARIABLES (set in Portainer UI):
+#    GITHUB_USER              — your GitHub username
+#    GITHUB_REPO              — repository name
+#    VITE_SUPABASE_URL        — https://xxxx.supabase.co
+#    VITE_SUPABASE_PUBLISHABLE_KEY — anon/public Supabase key
+#    VITE_SUPABASE_PROJECT_ID — Supabase project ID
+#
+#  OPTIONAL ENVIRONMENT VARIABLES:
+#    APP_PORT                 — host port (default: 3000)
+#    UPSTREAM_RPC             — Ethereum/BSC RPC (default: BSC public)
+#    WATCHTOWER_INTERVAL      — auto-update poll seconds (default: 300)
+#    VITE_WHATSAPP_SUPPORT_NUMBER — WhatsApp number (no +)
+#    WEBHOOK_PORT             — redeploy webhook port (default: 9000)
+#    WEBHOOK_SECRET           — secret header for webhook endpoint
+#    VAPID_PUBLIC_KEY         — Web Push public key
+#    VAPID_PRIVATE_KEY        — Web Push private key
+#    VAPID_EMAIL              — mailto: email for push service
+# =============================================================================
+
+version: "3.8"
+
+services:
+
+  # ── React SPA (served by nginx) ────────────────────────────────────────────
+  virtualbank:
+    image: ghcr.io/${GITHUB_USER}/${GITHUB_REPO}:latest
+    container_name: virtualbank
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:80"
+    environment:
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}
+      - VITE_SUPABASE_PROJECT_ID=${VITE_SUPABASE_PROJECT_ID:-}
+      - VITE_WHATSAPP_SUPPORT_NUMBER=${VITE_WHATSAPP_SUPPORT_NUMBER:-}
+      - NODE_ENV=production
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64m,mode=0755
+      - /var/run:size=4m,mode=0755
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+        reservations:
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - frontend
+
+  # ── Go Lite-node (Ethereum/BSC JSON-RPC proxy) ─────────────────────────────
+  litenode:
+    image: ghcr.io/${GITHUB_USER}/virtualbank-litenode:latest
+    container_name: litenode
+    restart: unless-stopped
+    environment:
+      - LISTEN_ADDR=:8545
+      - UPSTREAM_RPC=${UPSTREAM_RPC:-https://bsc-dataseed.binance.org}
+      - RATE_PER_MIN=120
+      - CACHE_BLOCKS=64
+      - DEDUP_TTL=60s
+      - NONCE_TTL=5m
+    expose:
+      - "8545"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8545/health | grep -q status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - frontend
+      - backend
+
+  # ── Watchtower — auto-pulls updated images from GHCR ──────────────────────
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_POLL_INTERVAL=${WATCHTOWER_INTERVAL:-300}
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_CLEANUP=true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 32M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - backend
+
+  # ── Webhook — instant redeploy trigger from GitHub Actions ────────────────
+  webhook:
+    image: almir/webhook:latest
+    container_name: virtualbank-webhook
+    restart: unless-stopped
+    ports:
+      - "${WEBHOOK_PORT:-9000}:9000"
+    volumes:
+      - /opt/virtualbank/webhook-hooks.json:/etc/webhook/hooks.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+    command: ["-hooks=/etc/webhook/hooks.json", "-verbose"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 32M
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - backend
+
+# ── Networks ───────────────────────────────────────────────────────────────────
+networks:
+  frontend:
+    name: virtualbank-frontend
+    driver: bridge
+  backend:
+    name: virtualbank-backend
+    driver: bridge
