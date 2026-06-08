@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
-import { spawn, execSync } from "child_process";
+import { spawn, execSync, exec } from "child_process";
+import { promisify } from "util";
+const execAsync = promisify(exec);
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -565,6 +567,129 @@ app.post("/api/email/transaction-alert", async (req, res) => {
     res.json({ ok: true, messageId: info.messageId });
   } catch (err) {
     console.error("[email] alert error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Litenode Docker Management
+// Requires /var/run/docker.sock mounted into this container.
+// ══════════════════════════════════════════════════════════════════════════════
+const LITENODE_CONTAINER = process.env.LITENODE_CONTAINER_NAME || "litenode";
+
+async function dockerAvailable() {
+  try {
+    await execAsync("docker info --format '{{.ServerVersion}}'", { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getContainerStatus(name) {
+  try {
+    const { stdout } = await execAsync(
+      `docker inspect ${name} --format '{{.State.Status}}'`,
+      { timeout: 5000 }
+    );
+    return stdout.trim(); // "running", "exited", "paused", "created", "restarting"
+  } catch {
+    return "not_found";
+  }
+}
+
+// GET /api/litenode/docker/status
+app.get("/api/litenode/docker/status", async (_req, res) => {
+  try {
+    const hasDocker = await dockerAvailable();
+    if (!hasDocker) {
+      return res.json({ docker: false, status: "unavailable", message: "Docker socket not mounted — litenode management only available on self-hosted deployments." });
+    }
+    const status = await getContainerStatus(LITENODE_CONTAINER);
+    res.json({ docker: true, status, container: LITENODE_CONTAINER });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/litenode/docker/start
+app.post("/api/litenode/docker/start", async (_req, res) => {
+  try {
+    const hasDocker = await dockerAvailable();
+    if (!hasDocker) return res.status(503).json({ error: "Docker not available" });
+    await execAsync(`docker start ${LITENODE_CONTAINER}`, { timeout: 15000 });
+    const status = await getContainerStatus(LITENODE_CONTAINER);
+    console.log(`[litenode] started container ${LITENODE_CONTAINER} → ${status}`);
+    res.json({ ok: true, status });
+  } catch (err) {
+    console.error("[litenode] start error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/litenode/docker/stop
+app.post("/api/litenode/docker/stop", async (_req, res) => {
+  try {
+    const hasDocker = await dockerAvailable();
+    if (!hasDocker) return res.status(503).json({ error: "Docker not available" });
+    await execAsync(`docker stop ${LITENODE_CONTAINER}`, { timeout: 30000 });
+    const status = await getContainerStatus(LITENODE_CONTAINER);
+    console.log(`[litenode] stopped container ${LITENODE_CONTAINER} → ${status}`);
+    res.json({ ok: true, status });
+  } catch (err) {
+    console.error("[litenode] stop error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/litenode/docker/restart
+app.post("/api/litenode/docker/restart", async (_req, res) => {
+  try {
+    const hasDocker = await dockerAvailable();
+    if (!hasDocker) return res.status(503).json({ error: "Docker not available" });
+    await execAsync(`docker restart ${LITENODE_CONTAINER}`, { timeout: 30000 });
+    const status = await getContainerStatus(LITENODE_CONTAINER);
+    console.log(`[litenode] restarted container ${LITENODE_CONTAINER} → ${status}`);
+    res.json({ ok: true, status });
+  } catch (err) {
+    console.error("[litenode] restart error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/litenode/docker/logs?lines=150
+app.get("/api/litenode/docker/logs", async (req, res) => {
+  const lines = Math.min(parseInt(req.query.lines) || 150, 500);
+  try {
+    const hasDocker = await dockerAvailable();
+    if (!hasDocker) return res.json({ docker: false, logs: [], message: "Docker not available" });
+    // 2>&1 merges stderr (where docker logs often go) into stdout
+    const { stdout } = await execAsync(
+      `docker logs --tail=${lines} --timestamps ${LITENODE_CONTAINER} 2>&1`,
+      { timeout: 10000 }
+    );
+    const logs = stdout.split("\n").filter(Boolean);
+    res.json({ ok: true, logs, container: LITENODE_CONTAINER });
+  } catch (err) {
+    // docker logs errors go to stderr — try to get partial output
+    res.json({ ok: false, logs: [], error: err.message });
+  }
+});
+
+// GET /api/litenode/docker/stats — CPU/memory snapshot
+app.get("/api/litenode/docker/stats", async (_req, res) => {
+  try {
+    const hasDocker = await dockerAvailable();
+    if (!hasDocker) return res.json({ docker: false });
+    const status = await getContainerStatus(LITENODE_CONTAINER);
+    if (status !== "running") return res.json({ docker: true, status, stats: null });
+    const { stdout } = await execAsync(
+      `docker stats ${LITENODE_CONTAINER} --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.NetIO}}'`,
+      { timeout: 8000 }
+    );
+    const [cpu, mem, net] = stdout.trim().split("|");
+    res.json({ docker: true, status, stats: { cpu, mem, net } });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

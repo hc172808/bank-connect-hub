@@ -52,6 +52,8 @@ services:
       - "3001"
     volumes:
       - build-server-data:/app/.local
+      # Docker socket — allows admin to start/stop the litenode container
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
