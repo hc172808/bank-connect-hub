@@ -33,11 +33,13 @@ const AdminDashboard = () => {
   const [todayCount, setTodayCount] = useState(0);
   const [pendingDeposits, setPendingDeposits] = useState(0);
   const [aiSummary, setAiSummary] = useState<{ critical: number; high: number; total: number; enabled: boolean }>({
-    critical: 0,
-    high: 0,
-    total: 0,
-    enabled: true,
+    critical: 0, high: 0, total: 0, enabled: true,
   });
+  const [weekBars, setWeekBars] = useState<{ label: string; volume: number; count: number }[]>([]);
+  const [newUsersWeek, setNewUsersWeek] = useState(0);
+  const [totalFeesWeek, setTotalFeesWeek] = useState(0);
+  const [recentTxs, setRecentTxs] = useState<any[]>([]);
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -47,6 +49,14 @@ const AdminDashboard = () => {
     fetchChangelog();
     fetchTodayStats();
     fetchAiSummary();
+    fetchWeeklyStats();
+    // Auto-refresh KPIs every 30s
+    const interval = setInterval(() => {
+      fetchTodayStats();
+      fetchWeeklyStats();
+      setLastRefresh(new Date());
+    }, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchTodayStats = async () => {
@@ -104,6 +114,42 @@ const AdminDashboard = () => {
       .select("id", { count: "exact", head: true })
       .eq("role", "agent");
     if (agentCount !== null) setActiveAgents(agentCount);
+  };
+
+  const fetchWeeklyStats = async () => {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: txData } = await supabase
+      .from("transactions")
+      .select("amount, fee, created_at, status")
+      .gte("created_at", sevenDaysAgo)
+      .order("created_at", { ascending: false });
+
+    if (txData) {
+      setRecentTxs((txData as any[]).slice(0, 6));
+      setTotalFeesWeek((txData as any[]).reduce((s, t) => s + Number(t.fee || 0), 0));
+
+      const bars: { label: string; volume: number; count: number }[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+        const dayStr = d.toISOString().split("T")[0];
+        const dayRows = (txData as any[]).filter(t => t.created_at.startsWith(dayStr));
+        bars.push({
+          label: d.toLocaleDateString("en", { weekday: "short" }),
+          volume: dayRows.reduce((s, t) => s + Number(t.amount || 0), 0),
+          count: dayRows.length,
+        });
+      }
+      setWeekBars(bars);
+    }
+
+    const { count: newUsers } = await supabase
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", sevenDaysAgo);
+    if (newUsers !== null) setNewUsersWeek(newUsers);
+
+    setLastRefresh(new Date());
   };
 
   const fetchChangelog = async () => {
@@ -225,6 +271,63 @@ const AdminDashboard = () => {
             <CardContent>
               <div className="text-xl font-bold text-primary">Healthy</div>
               <p className="text-[10px] text-muted-foreground">all good</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Additional KPIs row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-xs font-medium">New Users (7d)</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold text-blue-600">{newUsersWeek}</div>
+              <p className="text-[10px] text-muted-foreground">registered this week</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-xs font-medium">Fees (7d)</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold text-green-600">${totalFeesWeek.toFixed(2)}</div>
+              <p className="text-[10px] text-muted-foreground">collected this week</p>
+            </CardContent>
+          </Card>
+          <Card className="col-span-2">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-xs font-medium flex items-center gap-1">
+                <BarChart3 className="h-3.5 w-3.5" /> 7-Day Volume
+              </CardTitle>
+              <span className="text-[10px] text-muted-foreground">
+                Updated {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            </CardHeader>
+            <CardContent>
+              {weekBars.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-2">Loading...</p>
+              ) : (
+                <div className="flex items-end gap-1.5 h-16">
+                  {weekBars.map(bar => {
+                    const maxVol = Math.max(...weekBars.map(b => b.volume), 1);
+                    return (
+                      <div key={bar.label} className="flex-1 flex flex-col items-center gap-0.5">
+                        <div className="w-full flex items-end justify-center" style={{ height: "44px" }}>
+                          <div
+                            className="w-full rounded-t bg-primary/60 min-h-[2px]"
+                            style={{ height: `${Math.max((bar.volume / maxVol) * 100, 4)}%` }}
+                            title={`$${bar.volume.toFixed(0)} · ${bar.count} txs`}
+                          />
+                        </div>
+                        <div className="text-[8px] text-muted-foreground">{bar.label}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -524,12 +627,49 @@ const AdminDashboard = () => {
           
           <Card>
             <CardHeader>
-              <CardTitle>Recent System Activity</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>Recent Transactions</CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => navigate("/admin/transactions")} className="text-xs">
+                  View all
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground text-center py-8">
-                No recent system activity to display
-              </p>
+              {recentTxs.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">No recent transactions</p>
+              ) : (
+                <div className="space-y-2">
+                  {recentTxs.map((t: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold
+                          ${t.status === "completed" ? "bg-green-500/15 text-green-600" :
+                            t.status === "pending" ? "bg-yellow-500/15 text-yellow-600" :
+                            "bg-red-500/15 text-red-600"}`}>
+                          {t.status === "completed" ? "✓" : t.status === "pending" ? "~" : "✗"}
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium">${Number(t.amount || 0).toFixed(2)}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {new Date(t.created_at).toLocaleDateString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium
+                          ${t.status === "completed" ? "bg-green-500/10 text-green-700" :
+                            t.status === "pending" ? "bg-yellow-500/10 text-yellow-700" :
+                            "bg-red-500/10 text-red-700"}`}>
+                          {t.status}
+                        </span>
+                        {Number(t.fee || 0) > 0 && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">fee: ${Number(t.fee).toFixed(2)}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
