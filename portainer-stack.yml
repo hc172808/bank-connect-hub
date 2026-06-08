@@ -25,11 +25,57 @@
 #    VAPID_PUBLIC_KEY         — Web Push public key
 #    VAPID_PRIVATE_KEY        — Web Push private key
 #    VAPID_EMAIL              — mailto: email for push service
+#
+#  BUILD SERVER NOTE:
+#    The build-server image includes Node.js + Java 17 + Android SDK.
+#    You must build it on the server before running this stack:
+#
+#      git clone https://github.com/YOUR_USER/YOUR_REPO.git /opt/virtualbank/src
+#      docker build -f /opt/virtualbank/src/Dockerfile.build-server \
+#        -t virtualbank-build-server:latest \
+#        /opt/virtualbank/src
+#
+#    Then Portainer will find the local image "virtualbank-build-server:latest".
 # =============================================================================
 
 version: "3.8"
 
 services:
+
+  # ── Build server (APK builder, PWA builder, push notifications) ───────────
+  # Image: build locally with Dockerfile.build-server (see note above)
+  build-server:
+    image: virtualbank-build-server:latest
+    container_name: virtualbank-build-server
+    restart: unless-stopped
+    expose:
+      - "3001"
+    volumes:
+      - build-server-data:/app/.local
+    environment:
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_EMAIL=${VAPID_EMAIL:-admin@virtualbank.app}
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/api/build/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - frontend
 
   # ── React SPA (served by nginx) ────────────────────────────────────────────
   virtualbank:
@@ -175,3 +221,8 @@ networks:
   backend:
     name: virtualbank-backend
     driver: bridge
+
+# ── Volumes ────────────────────────────────────────────────────────────────────
+volumes:
+  build-server-data:
+    name: virtualbank-build-server-data
