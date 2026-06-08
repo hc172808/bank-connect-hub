@@ -139,11 +139,17 @@ app.post("/api/build", (req, res) => {
   proc.stderr.on("data", (d) => appendLog(d.toString()));
 
   proc.on("close", (code) => {
+    // If already marked cancelled by the cancel endpoint, skip entirely —
+    // the cancel handler already persisted the state and notified listeners.
+    if (current && current.status === "cancelled") return;
+
     const status = code === 0 ? "success" : "failed";
     const apkFile = code === 0 ? `VirtualBank-${version}-${buildType}.apk` : null;
-    current.status = status;
-    current.apkFile = apkFile;
-    for (const l of current.listeners) l({ type: "done", status, apkFile });
+    if (current) {
+      current.status = status;
+      current.apkFile = apkFile;
+      for (const l of current.listeners) l({ type: "done", status, apkFile });
+    }
 
     const idx = builds.findIndex((b) => b.id === id);
     if (idx >= 0) {
@@ -162,9 +168,32 @@ app.post("/api/build/cancel", (_req, res) => {
   if (!current || current.status !== "running") {
     return res.status(400).json({ error: "No running build" });
   }
-  current.proc.kill("SIGTERM");
+
+  const cancelledId = current.id;
+
+  // 1. Mark cancelled first so the close-event handler knows to skip
   current.status = "cancelled";
-  for (const l of current.listeners) l({ type: "done", status: "failed", apkFile: null });
+
+  // 2. Notify all SSE listeners immediately so their UIs update
+  for (const l of current.listeners) l({ type: "done", status: "cancelled", apkFile: null });
+  current.listeners = [];
+
+  // 3. Kill the entire process GROUP (SIGKILL, not SIGTERM) so gradle
+  //    and every sub-process it spawned are all killed, not just bash.
+  try { process.kill(-current.proc.pid, "SIGKILL"); } catch { /* process may not have a group */ }
+  try { current.proc.kill("SIGKILL"); } catch { /* already dead */ }
+
+  // 4. Persist "cancelled" status immediately — don't wait for proc.close
+  try {
+    const builds = loadBuilds();
+    const idx = builds.findIndex((b) => b.id === cancelledId);
+    if (idx >= 0) {
+      builds[idx].status = "cancelled";
+      builds[idx].finishedAt = new Date().toISOString();
+      saveBuilds(builds);
+    }
+  } catch { /* non-fatal */ }
+
   res.json({ ok: true });
 });
 
