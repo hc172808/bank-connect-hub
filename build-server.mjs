@@ -4,6 +4,7 @@ import { spawn, execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import webpush from "web-push";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -243,6 +244,132 @@ app.get("/api/builds/:id/logs", (req, res) => {
   const build = builds.find((b) => b.id === req.params.id);
   if (!build) return res.status(404).json({ error: "Build not found" });
   res.json({ logs: build.logs || [] });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PUSH NOTIFICATION ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// VAPID keys — loaded from env or auto-generated once and persisted locally
+const VAPID_FILE = path.join(__dirname, ".local", "vapid.json");
+
+function loadOrGenerateVapidKeys() {
+  // Prefer env vars (set by deploy.sh / Portainer)
+  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+    webpush.setVapidDetails(
+      `mailto:${process.env.VAPID_EMAIL || "admin@virtualbank.app"}`,
+      process.env.VAPID_PUBLIC_KEY,
+      process.env.VAPID_PRIVATE_KEY
+    );
+    return { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY };
+  }
+
+  // Fall back to persisted local file
+  if (fs.existsSync(VAPID_FILE)) {
+    try {
+      const keys = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8"));
+      webpush.setVapidDetails(`mailto:admin@virtualbank.app`, keys.publicKey, keys.privateKey);
+      return keys;
+    } catch {}
+  }
+
+  // Generate fresh keys and save
+  const keys = webpush.generateVAPIDKeys();
+  fs.mkdirSync(path.dirname(VAPID_FILE), { recursive: true });
+  fs.writeFileSync(VAPID_FILE, JSON.stringify(keys, null, 2));
+  webpush.setVapidDetails(`mailto:admin@virtualbank.app`, keys.publicKey, keys.privateKey);
+  console.log("[push] Generated new VAPID keys. Add to .env for persistence:");
+  console.log(`  VAPID_PUBLIC_KEY=${keys.publicKey}`);
+  console.log(`  VAPID_PRIVATE_KEY=${keys.privateKey}`);
+  return keys;
+}
+
+// In-memory subscription store (persisted to .local/push-subscriptions.json)
+const SUBS_FILE = path.join(__dirname, ".local", "push-subscriptions.json");
+
+function loadSubscriptions() {
+  try { return JSON.parse(fs.readFileSync(SUBS_FILE, "utf8")); } catch { return []; }
+}
+function saveSubscriptions(subs) {
+  fs.mkdirSync(path.dirname(SUBS_FILE), { recursive: true });
+  fs.writeFileSync(SUBS_FILE, JSON.stringify(subs, null, 2));
+}
+
+const vapidKeys = loadOrGenerateVapidKeys();
+
+// GET /api/push/vapid-public-key — client fetches this to create subscriptions
+app.get("/api/push/vapid-public-key", (_req, res) => {
+  res.json({ publicKey: vapidKeys.publicKey });
+});
+
+// POST /api/push/subscribe — save a push subscription
+app.post("/api/push/subscribe", (req, res) => {
+  const { subscription, userId } = req.body;
+  if (!subscription?.endpoint) return res.status(400).json({ error: "Missing subscription" });
+
+  const subs = loadSubscriptions();
+  const idx = subs.findIndex((s) => s.subscription?.endpoint === subscription.endpoint);
+  const entry = { subscription, userId: userId || null, createdAt: new Date().toISOString() };
+  if (idx >= 0) subs[idx] = entry; else subs.push(entry);
+  saveSubscriptions(subs);
+  console.log(`[push] Subscription saved (total: ${subs.length})`);
+  res.json({ ok: true, total: subs.length });
+});
+
+// POST /api/push/unsubscribe — remove a subscription by endpoint
+app.post("/api/push/unsubscribe", (req, res) => {
+  const { endpoint } = req.body;
+  if (!endpoint) return res.status(400).json({ error: "Missing endpoint" });
+  const subs = loadSubscriptions().filter((s) => s.subscription?.endpoint !== endpoint);
+  saveSubscriptions(subs);
+  res.json({ ok: true, total: subs.length });
+});
+
+// GET /api/push/subscribers — count (admin info)
+app.get("/api/push/subscribers", (_req, res) => {
+  const subs = loadSubscriptions();
+  res.json({ total: subs.length });
+});
+
+// POST /api/push/send — send a push to all (or one user's) subscribers
+app.post("/api/push/send", async (req, res) => {
+  const { title, body, icon, url, userId } = req.body;
+  if (!title || !body) return res.status(400).json({ error: "title and body required" });
+
+  let subs = loadSubscriptions();
+  if (userId) subs = subs.filter((s) => s.userId === userId);
+  if (subs.length === 0) return res.json({ ok: true, sent: 0, failed: 0 });
+
+  const payload = JSON.stringify({ title, body, icon: icon || "/icon.svg", url: url || "/" });
+
+  let sent = 0, failed = 0;
+  const expired = [];
+
+  await Promise.allSettled(
+    subs.map(async ({ subscription }) => {
+      try {
+        await webpush.sendNotification(subscription, payload);
+        sent++;
+      } catch (err) {
+        failed++;
+        // 410 Gone = subscription expired / unsubscribed by browser
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          expired.push(subscription.endpoint);
+        }
+        console.error("[push] send error:", err.statusCode, err.message);
+      }
+    })
+  );
+
+  // Clean up expired subscriptions
+  if (expired.length > 0) {
+    const cleaned = loadSubscriptions().filter((s) => !expired.includes(s.subscription?.endpoint));
+    saveSubscriptions(cleaned);
+    console.log(`[push] Removed ${expired.length} expired subscriptions`);
+  }
+
+  console.log(`[push] Sent ${sent}, failed ${failed}`);
+  res.json({ ok: true, sent, failed });
 });
 
 app.listen(PORT, "0.0.0.0", () => {

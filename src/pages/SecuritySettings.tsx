@@ -7,10 +7,72 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Trash2 } from "lucide-react";
+import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Trash2, Bell, BellOff } from "lucide-react";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
 import { UAParser } from "ua-parser-js";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
+
+const PushNotificationCard = () => {
+  const { state, loading, enable, disable } = usePushNotifications();
+
+  const label: Record<string, string> = {
+    unsupported: "Not supported in this browser",
+    denied: "Blocked — allow in browser settings",
+    prompt: "Not enabled",
+    unsubscribed: "Not enabled",
+    subscribed: "Enabled",
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bell className="h-5 w-5" /> Push Notifications
+        </CardTitle>
+        <CardDescription>
+          Receive instant alerts even when the app isn't open.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Status</p>
+            <p className="text-xs text-muted-foreground">{label[state]}</p>
+          </div>
+          <Badge variant={state === "subscribed" ? "default" : "secondary"}>
+            {state === "subscribed" ? "On" : "Off"}
+          </Badge>
+        </div>
+
+        {state === "unsupported" && (
+          <p className="text-xs text-muted-foreground">
+            Web Push is not available in your current browser.
+          </p>
+        )}
+        {state === "denied" && (
+          <p className="text-xs text-destructive">
+            Notifications are blocked. Open browser site settings and allow notifications, then try again.
+          </p>
+        )}
+
+        {state !== "unsupported" && state !== "denied" && (
+          state === "subscribed" ? (
+            <Button variant="outline" size="sm" onClick={disable} disabled={loading} className="w-full">
+              <BellOff className="h-4 w-4 mr-2" />
+              {loading ? "Disabling…" : "Disable Push Notifications"}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={enable} disabled={loading} className="w-full">
+              <Bell className="h-4 w-4 mr-2" />
+              {loading ? "Enabling…" : "Enable Push Notifications"}
+            </Button>
+          )
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 interface DeviceSession {
   id: string;
@@ -228,6 +290,8 @@ const SecuritySettings = () => {
             )}
           </CardContent>
         </Card>
+
+        <PushNotificationCard />
 
         <Card>
           <CardHeader>
