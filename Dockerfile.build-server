@@ -1,0 +1,67 @@
+# =============================================================================
+#  Virtual Bank — Build Server Image
+#  Contains: Node.js 20 + OpenJDK 17 + Android SDK (for APK builds)
+#            + full project source (for Vite/PWA builds)
+#
+#  Build:  docker build -f Dockerfile.build-server -t virtualbank-build-server .
+#  Run:    docker run -p 3001:3001 virtualbank-build-server
+#
+#  In docker-compose:
+#    build-server:
+#      build: { context: ., dockerfile: Dockerfile.build-server }
+# =============================================================================
+FROM node:20-bookworm-slim AS build-server
+
+# ── System deps ──────────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openjdk-17-jdk-headless \
+    wget \
+    unzip \
+    git \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Java ─────────────────────────────────────────────────────────────────────
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+# ── Android SDK ──────────────────────────────────────────────────────────────
+ENV ANDROID_HOME=/opt/android-sdk
+ENV PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0
+
+# Download Android command-line tools
+RUN mkdir -p $ANDROID_HOME/cmdline-tools && \
+    wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+         -O /tmp/cmdtools.zip && \
+    unzip -q /tmp/cmdtools.zip -d $ANDROID_HOME/cmdline-tools && \
+    mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest && \
+    rm /tmp/cmdtools.zip
+
+# Accept all licenses and install required SDK packages
+RUN yes | sdkmanager --licenses > /dev/null 2>&1 && \
+    sdkmanager \
+      "platform-tools" \
+      "platforms;android-34" \
+      "build-tools;34.0.0" \
+      --sdk_root=$ANDROID_HOME
+
+# ── App ──────────────────────────────────────────────────────────────────────
+WORKDIR /app
+
+# Install Node deps first (layer-cached — only re-runs when package files change)
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+
+# Copy full source (needed for Vite builds and Capacitor sync)
+COPY . .
+
+# Persistent data directory (build history, VAPID keys, push subscriptions)
+# Mount this as a named volume so data survives container restarts/upgrades
+VOLUME ["/app/.local"]
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -sf http://localhost:3001/api/build/status | grep -q status || exit 1
+
+CMD ["node", "build-server.mjs"]
