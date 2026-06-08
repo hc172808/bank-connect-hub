@@ -11,6 +11,8 @@ import { ArrowLeft, QrCode, User, Wallet, Info, Fuel, ArrowRightLeft, AlertTrian
 import { isValidAddress, sendSponsoredTransaction, decryptPrivateKey, estimateGas } from "@/lib/wallet";
 import { useDashboardHome } from "@/hooks/useDashboardHome";
 import { checkFirewall } from "@/lib/aiFirewall";
+import { sendTransactionSms } from "@/lib/smsAlerts";
+import { sendTransactionEmail } from "@/lib/emailAlerts";
 import { TransferAnimation, TransferState } from "@/components/TransferAnimation";
 import {
   Dialog,
@@ -329,6 +331,24 @@ const SendMoney = () => {
 
       if (result.success) {
         setAnimState("success");
+
+        // Fire-and-forget SMS + email alerts (non-blocking — never delays the UI)
+        supabase.from("profiles").select("phone_number, email").eq("id", user.id).single().then(({ data: sp }) => {
+          if (sp?.phone_number) {
+            sendTransactionSms({ to: sp.phone_number, type: "sent", amount: parseFloat(amount), to_name: receiverName });
+          }
+          if (sp?.email) {
+            sendTransactionEmail({ to: sp.email, type: "sent", amount: parseFloat(amount), to_name: receiverName });
+          }
+        });
+        if (receiverId) {
+          supabase.from("profiles").select("phone_number").eq("id", receiverId).single().then(({ data: rp }) => {
+            if (rp?.phone_number) {
+              sendTransactionSms({ to: rp.phone_number, type: "received", amount: parseFloat(amount), from_name: "a NETLIFE CASH user" });
+            }
+          });
+        }
+
         setTimeout(() => {
           setAnimState("idle");
           toast({
