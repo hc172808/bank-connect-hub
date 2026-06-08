@@ -35,6 +35,11 @@ import {
   Scan,
 } from "lucide-react";
 import { format, startOfMonth } from "date-fns";
+import { requestNotificationPermission, subscribeToTransactionNotifications } from "@/lib/pushNotifications";
+import { PiggyBank, CalendarClock, Target } from "lucide-react";
+
+interface SavingsGoal { id: string; name: string; target: number; saved: number; }
+interface ScheduledPayment { id: string; label: string; amount: number; nextDate: string; }
 
 interface WalletData {
   balance: number;
@@ -73,6 +78,8 @@ const ClientDashboard = () => {
   const [recentTx, setRecentTx] = useState<any[]>([]);
   const [topPayees, setTopPayees] = useState<{ id: string; name: string; total: number }[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
+  const [scheduledPayments, setScheduledPayments] = useState<ScheduledPayment[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -105,6 +112,26 @@ const ClientDashboard = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserId(user.id);
+
+    // Load savings goals from localStorage
+    try {
+      const gs = JSON.parse(localStorage.getItem(`savings_goals_${user.id}`) || "[]");
+      setSavingsGoals(gs.slice(0, 3));
+    } catch { setSavingsGoals([]); }
+
+    // Load scheduled payments from localStorage
+    try {
+      const sp = JSON.parse(localStorage.getItem(`scheduled_payments_${user.id}`) || "[]");
+      const upcoming = sp.filter((p: any) => p.isActive !== false).slice(0, 2);
+      setScheduledPayments(upcoming);
+    } catch { setScheduledPayments([]); }
+
+    // Subscribe to push notifications
+    requestNotificationPermission().then(granted => {
+      if (granted) subscribeToTransactionNotifications(user.id, (title, body) => {
+        toast({ title, description: body });
+      });
+    });
 
     const [walletRes, profileRes, blockchainRes, featuresRes] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", user.id).single(),
@@ -354,6 +381,86 @@ const ClientDashboard = () => {
             <div className="text-[10px] text-muted-foreground">this month</div>
           </div>
         </div>
+
+        {/* Savings Goals widget */}
+        {savingsGoals.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                <PiggyBank size={14} className="text-pink-500" /> Savings Goals
+              </h3>
+              <button onClick={() => navigate("/savings")} className="text-xs text-primary">Manage →</button>
+            </div>
+            <div className="space-y-2">
+              {savingsGoals.map(g => {
+                const pct = Math.min((g.saved / g.target) * 100, 100);
+                return (
+                  <div key={g.id} className="bg-card rounded-2xl p-3 shadow-soft">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-semibold truncate max-w-[180px]">{g.name}</span>
+                      <span className="text-xs text-muted-foreground">${g.saved.toFixed(0)} / ${g.target.toFixed(0)}</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-pink-500 to-purple-500 rounded-full transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mt-1">{pct.toFixed(0)}% saved</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Scheduled Payments reminder */}
+        {scheduledPayments.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                <CalendarClock size={14} className="text-blue-500" /> Upcoming Payments
+              </h3>
+              <button onClick={() => navigate("/scheduled-payments")} className="text-xs text-primary">View all →</button>
+            </div>
+            <div className="bg-card rounded-2xl divide-y divide-border overflow-hidden shadow-soft">
+              {scheduledPayments.map(p => (
+                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-9 h-9 rounded-full bg-blue-500/15 text-blue-600 flex items-center justify-center shrink-0">
+                    <CalendarClock size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{p.label}</div>
+                    <div className="text-[11px] text-muted-foreground">Next: {p.nextDate}</div>
+                  </div>
+                  <div className="text-sm font-bold text-foreground">${Number(p.amount).toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Financial health mini-bar */}
+        {monthIn + monthOut > 0 && (
+          <div className="bg-card rounded-2xl p-3 shadow-soft">
+            <div className="flex items-center gap-2 mb-2">
+              <Target size={14} className="text-green-600" />
+              <span className="text-xs font-semibold text-foreground">Financial Health</span>
+              <span className="ml-auto text-xs font-bold text-green-600">
+                {monthIn > 0 ? Math.round(Math.min(((monthIn - monthOut) / monthIn) * 100, 100)) : 0}% saved
+              </span>
+            </div>
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full"
+                style={{ width: `${monthIn > 0 ? Math.max(Math.min(((monthIn - monthOut) / monthIn) * 100, 100), 0) : 0}%` }}
+              />
+            </div>
+            <div className="text-[10px] text-muted-foreground mt-1">
+              Saved ${Math.max(monthIn - monthOut, 0).toFixed(2)} out of ${monthIn.toFixed(2)} earned this month
+            </div>
+          </div>
+        )}
 
         {/* Frequent recipients */}
         {topPayees.length > 0 && (
