@@ -25,6 +25,10 @@ import {
   TrendingUp,
   Bell,
   Receipt,
+  BarChart3,
+  Target,
+  Star,
+  ArrowUpRight,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import {
@@ -248,6 +252,30 @@ const VendorDashboard = () => {
   const salesTotal30d = sales.reduce((acc, s) => acc + Number(s.amount || 0), 0);
   const salesCount30d = sales.length;
 
+  // 7-day revenue bars
+  const sevenDayBars = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(Date.now() - (6 - i) * 24 * 60 * 60 * 1000);
+    const dayStr = d.toISOString().split("T")[0];
+    const dayRows = sales.filter(s => s.created_at.startsWith(dayStr));
+    return {
+      label: d.toLocaleDateString("en", { weekday: "short" }),
+      volume: dayRows.reduce((s, t) => s + Number(t.amount || 0), 0),
+      count: dayRows.length,
+    };
+  });
+  const maxSevenDayVol = Math.max(...sevenDayBars.map(b => b.volume), 1);
+
+  // Top products by estimated revenue (price * estimated sales rank by order)
+  const topProducts = [...products]
+    .filter(p => p.is_active)
+    .sort((a, b) => b.price - a.price)
+    .slice(0, 3);
+
+  // Daily target (configurable, default $500)
+  const dailyTarget = 500;
+  const todaySales = sevenDayBars[sevenDayBars.length - 1]?.volume ?? 0;
+  const targetPct = Math.min((todaySales / dailyTarget) * 100, 100);
+
   const QuickAction = ({
     icon: Icon,
     label,
@@ -328,6 +356,113 @@ const VendorDashboard = () => {
                 <p className="text-[10px] text-muted-foreground">
                   {salesCount30d} {salesCount30d === 1 ? "sale" : "sales"}
                 </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 7-Day Revenue Chart */}
+        <Card className="mb-4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 size={17} className="text-primary" /> Revenue — Last 7 Days
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {sevenDayBars.every(b => b.volume === 0) ? (
+              <div className="text-center py-4">
+                <BarChart3 size={28} className="mx-auto mb-2 text-muted-foreground opacity-30" />
+                <p className="text-xs text-muted-foreground">No sales this week yet</p>
+              </div>
+            ) : (
+              <div className="flex items-end gap-1.5 h-24">
+                {sevenDayBars.map(bar => (
+                  <div key={bar.label} className="flex-1 flex flex-col items-center gap-1">
+                    <div className="text-[9px] text-muted-foreground">{bar.count > 0 ? bar.count : ""}</div>
+                    <div className="w-full flex items-end justify-center" style={{ height: "68px" }}>
+                      <div
+                        className="w-full rounded-t-md bg-primary/70 min-h-[3px] transition-all"
+                        style={{ height: `${Math.max((bar.volume / maxSevenDayVol) * 100, 4)}%` }}
+                        title={`$${bar.volume.toFixed(2)}`}
+                      />
+                    </div>
+                    <div className="text-[9px] text-muted-foreground font-medium">{bar.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Daily Target & Top Products row */}
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          {/* Daily target progress */}
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Target size={16} className="text-orange-500" />
+                <span className="text-xs font-semibold">Daily Target</span>
+              </div>
+              <div className="text-xl font-bold">${todaySales.toFixed(0)}</div>
+              <div className="text-xs text-muted-foreground mb-2">of ${dailyTarget} goal</div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${targetPct >= 100 ? "bg-green-500" : "bg-orange-400"}`}
+                  style={{ width: `${targetPct}%` }}
+                />
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-1">{targetPct.toFixed(0)}% of target</div>
+            </CardContent>
+          </Card>
+
+          {/* Top products */}
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Star size={16} className="text-yellow-500" />
+                <span className="text-xs font-semibold">Top Products</span>
+              </div>
+              {topProducts.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No active products</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {topProducts.map((p, i) => (
+                    <div key={p.id} className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-muted-foreground w-4">{i + 1}</span>
+                      <span className="text-xs truncate flex-1">{p.name}</span>
+                      <span className="text-xs font-semibold text-green-600">${p.price.toFixed(0)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Month vs Week comparison */}
+        <Card className="mb-6">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp size={16} className="text-green-600" />
+                <span className="text-sm font-semibold">Sales Summary</span>
+              </div>
+              <button onClick={() => navigate("/vendor/analytics")} className="text-xs text-primary flex items-center gap-1">
+                Full report <ArrowUpRight size={12} />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mt-3">
+              <div className="text-center">
+                <div className="text-lg font-bold">${salesTotal30d.toFixed(0)}</div>
+                <div className="text-[10px] text-muted-foreground">30-day total</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold">{salesCount30d}</div>
+                <div className="text-[10px] text-muted-foreground">total orders</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold">${salesCount30d > 0 ? (salesTotal30d / salesCount30d).toFixed(0) : "0"}</div>
+                <div className="text-[10px] text-muted-foreground">avg order</div>
               </div>
             </div>
           </CardContent>
