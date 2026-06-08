@@ -55,12 +55,16 @@ export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform
 VERSION="1.0.0"
 BUILD_TYPE="debug"
 INCLUDE_RPC=false
+RPC_URL=""
+CHAIN_ID=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --version) VERSION="$2"; shift 2 ;;
-    --type)    BUILD_TYPE="$2"; shift 2 ;;
+    --version)   VERSION="$2"; shift 2 ;;
+    --type)      BUILD_TYPE="$2"; shift 2 ;;
     --include-rpc) INCLUDE_RPC=true; shift ;;
+    --rpc-url)   RPC_URL="$2"; shift 2 ;;
+    --chain-id)  CHAIN_ID="$2"; shift 2 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -70,7 +74,20 @@ echo "  Virtual Bank APK Builder"
 echo "  Version   : $VERSION"
 echo "  Type      : $BUILD_TYPE"
 echo "  RPC Node  : $INCLUDE_RPC"
+[[ -n "$RPC_URL"  ]] && echo "  RPC URL   : $RPC_URL"
+[[ -n "$CHAIN_ID" ]] && echo "  Chain ID  : $CHAIN_ID"
 echo "========================================"
+
+# ── Inject network config into Vite env before building ───────────────────────
+if [[ -n "$RPC_URL" || -n "$CHAIN_ID" ]]; then
+  echo "=== Writing network config to .env.local ==="
+  {
+    [[ -n "$RPC_URL"  ]] && echo "VITE_RPC_URL=$RPC_URL"
+    [[ -n "$CHAIN_ID" ]] && echo "VITE_CHAIN_ID=$CHAIN_ID"
+  } >> .env.local
+  echo ".env.local updated"
+  echo ""
+fi
 echo ""
 
 # ── 0. Debug keystore ─────────────────────────────────────────────────────────
