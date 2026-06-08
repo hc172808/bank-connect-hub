@@ -20,7 +20,7 @@
 | I-10 | iOS IPA build instructions | ✅ |
 | I-11 | Admin: Git pull + APK rebuild from UI | ✅ |
 | I-12 | Watchtower auto-updates | ✅ |
-| I-13 | GitHub Actions CI/CD pipeline | ⬜ |
+| I-13 | GitHub Actions CI/CD pipeline | ✅ |
 | I-14 | Multi-server deploy script | ✅ |
 | I-15 | Build server (APK job runner, SSE logs) | ✅ |
 
@@ -38,8 +38,8 @@
 | N-06 | Push: login from new device alert | ⬜ |
 | N-07 | Push: KYC status update | ⬜ |
 | N-08 | Push: transaction complete | ⬜ |
-| N-09 | SMS alerts (Twilio) | ⬜ |
-| N-10 | Email alerts (SMTP / Resend) | ⬜ |
+| N-09 | SMS alerts (Twilio) | ✅ |
+| N-10 | Email alerts (SMTP / Resend) | ✅ |
 | N-11 | WhatsApp alerts | ✅ |
 | N-12 | Announcement broadcast | ✅ |
 
@@ -55,7 +55,7 @@
 | D-04 | Recent Transactions | ✅ |
 | D-05 | Quick Actions bar | ✅ |
 | D-06 | Notifications center | ✅ |
-| D-07 | Financial Insights / Spending Analytics | ⬜ |
+| D-07 | Financial Insights / Spending Analytics | ✅ |
 | D-08 | AI Financial Assistant | ⬜ |
 | D-09 | Personalized Recommendations | ⬜ |
 
@@ -88,15 +88,15 @@
 | P-04 | QR Payments | ✅ |
 | P-05 | Merchant Payments | ✅ |
 | P-06 | NFC Tap Payments | ⬜ |
-| P-07 | Scheduled Payments | ⬜ |
-| P-08 | Recurring Payments | ⬜ |
+| P-07 | Scheduled Payments | ✅ |
+| P-08 | Recurring Payments | ✅ |
 | P-09 | Bill Payments | ✅ |
 | P-10 | Utility Payments | ⬜ |
 | P-11 | School Payments | ⬜ |
 | P-12 | Government Payments | ⬜ |
 | P-13 | International Transfers | ⬜ |
 | P-14 | Payroll Deposits | ⬜ |
-| P-15 | Split Bills | ⬜ |
+| P-15 | Split Bills | ✅ |
 | P-16 | Group Payments | ⬜ |
 
 ---
@@ -105,7 +105,7 @@
 
 | # | Feature | Status |
 |---|---------|--------|
-| C-01 | Virtual Cards | ⬜ |
+| C-01 | Virtual Cards | ✅ |
 | C-02 | Physical Cards | ⬜ |
 | C-03 | Debit Cards | ⬜ |
 | C-04 | Prepaid Cards | ⬜ |

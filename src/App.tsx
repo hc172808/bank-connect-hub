@@ -84,10 +84,14 @@ const AdminAnnouncements = lazy(() => import("./pages/AdminAnnouncements"));
 const AdminCountries = lazy(() => import("./pages/AdminCountries"));
 const AdminConsole = lazy(() => import("./pages/AdminConsole"));
 const AdminApkBuilder = lazy(() => import("./pages/AdminApkBuilder"));
-const BudgetPlanner   = lazy(() => import("./pages/BudgetPlanner"));
-const SavingsGoals    = lazy(() => import("./pages/SavingsGoals"));
-const Beneficiaries   = lazy(() => import("./pages/Beneficiaries"));
-const VirtualCards    = lazy(() => import("./pages/VirtualCards"));
+const BudgetPlanner       = lazy(() => import("./pages/BudgetPlanner"));
+const SavingsGoals        = lazy(() => import("./pages/SavingsGoals"));
+const Beneficiaries       = lazy(() => import("./pages/Beneficiaries"));
+const VirtualCards        = lazy(() => import("./pages/VirtualCards"));
+const FinancialInsights   = lazy(() => import("./pages/FinancialInsights"));
+const ScheduledPayments   = lazy(() => import("./pages/ScheduledPayments"));
+const SplitBills          = lazy(() => import("./pages/SplitBills"));
+const AdminRPCNode        = lazy(() => import("./pages/AdminRPCNode"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -178,6 +182,9 @@ const AppRoutes = () => {
         <Route path="/savings" element={<SavingsGoals />} />
         <Route path="/beneficiaries" element={<Beneficiaries />} />
         <Route path="/virtual-cards" element={<VirtualCards />} />
+        <Route path="/insights" element={<FinancialInsights />} />
+        <Route path="/scheduled-payments" element={<ScheduledPayments />} />
+        <Route path="/split-bills" element={<SplitBills />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -253,6 +260,7 @@ const AppRoutes = () => {
         <Route path="/admin/ai-security" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAISecurity /></ProtectedRoute>} />
         <Route path="/admin/firewall" element={<ProtectedRoute allowedRoles={["admin"]}><AdminFirewall /></ProtectedRoute>} />
         <Route path="/admin/litenode" element={<ProtectedRoute allowedRoles={["admin"]}><AdminLitenode /></ProtectedRoute>} />
+        <Route path="/admin/rpc-node" element={<ProtectedRoute allowedRoles={["admin"]}><AdminRPCNode /></ProtectedRoute>} />
         <Route path="/admin/app-releases" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppReleases /></ProtectedRoute>} />
         <Route path="/admin/themes" element={<ProtectedRoute allowedRoles={["admin"]}><AdminThemes /></ProtectedRoute>} />
         <Route path="/admin/app-manager" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppManager /></ProtectedRoute>} />

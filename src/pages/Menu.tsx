@@ -17,6 +17,9 @@ import {
   Users,
   CreditCard,
   BarChart3,
+  TrendingUp,
+  CalendarClock,
+  Receipt,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -40,10 +43,13 @@ const menuSections = [
   {
     title: "Financial Tools",
     items: [
-      { icon: BarChart3,  label: "Budget Planner",  path: "/budget" },
-      { icon: PiggyBank,  label: "Savings Goals",   path: "/savings" },
-      { icon: Users,      label: "Beneficiaries",   path: "/beneficiaries" },
-      { icon: CreditCard, label: "Virtual Cards",   path: "/virtual-cards" },
+      { icon: TrendingUp,    label: "Financial Insights",    path: "/insights" },
+      { icon: BarChart3,     label: "Budget Planner",        path: "/budget" },
+      { icon: PiggyBank,     label: "Savings Goals",         path: "/savings" },
+      { icon: CalendarClock, label: "Scheduled Payments",    path: "/scheduled-payments" },
+      { icon: Receipt,       label: "Split Bills",           path: "/split-bills" },
+      { icon: Users,         label: "Beneficiaries",         path: "/beneficiaries" },
+      { icon: CreditCard,    label: "Virtual Cards",         path: "/virtual-cards" },
     ],
   },
   {
