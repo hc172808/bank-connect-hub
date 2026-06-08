@@ -102,10 +102,15 @@ app.post("/api/build", (req, res) => {
   const id = Date.now().toString();
   const startedAt = new Date().toISOString();
 
+  const { rpcUrl, chainId } = req.body;
+
   const args = ["build-apk.sh", "--version", version, "--type", buildType];
   if (includeRpcNode) args.push("--include-rpc");
+  if (rpcUrl) args.push("--rpc-url", rpcUrl);
+  if (chainId) args.push("--chain-id", chainId);
 
-  const proc = spawn("bash", args, { cwd: __dirname });
+  // detached: true creates a new process group so we can SIGKILL the entire tree
+  const proc = spawn("bash", args, { cwd: __dirname, detached: true });
 
   current = {
     id,
@@ -126,6 +131,8 @@ app.post("/api/build", (req, res) => {
   saveBuilds(builds);
 
   const appendLog = (text) => {
+    // Drop any buffered output that arrives after cancellation
+    if (current && current.status === "cancelled") return;
     current.logs.push(text);
     for (const l of current.listeners) l({ type: "log", text });
     const idx = builds.findIndex((b) => b.id === id);

@@ -34,6 +34,9 @@ import {
   Globe,
   Apple,
   Package,
+  Link2,
+  Hash,
+  Settings,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -83,6 +86,13 @@ const elapsed = (startedAt: string, finishedAt?: string) => {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 };
 
+interface NetworkConfig {
+  rpc_url: string;
+  chain_id: string;
+  native_coin_symbol: string;
+  explorer_url: string;
+}
+
 export default function AdminApkBuilder() {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -97,6 +107,9 @@ export default function AdminApkBuilder() {
   const [currentApkFile, setCurrentApkFile] = useState<string | null>(null);
   const [buildTab, setBuildTab] = useState<"apk" | "pwa" | "ipa">("apk");
   const [pwaBuilding, setPwaBuilding] = useState(false);
+
+  // ── Network config (from blockchain_settings) ────────────────────────────────
+  const [netConfig, setNetConfig] = useState<NetworkConfig | null>(null);
 
   // ── Logs ────────────────────────────────────────────────────────────────────
   const [logs, setLogs] = useState<string[]>([]);
@@ -128,7 +141,18 @@ export default function AdminApkBuilder() {
   useEffect(() => {
     loadHistory();
     checkRunningBuild();
+    loadNetworkConfig();
   }, []);
+
+  const loadNetworkConfig = async () => {
+    try {
+      const { data } = await supabase
+        .from("blockchain_settings")
+        .select("rpc_url, chain_id, native_coin_symbol, explorer_url")
+        .single();
+      if (data) setNetConfig(data as NetworkConfig);
+    } catch {}
+  };
 
   const checkRunningBuild = async () => {
     try {
@@ -191,7 +215,13 @@ export default function AdminApkBuilder() {
       const r = await fetch("/api/build", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version, buildType, includeRpcNode }),
+        body: JSON.stringify({
+          version,
+          buildType,
+          includeRpcNode,
+          rpcUrl: netConfig?.rpc_url || undefined,
+          chainId: netConfig?.chain_id || undefined,
+        }),
       });
 
       if (r.status === 409) {
@@ -211,15 +241,22 @@ export default function AdminApkBuilder() {
   };
 
   const cancelBuild = async () => {
-    // Close the SSE stream FIRST so we don't process the server's "done" event
-    // (the server sends it immediately on cancel; we handle UI here instead)
+    // 1. Close the SSE stream FIRST — no more log events will arrive
     if (esRef.current) { esRef.current.close(); esRef.current = null; }
+    // 2. Tell the server to SIGKILL the build process
     try { await fetch("/api/build/cancel", { method: "POST" }); } catch {}
+    // 3. Update UI state immediately
     setBuilding(false);
     setBuildStatus("cancelled");
     setCurrentApkFile(null);
-    // Refresh history so the build row shows "Cancelled" not "Running"
-    setTimeout(loadHistory, 500);
+    // 4. Stamp the log terminal with a clear cancellation marker
+    setLogs((prev) => [
+      ...prev,
+      "\n\n========================================\n",
+      "  BUILD CANCELLED — process was stopped.\n",
+      "========================================\n",
+    ]);
+    setTimeout(loadHistory, 600);
     toast({ title: "Build cancelled", description: "The build process was stopped." });
   };
 
@@ -446,6 +483,72 @@ export default function AdminApkBuilder() {
       {/* ── APK tab ─────────────────────────────────────────────────────────── */}
       {buildTab === "apk" && (
       <>
+
+      {/* Network Config card */}
+      <Card className="border-blue-200 dark:border-blue-800">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-blue-500" /> Network Configuration
+            </CardTitle>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-xs gap-1"
+              onClick={() => navigate("/admin/blockchain")}
+            >
+              <Settings className="h-3.5 w-3.5" /> Edit Settings
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            These values from Blockchain Settings will be embedded into the APK at build time.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {netConfig ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="flex items-start gap-2 p-2 rounded bg-muted/50">
+                <Link2 className="h-3.5 w-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Primary RPC URL</p>
+                  <p className="text-xs font-mono break-all">{netConfig.rpc_url || <span className="text-muted-foreground italic">not set</span>}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2 p-2 rounded bg-muted/50">
+                <Hash className="h-3.5 w-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                <div>
+                  <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Chain ID</p>
+                  <p className="text-xs font-mono">{netConfig.chain_id || <span className="text-muted-foreground italic">not set</span>}</p>
+                </div>
+              </div>
+              {netConfig.native_coin_symbol && (
+                <div className="flex items-start gap-2 p-2 rounded bg-muted/50">
+                  <span className="text-[10px] font-bold text-muted-foreground mt-0.5">$</span>
+                  <div>
+                    <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Native Coin</p>
+                    <p className="text-xs font-mono">{netConfig.native_coin_symbol}</p>
+                  </div>
+                </div>
+              )}
+              {netConfig.explorer_url && (
+                <div className="flex items-start gap-2 p-2 rounded bg-muted/50">
+                  <Globe className="h-3.5 w-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Explorer URL</p>
+                    <p className="text-xs font-mono break-all">{netConfig.explorer_url}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading network config…
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Build form */}
       <Card>
         <CardHeader>
