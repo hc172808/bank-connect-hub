@@ -372,6 +372,207 @@ app.post("/api/push/send", async (req, res) => {
   res.json({ ok: true, sent, failed });
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// SMS — Twilio
+// ══════════════════════════════════════════════════════════════════════════════
+const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_FROM  = process.env.TWILIO_PHONE_NUMBER;
+
+const twilioOk = () => !!(TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM);
+
+async function sendSms(to, body) {
+  if (!twilioOk()) throw new Error("Twilio not configured");
+  const twilio = (await import("twilio")).default;
+  const client = twilio(TWILIO_SID, TWILIO_TOKEN);
+  return client.messages.create({ body, from: TWILIO_FROM, to });
+}
+
+app.get("/api/sms/status", (_req, res) => {
+  res.json({ configured: twilioOk(), from: TWILIO_FROM ? TWILIO_FROM.replace(/\d(?=\d{4})/g, "*") : null });
+});
+
+// POST /api/sms/send — raw SMS (admin)
+app.post("/api/sms/send", async (req, res) => {
+  const { to, message } = req.body || {};
+  if (!to || !message) return res.status(400).json({ error: "to and message required" });
+  if (!twilioOk()) return res.status(503).json({ error: "Twilio not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER." });
+  try {
+    const msg = await sendSms(to, message);
+    res.json({ ok: true, sid: msg.sid });
+  } catch (err) {
+    console.error("[sms] send error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sms/transaction-alert — formatted transaction SMS
+app.post("/api/sms/transaction-alert", async (req, res) => {
+  const { to, type, amount, from_name, to_name, balance, reference, otp } = req.body || {};
+  if (!to) return res.status(400).json({ error: "to required" });
+  if (!twilioOk()) return res.status(503).json({ error: "Twilio not configured" });
+
+  const fmt  = (v) => v != null ? `$${parseFloat(v).toFixed(2)}` : "";
+  const bal  = balance != null ? ` Bal: ${fmt(balance)}.` : "";
+  const ref  = reference ? ` Ref: ${reference}.` : "";
+
+  const messages = {
+    sent:            `NETLIFE CASH: You sent ${fmt(amount)} to ${to_name}.${bal}${ref}`,
+    received:        `NETLIFE CASH: ${from_name} sent you ${fmt(amount)}.${bal}${ref}`,
+    request:         `NETLIFE CASH: ${from_name} requested ${fmt(amount)} from you. Login to approve.`,
+    topup:           `NETLIFE CASH: Your account was funded with ${fmt(amount)}.${bal}`,
+    reversal:        `NETLIFE CASH: Reversal of ${fmt(amount)} processed.${bal}${ref}`,
+    login:           `NETLIFE CASH: New login to your account. Not you? Change your password now.`,
+    kyc:             `NETLIFE CASH: Your KYC status was updated. Login to view details.`,
+    otp:             `NETLIFE CASH: Your OTP is ${otp}. Valid for 10 minutes. Do not share.`,
+  };
+  const body = messages[type] || `NETLIFE CASH: Account activity detected. Login to review.`;
+
+  try {
+    const msg = await sendSms(to, body);
+    console.log(`[sms] sent ${type} alert to ${to.slice(0, 6)}*** sid=${msg.sid}`);
+    res.json({ ok: true, sid: msg.sid });
+  } catch (err) {
+    console.error("[sms] alert error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sms/broadcast — send to multiple numbers (admin)
+app.post("/api/sms/broadcast", async (req, res) => {
+  const { numbers, message } = req.body || {};
+  if (!Array.isArray(numbers) || !message) return res.status(400).json({ error: "numbers[] and message required" });
+  if (!twilioOk()) return res.status(503).json({ error: "Twilio not configured" });
+  let sent = 0, failed = 0;
+  await Promise.allSettled(
+    numbers.map(async (to) => {
+      try { await sendSms(to, message); sent++; }
+      catch { failed++; }
+    })
+  );
+  res.json({ ok: true, sent, failed });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Email — nodemailer / SMTP
+// ══════════════════════════════════════════════════════════════════════════════
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || "587", 10);
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const SMTP_FROM = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@virtualbank.app";
+const SMTP_NAME = process.env.SMTP_FROM_NAME || "NETLIFE CASH";
+
+const smtpOk = () => !!(SMTP_HOST && SMTP_USER && SMTP_PASS);
+
+async function getMailer() {
+  const nodemailer = (await import("nodemailer")).default;
+  return nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    tls: { rejectUnauthorized: false },
+  });
+}
+
+function emailHtml({ title, amount, from_name, to_name, balance, reference, date, extra = "" }) {
+  const fmtAmt = (v) => v != null ? `<span style="font-size:28px;font-weight:700;color:#16a34a;">$${parseFloat(v).toFixed(2)}</span>` : "";
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+    <div style="background:linear-gradient(135deg,#16a34a,#15803d);padding:24px 28px;">
+      <h1 style="margin:0;color:#fff;font-size:22px;font-family:sans-serif;">NETLIFE CASH</h1>
+      <p style="margin:4px 0 0;color:#bbf7d0;font-size:13px;font-family:sans-serif;">Transaction Alert</p>
+    </div>
+    <div style="padding:28px;font-family:sans-serif;">
+      <h2 style="margin:0 0 16px;color:#111827;font-size:18px;">${title}</h2>
+      ${amount != null ? `<div style="margin-bottom:12px;">${fmtAmt(amount)}</div>` : ""}
+      ${from_name ? `<p style="margin:4px 0;color:#374151;font-size:14px;">From: <strong>${from_name}</strong></p>` : ""}
+      ${to_name   ? `<p style="margin:4px 0;color:#374151;font-size:14px;">To: <strong>${to_name}</strong></p>` : ""}
+      ${balance   ? `<p style="margin:4px 0;color:#374151;font-size:14px;">New balance: <strong>$${parseFloat(balance).toFixed(2)}</strong></p>` : ""}
+      ${reference ? `<p style="margin:8px 0 0;color:#6b7280;font-size:12px;">Reference: ${reference}</p>` : ""}
+      ${date      ? `<p style="margin:4px 0;color:#6b7280;font-size:12px;">Date: ${date}</p>` : ""}
+      ${extra}
+    </div>
+    <div style="background:#f9fafb;padding:16px 28px;border-top:1px solid #e5e7eb;">
+      <p style="margin:0;color:#9ca3af;font-size:11px;">This is an automated alert. Do not reply. © NETLIFE CASH</p>
+    </div>
+  </div></body></html>`;
+}
+
+app.get("/api/email/status", (_req, res) => {
+  res.json({ configured: smtpOk(), from: SMTP_FROM });
+});
+
+// POST /api/email/send — raw email (admin)
+app.post("/api/email/send", async (req, res) => {
+  const { to, subject, html, text } = req.body || {};
+  if (!to || !subject) return res.status(400).json({ error: "to and subject required" });
+  if (!smtpOk()) return res.status(503).json({ error: "SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS." });
+  try {
+    const mailer = await getMailer();
+    const info = await mailer.sendMail({ from: `"${SMTP_NAME}" <${SMTP_FROM}>`, to, subject, html, text });
+    res.json({ ok: true, messageId: info.messageId });
+  } catch (err) {
+    console.error("[email] send error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/email/transaction-alert — formatted transaction email
+app.post("/api/email/transaction-alert", async (req, res) => {
+  const { to, type, amount, from_name, to_name, balance, reference, date } = req.body || {};
+  if (!to) return res.status(400).json({ error: "to required" });
+  if (!smtpOk()) return res.status(503).json({ error: "SMTP not configured" });
+
+  const subjects = {
+    sent:           "Money Sent — NETLIFE CASH",
+    received:       "Money Received — NETLIFE CASH",
+    request:        "Fund Request — NETLIFE CASH",
+    topup:          "Account Top-Up — NETLIFE CASH",
+    reversal:       "Reversal Processed — NETLIFE CASH",
+    login:          "New Login Alert — NETLIFE CASH",
+    kyc:            "KYC Status Update — NETLIFE CASH",
+    welcome:        "Welcome to NETLIFE CASH",
+    password_change:"Password Changed — NETLIFE CASH",
+  };
+  const titles = {
+    sent:           "You sent money",
+    received:       "You received money",
+    request:        "Fund request received",
+    topup:          "Account funded",
+    reversal:       "Transaction reversed",
+    login:          "New login detected",
+    kyc:            "KYC verification update",
+    welcome:        "Welcome aboard!",
+    password_change:"Your password was changed",
+  };
+
+  const subject = subjects[type] || "NETLIFE CASH Account Alert";
+  const title   = titles[type]   || "Account Activity";
+  const extra   = type === "login"
+    ? `<div style="margin-top:16px;padding:12px;background:#fef2f2;border-radius:8px;border-left:4px solid #ef4444;">
+         <p style="margin:0;color:#b91c1c;font-size:13px;">If this wasn't you, <strong>change your password immediately</strong>.</p>
+       </div>`
+    : "";
+
+  const html = emailHtml({ title, amount, from_name, to_name, balance, reference, date: date || new Date().toLocaleString(), extra });
+
+  try {
+    const mailer = await getMailer();
+    const info = await mailer.sendMail({ from: `"${SMTP_NAME}" <${SMTP_FROM}>`, to, subject, html });
+    console.log(`[email] sent ${type} alert to ${to.split("@")[0]}@*** id=${info.messageId}`);
+    res.json({ ok: true, messageId: info.messageId });
+  } catch (err) {
+    console.error("[email] alert error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[build-server] listening on port ${PORT}`);
+  if (twilioOk()) console.log(`[build-server] SMS (Twilio) ✓  from ${TWILIO_FROM}`);
+  else            console.log(`[build-server] SMS (Twilio) — not configured (set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER)`);
+  if (smtpOk())   console.log(`[build-server] Email (SMTP) ✓  ${SMTP_HOST}:${SMTP_PORT}`);
+  else            console.log(`[build-server] Email (SMTP)  — not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)`);
 });

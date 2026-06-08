@@ -84,6 +84,10 @@ const AdminAnnouncements = lazy(() => import("./pages/AdminAnnouncements"));
 const AdminCountries = lazy(() => import("./pages/AdminCountries"));
 const AdminConsole = lazy(() => import("./pages/AdminConsole"));
 const AdminApkBuilder = lazy(() => import("./pages/AdminApkBuilder"));
+const BudgetPlanner   = lazy(() => import("./pages/BudgetPlanner"));
+const SavingsGoals    = lazy(() => import("./pages/SavingsGoals"));
+const Beneficiaries   = lazy(() => import("./pages/Beneficiaries"));
+const VirtualCards    = lazy(() => import("./pages/VirtualCards"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -170,6 +174,10 @@ const AppRoutes = () => {
         <Route path="/request-reversal" element={<RequestReversal />} />
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/kyc" element={<KYCSubmission />} />
+        <Route path="/budget" element={<BudgetPlanner />} />
+        <Route path="/savings" element={<SavingsGoals />} />
+        <Route path="/beneficiaries" element={<Beneficiaries />} />
+        <Route path="/virtual-cards" element={<VirtualCards />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );

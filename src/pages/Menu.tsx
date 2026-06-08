@@ -12,7 +12,11 @@ import {
   ChevronRight,
   Shield,
   Bell,
-  FileCheck
+  FileCheck,
+  PiggyBank,
+  Users,
+  CreditCard,
+  BarChart3,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -23,14 +27,33 @@ interface ProfileData {
   phone_number: string | null;
 }
 
-const menuItems = [
-  { icon: User, label: "My Profile", path: "/profile" },
-  { icon: Lock, label: "Change Password", path: "/change-password" },
-  { icon: Bell, label: "Notifications", path: "/notifications" },
-  { icon: Shield, label: "Security & 2FA", path: "/security" },
-  { icon: FileCheck, label: "Identity Verification (KYC)", path: "/kyc" },
-  { icon: HelpCircle, label: "Help & Support", path: "/feedback" },
-  { icon: MessageSquare, label: "Feedback", path: "/feedback" },
+const menuSections = [
+  {
+    title: "Account",
+    items: [
+      { icon: User, label: "My Profile", path: "/profile" },
+      { icon: Lock, label: "Change Password", path: "/change-password" },
+      { icon: Shield, label: "Security & 2FA", path: "/security" },
+      { icon: FileCheck, label: "Identity Verification (KYC)", path: "/kyc" },
+    ],
+  },
+  {
+    title: "Financial Tools",
+    items: [
+      { icon: BarChart3,  label: "Budget Planner",  path: "/budget" },
+      { icon: PiggyBank,  label: "Savings Goals",   path: "/savings" },
+      { icon: Users,      label: "Beneficiaries",   path: "/beneficiaries" },
+      { icon: CreditCard, label: "Virtual Cards",   path: "/virtual-cards" },
+    ],
+  },
+  {
+    title: "Other",
+    items: [
+      { icon: Bell,         label: "Notifications",  path: "/notifications" },
+      { icon: HelpCircle,   label: "Help & Support", path: "/feedback" },
+      { icon: MessageSquare,label: "Feedback",       path: "/feedback" },
+    ],
+  },
 ];
 
 const Menu = () => {
@@ -89,38 +112,49 @@ const Menu = () => {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-2">
-            {menuItems.map((item, index) => (
+        <div className="space-y-4">
+          {menuSections.map((section) => (
+            <Card key={section.title}>
+              <CardContent className="p-2">
+                <p className="text-xs font-semibold text-muted-foreground px-4 pt-2 pb-1 uppercase tracking-wide">
+                  {section.title}
+                </p>
+                {section.items.map((item, index) => (
+                  <button
+                    key={index}
+                    onClick={() => navigate(item.path)}
+                    className="w-full flex items-center justify-between p-4 hover:bg-muted/50 rounded-xl transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                        <item.icon size={20} className="text-primary" />
+                      </div>
+                      <span className="font-medium">{item.label}</span>
+                    </div>
+                    <ChevronRight size={20} className="text-muted-foreground" />
+                  </button>
+                ))}
+              </CardContent>
+            </Card>
+          ))}
+
+          <Card>
+            <CardContent className="p-2">
               <button
-                key={index}
-                onClick={() => navigate(item.path)}
-                className="w-full flex items-center justify-between p-4 hover:bg-muted/50 rounded-xl transition-colors"
+                onClick={handleLogout}
+                className="w-full flex items-center justify-between p-4 hover:bg-destructive/10 rounded-xl transition-colors text-destructive"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-                    <item.icon size={20} className="text-primary" />
+                  <div className="w-10 h-10 bg-destructive/10 rounded-full flex items-center justify-center">
+                    <LogOut size={20} />
                   </div>
-                  <span className="font-medium">{item.label}</span>
+                  <span className="font-medium">Logout</span>
                 </div>
-                <ChevronRight size={20} className="text-muted-foreground" />
+                <ChevronRight size={20} />
               </button>
-            ))}
-
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center justify-between p-4 hover:bg-destructive/10 rounded-xl transition-colors text-destructive"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-destructive/10 rounded-full flex items-center justify-center">
-                  <LogOut size={20} />
-                </div>
-                <span className="font-medium">Logout</span>
-              </div>
-              <ChevronRight size={20} />
-            </button>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
