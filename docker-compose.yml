@@ -30,6 +30,8 @@ services:
     depends_on:
       litenode:
         condition: service_healthy
+      build-server:
+        condition: service_started
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     # ── Runtime env injection (shared DB, per-server config) ──────────────
@@ -180,6 +182,47 @@ services:
         max-size: "5m"
         max-file: "2"
 
+  # ── Build server — APK builder, PWA builder, push notifications ────────────
+  # Includes: Node.js 20 + OpenJDK 17 + Android SDK
+  # nginx proxies /api/* to this container (see nginx.conf)
+  build-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.build-server
+    image: virtualbank-build-server:local
+    container_name: virtualbank-build-server
+    restart: unless-stopped
+    expose:
+      - "3001"
+    networks:
+      - frontend
+    volumes:
+      - build-server-data:/app/.local
+    environment:
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_EMAIL=${VAPID_EMAIL:-admin@virtualbank.app}
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/api/build/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 # ── Networks ───────────────────────────────────────────────────────────────────
 networks:
   frontend:
@@ -189,3 +232,8 @@ networks:
     name: virtualbank-backend
     driver: bridge
     internal: false  # watchtower/webhook need internet access
+
+# ── Volumes ────────────────────────────────────────────────────────────────────
+volumes:
+  build-server-data:
+    name: virtualbank-build-server-data

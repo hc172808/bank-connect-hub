@@ -854,6 +854,30 @@ if [[ -d "$SCRIPT_DIR/litenode" ]]; then
 fi
 
 # =============================================================================
+# STEP 19 — Build the build-server Docker image (APK builder + PWA builder)
+#           Includes: Node.js 20 + OpenJDK 17 + Android SDK (~2-3 GB)
+# =============================================================================
+if [[ -f "$SCRIPT_DIR/Dockerfile.build-server" ]]; then
+  log "Building build-server image (Java + Android SDK — this takes 5-10 min on first run)…"
+  docker build \
+    -f "$SCRIPT_DIR/Dockerfile.build-server" \
+    -t virtualbank-build-server:local \
+    "$SCRIPT_DIR/"
+  ok "Build-server image ready (virtualbank-build-server:local)"
+else
+  warn "Dockerfile.build-server not found — APK/PWA builder will not be available"
+  warn "Clone the full repo to $SCRIPT_DIR to enable builds"
+fi
+
+# ── nginx /etc/hosts fallback for bare-metal nginx (not needed for Docker nginx)
+# Docker's nginx container resolves 'build-server' via Docker DNS automatically.
+# Only needed if you ever run nginx directly on the host instead of in Docker.
+if ! grep -q "build-server" /etc/hosts; then
+  echo "127.0.0.1 build-server" >> /etc/hosts
+  log "Added 'build-server' to /etc/hosts (bare-metal nginx fallback)"
+fi
+
+# =============================================================================
 # DONE — Print summary
 # =============================================================================
 echo ""

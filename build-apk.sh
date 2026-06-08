@@ -1,9 +1,56 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export ANDROID_HOME=/home/runner/android-sdk
-export JAVA_HOME=/nix/store/xad649j61kwkh0id5wvyiab5rliprp4d-openjdk-17.0.15+6/lib/openjdk
-export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0
+# ── Auto-detect ANDROID_HOME ────────────────────────────────────────────────
+# Priority: env var → common install paths
+if [[ -z "${ANDROID_HOME:-}" ]]; then
+  for _candidate in \
+      /opt/android-sdk \
+      /home/runner/android-sdk \
+      "$HOME/android-sdk" \
+      /usr/lib/android-sdk \
+      /opt/android; do
+    if [[ -d "$_candidate/cmdline-tools" || -d "$_candidate/platform-tools" ]]; then
+      export ANDROID_HOME="$_candidate"
+      break
+    fi
+  done
+fi
+
+if [[ -z "${ANDROID_HOME:-}" ]]; then
+  echo "❌ Android SDK not found. Install it or set ANDROID_HOME."
+  echo "   Quick install: bash setup-android.sh"
+  exit 1
+fi
+
+# ── Auto-detect JAVA_HOME ────────────────────────────────────────────────────
+if [[ -z "${JAVA_HOME:-}" ]]; then
+  for _candidate in \
+      /usr/lib/jvm/java-17-openjdk-amd64 \
+      /usr/lib/jvm/java-17-openjdk \
+      /usr/lib/jvm/temurin-17 \
+      /usr/local/lib/jvm/java-17; do
+    if [[ -d "$_candidate" ]]; then
+      export JAVA_HOME="$_candidate"
+      break
+    fi
+  done
+  # Also try to find via update-alternatives / nix store
+  if [[ -z "${JAVA_HOME:-}" ]]; then
+    _java_bin=$(command -v java 2>/dev/null || true)
+    if [[ -n "$_java_bin" ]]; then
+      _real=$(readlink -f "$_java_bin")
+      export JAVA_HOME="${_real%/bin/java}"
+    fi
+  fi
+fi
+
+if [[ -z "${JAVA_HOME:-}" ]]; then
+  echo "❌ Java 17 not found. Install it: apt install openjdk-17-jdk"
+  exit 1
+fi
+
+export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$JAVA_HOME/bin"
 
 VERSION="1.0.0"
 BUILD_TYPE="debug"
