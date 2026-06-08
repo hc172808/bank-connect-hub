@@ -694,6 +694,77 @@ app.get("/api/litenode/docker/stats", async (_req, res) => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// RPC Node Docker Management (separate from browser mock litenode)
+// RPCNODE_CONTAINER_NAME env var overrides — defaults to "litenode" (same
+// container in the standard stack; set a different name for a dedicated node).
+// ══════════════════════════════════════════════════════════════════════════════
+const RPCNODE_CONTAINER = process.env.RPCNODE_CONTAINER_NAME || "litenode";
+
+app.get("/api/rpcnode/docker/status", async (_req, res) => {
+  try {
+    const hasDocker = await dockerAvailable();
+    if (!hasDocker) {
+      return res.json({ docker: false, status: "unavailable", message: "Docker socket not mounted — RPC node management only available on self-hosted deployments." });
+    }
+    const status = await getContainerStatus(RPCNODE_CONTAINER);
+    res.json({ docker: true, status, container: RPCNODE_CONTAINER });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/rpcnode/docker/start", async (_req, res) => {
+  try {
+    if (!await dockerAvailable()) return res.status(503).json({ error: "Docker not available" });
+    await execAsync(`docker start ${RPCNODE_CONTAINER}`, { timeout: 15000 });
+    const status = await getContainerStatus(RPCNODE_CONTAINER);
+    console.log(`[rpcnode] started ${RPCNODE_CONTAINER} → ${status}`);
+    res.json({ ok: true, status });
+  } catch (err) { console.error("[rpcnode] start:", err.message); res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/rpcnode/docker/stop", async (_req, res) => {
+  try {
+    if (!await dockerAvailable()) return res.status(503).json({ error: "Docker not available" });
+    await execAsync(`docker stop ${RPCNODE_CONTAINER}`, { timeout: 30000 });
+    const status = await getContainerStatus(RPCNODE_CONTAINER);
+    console.log(`[rpcnode] stopped ${RPCNODE_CONTAINER} → ${status}`);
+    res.json({ ok: true, status });
+  } catch (err) { console.error("[rpcnode] stop:", err.message); res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/rpcnode/docker/restart", async (_req, res) => {
+  try {
+    if (!await dockerAvailable()) return res.status(503).json({ error: "Docker not available" });
+    await execAsync(`docker restart ${RPCNODE_CONTAINER}`, { timeout: 30000 });
+    const status = await getContainerStatus(RPCNODE_CONTAINER);
+    console.log(`[rpcnode] restarted ${RPCNODE_CONTAINER} → ${status}`);
+    res.json({ ok: true, status });
+  } catch (err) { console.error("[rpcnode] restart:", err.message); res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/rpcnode/docker/logs", async (req, res) => {
+  const lines = Math.min(parseInt(req.query.lines) || 150, 500);
+  try {
+    if (!await dockerAvailable()) return res.json({ docker: false, logs: [] });
+    const { stdout } = await execAsync(`docker logs --tail=${lines} --timestamps ${RPCNODE_CONTAINER} 2>&1`, { timeout: 10000 });
+    res.json({ ok: true, logs: stdout.split("\n").filter(Boolean), container: RPCNODE_CONTAINER });
+  } catch (err) { res.json({ ok: false, logs: [], error: err.message }); }
+});
+
+app.get("/api/rpcnode/docker/stats", async (_req, res) => {
+  try {
+    if (!await dockerAvailable()) return res.json({ docker: false });
+    const status = await getContainerStatus(RPCNODE_CONTAINER);
+    if (status !== "running") return res.json({ docker: true, status, stats: null });
+    const { stdout } = await execAsync(
+      `docker stats ${RPCNODE_CONTAINER} --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.NetIO}}'`,
+      { timeout: 8000 }
+    );
+    const [cpu, mem, net] = stdout.trim().split("|");
+    res.json({ docker: true, status, stats: { cpu, mem, net } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[build-server] listening on port ${PORT}`);
   if (twilioOk()) console.log(`[build-server] SMS (Twilio) ✓  from ${TWILIO_FROM}`);
