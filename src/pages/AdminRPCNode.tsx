@@ -266,8 +266,9 @@ const AdminRPCNode = () => {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {[
-                { label: "Upstream RPC",  value: "BSC Dataseed (bsc-dataseed.binance.org)" },
-                { label: "Chain",         value: "Binance Smart Chain (Chain ID 56)" },
+                { label: "Upstream RPC",  value: "GYDS RPC (rpc.netlifegy.com:8545)" },
+                { label: "Chain",         value: "GYDS Chain (Chain ID 13370)" },
+                { label: "Symbol",        value: "GYDS · 18 decimals" },
                 { label: "Container port", value: ":8545 (internal)" },
                 { label: "Public URL",    value: "/rpc  (via nginx proxy)" },
                 { label: "Health check",  value: "/rpc/health" },

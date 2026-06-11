@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently --names \"vite,build-srv\" --prefix-colors \"cyan,yellow\" \"vite\" \"node build-server.mjs\"",
+    "dev": "vite",
     "dev:vite": "vite",
     "dev:server": "node build-server.mjs",
     "build": "vite build",
@@ -50,7 +50,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "concurrently": "^9.2.1",
     "cors": "^2.8.6",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.6.0",

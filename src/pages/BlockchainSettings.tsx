@@ -63,12 +63,12 @@ export default function BlockchainSettings() {
   const [testingUrl, setTestingUrl] = useState<string | null>(null);
   const [settings, setSettings] = useState<BlockchainSettingsData>({
     id: "",
-    rpc_url: "",
+    rpc_url: "https://rpc.netlifegy.com",
     rpc_urls: [],
-    chain_id: "",
-    native_coin_symbol: "GYD",
-    native_coin_name: "GYD Coin",
-    explorer_url: "",
+    chain_id: "13370",
+    native_coin_symbol: "GYDS",
+    native_coin_name: "GYDS Coin",
+    explorer_url: "https://explorer.netlifegy.com",
     is_active: false,
     liquidity_pool_address: "",
     fee_wallet_address: "",
