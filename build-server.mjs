@@ -49,6 +49,120 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
+// GET /api/services/status — check all system services
+app.get("/api/services/status", async (_req, res) => {
+  const check = (cmd) => {
+    try { execSync(cmd, { stdio: "pipe", timeout: 5000 }); return true; }
+    catch { return false; }
+  };
+  const read = (cmd) => {
+    try { return execSync(cmd, { stdio: "pipe", timeout: 5000 }).toString().trim(); }
+    catch { return null; }
+  };
+
+  const androidHome = "/home/runner/android-sdk";
+  const sdkOk = fs.existsSync(`${androidHome}/build-tools/34.0.0/aapt`);
+  const javaVer = read("java -version 2>&1 | head -1");
+  const nodeVer = read("node --version");
+  const npmVer  = read("npm --version");
+  const gradleOk = check(`ls ${androidHome}/platforms/android-35 2>/dev/null`);
+  const keystoreOk = fs.existsSync(path.join(__dirname, "android/debug.keystore"));
+  const localPropsOk = (() => {
+    try {
+      const lp = fs.readFileSync(path.join(__dirname, "android/local.properties"), "utf8");
+      return lp.includes("sdk.dir=") && fs.existsSync(lp.match(/sdk\.dir=(.*)/)?.[1]?.trim() || "");
+    } catch { return false; }
+  })();
+
+  const packages = ["web-push", "nodemailer", "cors", "express", "concurrently"];
+  const pkgStatus = {};
+  for (const p of packages) {
+    try { const pj = JSON.parse(fs.readFileSync(path.join(__dirname, "node_modules", p, "package.json"), "utf8")); pkgStatus[p] = pj.version; }
+    catch { pkgStatus[p] = null; }
+  }
+
+  const diskFree = read("df -h / | tail -1 | awk '{print $4}'");
+  const memFree  = read("free -h | grep Mem | awk '{print $4}'");
+
+  res.json({
+    buildServer: { ok: true, version: "1.0" },
+    java:        { ok: !!javaVer, version: javaVer },
+    node:        { ok: !!nodeVer, version: nodeVer },
+    npm:         { ok: !!npmVer, version: npmVer },
+    androidSdk:  { ok: sdkOk, path: androidHome },
+    androidPlatform: { ok: gradleOk, platform: "android-35" },
+    debugKeystore: { ok: keystoreOk },
+    localProperties: { ok: localPropsOk },
+    packages:    pkgStatus,
+    system:      { diskFree, memFree },
+  });
+});
+
+// GET /api/todo — parse TODO.md and return structured data
+app.get("/api/todo", (_req, res) => {
+  try {
+    const todoPath = path.join(__dirname, "TODO.md");
+    if (!fs.existsSync(todoPath)) return res.json({ sections: [], exists: false });
+    const raw = fs.readFileSync(todoPath, "utf8");
+    const sections = [];
+    let current = null;
+    for (const line of raw.split("\n")) {
+      if (line.startsWith("## ")) {
+        if (current) sections.push(current);
+        current = { title: line.replace("## ", "").trim(), items: [] };
+      } else if (current && /^\|\s*[\w-]+\s*\|/.test(line) && !line.includes("---") && !line.includes("Status")) {
+        const parts = line.split("|").map(s => s.trim()).filter(Boolean);
+        if (parts.length >= 3) {
+          const status = parts[parts.length - 1];
+          const name = parts.slice(1, parts.length - 1).join(" | ");
+          current.items.push({
+            id: parts[0],
+            name,
+            status: status.includes("✅") ? "done" : status.includes("🔄") ? "progress" : status.includes("🔒") ? "blocked" : "pending",
+          });
+        }
+      }
+    }
+    if (current) sections.push(current);
+    const total = sections.reduce((a, s) => a + s.items.length, 0);
+    const done  = sections.reduce((a, s) => a + s.items.filter(i => i.status === "done").length, 0);
+    res.json({ sections, total, done, exists: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/bash — run a bash command and stream output via SSE
+app.post("/api/bash", (req, res) => {
+  const { cmd } = req.body || {};
+  if (!cmd || typeof cmd !== "string") return res.status(400).json({ error: "cmd required" });
+
+  // Safety: block obviously destructive commands
+  const blocked = /rm\s+-rf\s+\/[^h]|mkfs|dd\s+if|:\s*\(\s*\)\s*\{|shutdown|reboot|halt/i;
+  if (blocked.test(cmd)) return res.status(403).json({ error: "Command not allowed" });
+
+  sseInit(res);
+  sseSend(res, { type: "start", cmd });
+
+  const proc = spawn("bash", ["-c", cmd], {
+    cwd: __dirname,
+    env: {
+      ...process.env,
+      ANDROID_HOME: "/home/runner/android-sdk",
+      JAVA_HOME: execSync("dirname $(dirname $(readlink -f $(which java) 2>/dev/null || echo /usr/bin/java))", { stdio: "pipe" }).toString().trim(),
+      PATH: `/home/runner/android-sdk/build-tools/34.0.0:/home/runner/android-sdk/platform-tools:/home/runner/android-sdk/cmdline-tools/latest/bin:${process.env.PATH}`,
+    },
+  });
+
+  proc.stdout.on("data", (d) => sseSend(res, { type: "out", text: d.toString() }));
+  proc.stderr.on("data", (d) => sseSend(res, { type: "err", text: d.toString() }));
+  proc.on("close", (code) => {
+    sseSend(res, { type: "done", code });
+    res.end();
+  });
+  req.on("close", () => { try { proc.kill(); } catch {} });
+});
+
 // GET /api/builds — history
 app.get("/api/builds", (_req, res) => {
   res.json(loadBuilds());

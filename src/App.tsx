@@ -106,13 +106,17 @@ const queryClient = new QueryClient({
 
 const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => (
   <div
-    className="min-h-screen bg-primary/10 flex items-center justify-center"
+    className="min-h-screen bg-background flex flex-col items-center justify-center gap-4"
     data-testid="loader-fullscreen"
   >
-    <div className="text-center">
-      <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p className="text-foreground">{label}</p>
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg">
+        <span className="text-primary-foreground font-black text-2xl">N</span>
+      </div>
+      <p className="text-lg font-bold text-foreground">NETLIFE CASH</p>
     </div>
+    <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+    <p className="text-sm text-muted-foreground">{label}</p>
   </div>
 );
 

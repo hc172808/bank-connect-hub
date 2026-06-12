@@ -35,6 +35,11 @@ export const useAuth = () => {
   };
 
   useEffect(() => {
+    // Safety timeout — if Supabase never responds, stop showing blank screen after 6s
+    const safetyTimer = setTimeout(() => {
+      setAuthState(prev => prev.loading ? { ...prev, loading: false } : prev);
+    }, 6000);
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setAuthState(prev => ({
@@ -80,9 +85,15 @@ export const useAuth = () => {
       } else {
         setAuthState({ user: null, session: null, role: null, loading: false });
       }
+    }).catch(() => {
+      // Supabase unreachable — stop loading, show login
+      setAuthState({ user: null, session: null, role: null, loading: false });
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(safetyTimer);
+      subscription.unsubscribe();
+    };
   }, []);
 
   return authState;
