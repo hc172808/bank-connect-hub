@@ -98,6 +98,9 @@ export default function AdminApkBuilder() {
   const { toast } = useToast();
   const { user } = useAuth();
 
+  // ── Server health ────────────────────────────────────────────────────────────
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null);
+
   // ── Build form state ────────────────────────────────────────────────────────
   const [version, setVersion] = useState("1.0.0");
   const [buildType, setBuildType] = useState<"debug" | "release">("debug");
@@ -131,6 +134,17 @@ export default function AdminApkBuilder() {
   const scrollToBottom = () => logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   useEffect(scrollToBottom, [logs]);
 
+  const checkServerHealth = async () => {
+    try {
+      const r = await fetch("/api/health", { signal: AbortSignal.timeout(4000) });
+      setServerOnline(r.ok);
+      return r.ok;
+    } catch {
+      setServerOnline(false);
+      return false;
+    }
+  };
+
   const loadHistory = async () => {
     try {
       const r = await fetch("/api/builds");
@@ -139,9 +153,12 @@ export default function AdminApkBuilder() {
   };
 
   useEffect(() => {
+    checkServerHealth();
     loadHistory();
     checkRunningBuild();
     loadNetworkConfig();
+    const interval = setInterval(checkServerHealth, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadNetworkConfig = async () => {
@@ -205,6 +222,17 @@ export default function AdminApkBuilder() {
       toast({ title: "Invalid version", description: "Use format: 1.0.0", variant: "destructive" });
       return;
     }
+
+    const online = await checkServerHealth();
+    if (!online) {
+      toast({
+        title: "Build server offline",
+        description: "The build server (port 3001) is not responding. Restart the 'Start application' workflow and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLogs([]);
     setSelectedLogBuild(null);
     setBuildStatus("running");
@@ -373,13 +401,30 @@ export default function AdminApkBuilder() {
         <Button variant="ghost" size="icon" onClick={() => navigate("/admin")}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Package className="h-6 w-6" /> App Builder
           </h1>
           <p className="text-sm text-muted-foreground">
             Build Android APKs, Progressive Web Apps, and iOS archives
           </p>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          {serverOnline === null && (
+            <Badge variant="secondary" className="gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" /> Checking server…
+            </Badge>
+          )}
+          {serverOnline === true && (
+            <Badge className="gap-1 bg-green-600 text-white">
+              <CheckCircle2 className="h-3 w-3" /> Build server online
+            </Badge>
+          )}
+          {serverOnline === false && (
+            <Badge variant="destructive" className="gap-1 cursor-pointer" onClick={checkServerHealth}>
+              <XCircle className="h-3 w-3" /> Server offline — click to retry
+            </Badge>
+          )}
         </div>
       </div>
 

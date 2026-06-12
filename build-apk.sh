@@ -18,10 +18,25 @@ if [[ -z "${ANDROID_HOME:-}" ]]; then
 fi
 
 if [[ -z "${ANDROID_HOME:-}" ]]; then
-  echo "❌ Android SDK not found. Install it or set ANDROID_HOME."
-  echo "   Quick install: bash setup-android.sh"
-  exit 1
+  echo "⚠️  Android SDK not found — auto-installing to /home/runner/android-sdk..."
+  ANDROID_HOME=/home/runner/android-sdk
+  export ANDROID_HOME
+  mkdir -p "$ANDROID_HOME/cmdline-tools"
+  _CMDTOOLS_ZIP=/tmp/_cmdtools_$$.zip
+  curl -sL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" \
+    -o "$_CMDTOOLS_ZIP"
+  unzip -q "$_CMDTOOLS_ZIP" -d "$ANDROID_HOME/cmdline-tools"
+  mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+  rm -f "$_CMDTOOLS_ZIP"
+  export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
+  yes | sdkmanager --licenses --sdk_root="$ANDROID_HOME" >/dev/null 2>&1 || true
+  sdkmanager "platform-tools" "platforms;android-35" "build-tools;34.0.0" \
+    --sdk_root="$ANDROID_HOME" 2>&1
+  echo "✅ Android SDK installed at $ANDROID_HOME"
 fi
+
+# Always keep local.properties in sync with the detected ANDROID_HOME
+echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
 # ── Auto-detect JAVA_HOME ────────────────────────────────────────────────────
 if [[ -z "${JAVA_HOME:-}" ]]; then

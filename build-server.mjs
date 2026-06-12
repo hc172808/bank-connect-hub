@@ -44,6 +44,11 @@ function sseSend(res, data) {
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
+// GET /api/health — liveness check
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
 // GET /api/builds — history
 app.get("/api/builds", (_req, res) => {
   res.json(loadBuilds());
