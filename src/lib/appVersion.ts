@@ -3,7 +3,7 @@
  * Bump this whenever you publish a new APK so that force-update and
  * update-banner comparisons work correctly.
  */
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.0.1";
 
 /** Semver-style comparison: returns negative if a < b, 0 if equal, positive if a > b */
 export function compareSemver(a: string, b: string): number {
