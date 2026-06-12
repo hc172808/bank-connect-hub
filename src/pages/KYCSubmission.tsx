@@ -80,6 +80,13 @@ const KYCSubmission = () => {
       await supabase.rpc("log_audit_event" as never, {
         _action: "submit_kyc", _entity_type: "user", _entity_id: user.id,
       } as never);
+      // N-07: notify user of KYC submission
+      await supabase.from("notifications").insert({
+        user_id: user.id,
+        title: "📋 KYC Submission Received",
+        message: "Your identity verification documents have been submitted. Our team will review within 1–3 business days.",
+        type: "kyc_update",
+      } as never);
       toast.success("KYC submitted for review");
       void load();
     } catch (e) {

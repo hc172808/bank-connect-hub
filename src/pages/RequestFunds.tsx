@@ -66,6 +66,21 @@ const RequestFunds = () => {
 
       if (error) throw error;
 
+      // N-05: push notification to payer about payment request
+      await supabase.from("notifications").insert({
+        user_id: selectedPayer.id,
+        title: "📩 Payment Request",
+        message: `You have a payment request of $${parseFloat(amount).toFixed(2)}. Code: ${verificationCode}.`,
+        type: "payment_request",
+      } as never);
+      // N-05: push notification to requester — request sent
+      await supabase.from("notifications").insert({
+        user_id: user.id,
+        title: "📤 Request Sent",
+        message: `Your request for $${parseFloat(amount).toFixed(2)} from ${selectedPayer.full_name} was sent.`,
+        type: "payment_request",
+      } as never);
+
       toast({
         title: "Request Sent",
         description: `Verification code: ${verificationCode}. Share this with ${selectedPayer.full_name}.`,

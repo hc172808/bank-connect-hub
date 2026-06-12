@@ -33,7 +33,8 @@ const SendMoney = lazy(() => import("./pages/SendMoney"));
 const RequestFunds = lazy(() => import("./pages/RequestFunds"));
 const FeeManagement = lazy(() => import("./pages/FeeManagement"));
 const AdminDeposit = lazy(() => import("./pages/AdminDeposit"));
-const AgentDeposit = lazy(() => import("./pages/AgentDeposit"));
+const AgentDeposit         = lazy(() => import("./pages/AgentDeposit"));
+const AgentCashWithdrawal  = lazy(() => import("./pages/AgentCashWithdrawal"));
 const ApprovePendingDeposits = lazy(() => import("./pages/ApprovePendingDeposits"));
 const MyQRCode = lazy(() => import("./pages/MyQRCode"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -87,7 +88,24 @@ const AdminApkBuilder = lazy(() => import("./pages/AdminApkBuilder"));
 const LegalCompliance = lazy(() => import("./pages/LegalCompliance"));
 const BudgetPlanner       = lazy(() => import("./pages/BudgetPlanner"));
 const SavingsGoals        = lazy(() => import("./pages/SavingsGoals"));
-const Beneficiaries       = lazy(() => import("./pages/Beneficiaries"));
+const SavingsAccounts       = lazy(() => import("./pages/SavingsAccounts"));
+const Loans                 = lazy(() => import("./pages/Loans"));
+const InternationalTransfers = lazy(() => import("./pages/InternationalTransfers"));
+const GroupPayments         = lazy(() => import("./pages/GroupPayments"));
+const CreditBuilder         = lazy(() => import("./pages/CreditBuilder"));
+const MultiWallet           = lazy(() => import("./pages/MultiWallet"));
+const RoleManagement        = lazy(() => import("./pages/RoleManagement"));
+const Rewards               = lazy(() => import("./pages/Rewards"));
+const BusinessBanking       = lazy(() => import("./pages/BusinessBanking"));
+const Investments           = lazy(() => import("./pages/Investments"));
+const FinancialTools        = lazy(() => import("./pages/FinancialTools"));
+const MerchantInvoicing     = lazy(() => import("./pages/MerchantInvoicing"));
+const Gamification          = lazy(() => import("./pages/Gamification"));
+const SecurityOperationsCenter = lazy(() => import("./pages/SecurityOperationsCenter"));
+const CardsHub              = lazy(() => import("./pages/CardsHub"));
+const FinancingHub          = lazy(() => import("./pages/FinancingHub"));
+const SupportCenter         = lazy(() => import("./pages/SupportCenter"));
+const Beneficiaries         = lazy(() => import("./pages/Beneficiaries"));
 const VirtualCards        = lazy(() => import("./pages/VirtualCards"));
 const FinancialInsights   = lazy(() => import("./pages/FinancialInsights"));
 const ScheduledPayments   = lazy(() => import("./pages/ScheduledPayments"));
@@ -185,6 +203,23 @@ const AppRoutes = () => {
         <Route path="/kyc" element={<KYCSubmission />} />
         <Route path="/budget" element={<BudgetPlanner />} />
         <Route path="/savings" element={<SavingsGoals />} />
+        <Route path="/savings-accounts" element={<SavingsAccounts />} />
+        <Route path="/loans" element={<Loans />} />
+        <Route path="/international-transfers" element={<InternationalTransfers />} />
+        <Route path="/group-payments" element={<GroupPayments />} />
+        <Route path="/credit-builder" element={<CreditBuilder />} />
+        <Route path="/multi-wallet" element={<MultiWallet />} />
+        <Route path="/role-management" element={<RoleManagement />} />
+        <Route path="/rewards" element={<Rewards />} />
+        <Route path="/business-banking" element={<BusinessBanking />} />
+        <Route path="/investments" element={<Investments />} />
+        <Route path="/financial-tools" element={<FinancialTools />} />
+        <Route path="/invoicing" element={<MerchantInvoicing />} />
+        <Route path="/gamification" element={<Gamification />} />
+        <Route path="/security-operations" element={<SecurityOperationsCenter />} />
+        <Route path="/cards-hub" element={<CardsHub />} />
+        <Route path="/financing" element={<FinancingHub />} />
+        <Route path="/support" element={<SupportCenter />} />
         <Route path="/beneficiaries" element={<Beneficiaries />} />
         <Route path="/virtual-cards" element={<VirtualCards />} />
         <Route path="/insights" element={<FinancialInsights />} />
@@ -225,6 +260,7 @@ const AppRoutes = () => {
       <Routes>
         <Route path="/agent" element={<AgentDashboard />} />
         <Route path="/agent-deposit" element={<AgentDeposit />} />
+        <Route path="/agent-cash-withdrawal" element={<AgentCashWithdrawal />} />
         <Route path="/print-qr" element={<AdminPrintQRCodes />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />

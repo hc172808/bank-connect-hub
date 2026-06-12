@@ -28,6 +28,15 @@ function saveBuilds(builds) {
   fs.writeFileSync(BUILDS_FILE, JSON.stringify(builds, null, 2));
 }
 
+// ── Resolve JAVA_HOME once at startup (not per-request) ──────────────────────
+let RESOLVED_JAVA_HOME = process.env.JAVA_HOME || "";
+try {
+  RESOLVED_JAVA_HOME = execSync(
+    "dirname $(dirname $(readlink -f $(which java) 2>/dev/null || echo /usr/bin/java))",
+    { stdio: "pipe", timeout: 5000 }
+  ).toString().trim();
+} catch { /* keep whatever was in JAVA_HOME env */ }
+
 // ── In-memory current build ──────────────────────────────────────────────────
 let current = null; // { id, proc, logs[], status, listeners[] }
 
@@ -149,7 +158,7 @@ app.post("/api/bash", (req, res) => {
     env: {
       ...process.env,
       ANDROID_HOME: "/home/runner/android-sdk",
-      JAVA_HOME: execSync("dirname $(dirname $(readlink -f $(which java) 2>/dev/null || echo /usr/bin/java))", { stdio: "pipe" }).toString().trim(),
+      JAVA_HOME: RESOLVED_JAVA_HOME,
       PATH: `/home/runner/android-sdk/build-tools/34.0.0:/home/runner/android-sdk/platform-tools:/home/runner/android-sdk/cmdline-tools/latest/bin:${process.env.PATH}`,
     },
   });

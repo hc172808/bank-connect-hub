@@ -347,6 +347,20 @@ const SendMoney = () => {
               sendTransactionSms({ to: rp.phone_number, type: "received", amount: parseFloat(amount), from_name: "a NETLIFE CASH user" });
             }
           });
+          // N-04: push notification to receiver — money received
+          supabase.from("notifications").insert({
+            user_id: receiverId,
+            title: "💸 Money Received",
+            message: `You received $${parseFloat(amount).toFixed(2)} from ${senderName || "a NETLIFE CASH user"}.`,
+            type: "money_received",
+          } as never);
+          // N-08: push notification to sender — transaction complete
+          supabase.from("notifications").insert({
+            user_id: user.id,
+            title: "✅ Transfer Complete",
+            message: `Your transfer of $${parseFloat(amount).toFixed(2)} to ${receiverName} was successful.`,
+            type: "transaction_complete",
+          } as never);
         }
 
         setTimeout(() => {

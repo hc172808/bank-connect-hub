@@ -8,8 +8,13 @@ import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import {
   ArrowLeft, CreditCard, Copy, Eye, EyeOff, Lock, Unlock,
-  RefreshCw, ShieldCheck,
+  RefreshCw, ShieldCheck, Settings, Sliders, Smartphone, Wifi,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
 
 interface VCard {
   id: string;
@@ -20,6 +25,10 @@ interface VCard {
   color: string;
   frozen: boolean;
   online_enabled: boolean;
+  contactless_enabled: boolean;
+  daily_limit: number;
+  monthly_limit: number;
+  pin: string;
   created_at: string;
 }
 
@@ -85,7 +94,7 @@ const VirtualCards = () => {
     } else {
       // Generate one default card
       const base = generateCardFromSeed(user.id, 0);
-      const defaultCard: VCard = { ...base, frozen: false, online_enabled: true };
+      const defaultCard: VCard = { ...base, frozen: false, online_enabled: true, contactless_enabled: true, daily_limit: 500, monthly_limit: 2000, pin: "1234" };
       const list = [defaultCard];
       localStorage.setItem(`${STORAGE_KEY}_${user.id}`, JSON.stringify(list));
       setCards(list);
@@ -115,7 +124,7 @@ const VirtualCards = () => {
       return;
     }
     const base = generateCardFromSeed(userId, cards.length);
-    const newCard: VCard = { ...base, frozen: false, online_enabled: true };
+    const newCard: VCard = { ...base, frozen: false, online_enabled: true, contactless_enabled: true, daily_limit: 500, monthly_limit: 2000, pin: "1234" };
     saveCards([...cards, newCard]);
     toast({ title: "New virtual card created" });
   };
@@ -240,6 +249,88 @@ const VirtualCards = () => {
                         </button>
                       </div>
                     )}
+
+                    <div className="flex items-center justify-between py-2 border-t">
+                      <div>
+                        <p className="text-sm font-medium flex items-center gap-1"><Wifi size={14} /> Contactless</p>
+                        <p className="text-xs text-muted-foreground">NFC / tap payments</p>
+                      </div>
+                      <Switch
+                        checked={card.contactless_enabled ?? true}
+                        onCheckedChange={() => {
+                          const updated = cards.map(c =>
+                            c.id === card.id ? { ...c, contactless_enabled: !(c.contactless_enabled ?? true) } : c
+                          );
+                          saveCards(updated);
+                        }}
+                        disabled={card.frozen}
+                      />
+                    </div>
+
+                    {/* Card Controls Dialog */}
+                    <div className="border-t pt-2">
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm" className="w-full gap-2">
+                            <Sliders size={14} /> Card Controls &amp; Limits
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader><DialogTitle className="flex items-center gap-2"><Settings size={16} /> Card Controls</DialogTitle></DialogHeader>
+                          <div className="space-y-4">
+                            <div>
+                              <Label>Daily Spending Limit ($)</Label>
+                              <Input
+                                type="number"
+                                defaultValue={card.daily_limit ?? 500}
+                                onBlur={e => {
+                                  const val = parseFloat(e.target.value) || 500;
+                                  const updated = cards.map(c => c.id === card.id ? { ...c, daily_limit: val } : c);
+                                  saveCards(updated);
+                                  toast({ title: "Daily limit updated" });
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <Label>Monthly Spending Limit ($)</Label>
+                              <Input
+                                type="number"
+                                defaultValue={card.monthly_limit ?? 2000}
+                                onBlur={e => {
+                                  const val = parseFloat(e.target.value) || 2000;
+                                  const updated = cards.map(c => c.id === card.id ? { ...c, monthly_limit: val } : c);
+                                  saveCards(updated);
+                                  toast({ title: "Monthly limit updated" });
+                                }}
+                              />
+                            </div>
+                            <div className="border-t pt-3">
+                              <Label className="flex items-center gap-2 mb-2"><Smartphone size={14} /> Change PIN</Label>
+                              <Input
+                                type="password"
+                                maxLength={4}
+                                placeholder="New 4-digit PIN"
+                                onBlur={e => {
+                                  if (e.target.value.length === 4 && /^\d{4}$/.test(e.target.value)) {
+                                    const updated = cards.map(c => c.id === card.id ? { ...c, pin: e.target.value } : c);
+                                    saveCards(updated);
+                                    toast({ title: "PIN updated" });
+                                    e.target.value = "";
+                                  }
+                                }}
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">Enter a 4-digit numeric PIN</p>
+                            </div>
+                            <div className="bg-muted rounded-lg p-3 text-xs space-y-1 text-muted-foreground">
+                              <p><strong>Daily limit:</strong> ${(card.daily_limit ?? 500).toFixed(2)}</p>
+                              <p><strong>Monthly limit:</strong> ${(card.monthly_limit ?? 2000).toFixed(2)}</p>
+                              <p><strong>Status:</strong> {card.frozen ? "Frozen" : "Active"}</p>
+                              <p><strong>Contactless:</strong> {(card.contactless_enabled ?? true) ? "Enabled" : "Disabled"}</p>
+                            </div>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
 
                     <div className="flex items-center gap-2 pt-1">
                       <Badge variant={card.frozen ? "destructive" : card.online_enabled ? "secondary" : "outline"} className="text-xs">

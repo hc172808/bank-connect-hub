@@ -130,6 +130,19 @@ const Auth = () => {
         }
         if (!signedIn) throw lastError ?? new Error("Sign-in failed");
 
+        // N-06: notify user of new device login
+        try {
+          const { data: { user: u } } = await supabase.auth.getUser();
+          if (u) {
+            await supabase.from("notifications").insert({
+              user_id: u.id,
+              title: "🔐 New Login Detected",
+              message: `A login to your account was recorded on ${new Date().toLocaleString()}. If this wasn't you, secure your account immediately.`,
+              type: "security_alert",
+            } as never);
+          }
+        } catch { /* non-blocking */ }
+
         toast({ title: "Welcome back!", description: "Signed in successfully" });
         return;
       }
