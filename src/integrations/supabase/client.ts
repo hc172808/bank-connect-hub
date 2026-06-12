@@ -25,9 +25,20 @@ declare global {
   }
 }
 
-const SUPABASE_URL =
+// Sanitize URL — guards against common secret typo where "https://" is stored as "ttps://"
+function sanitizeSupabaseUrl(raw: string | undefined): string {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  // Already correct
+  if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) return trimmed;
+  // Strip any partial/mangled protocol prefix then re-add https://
+  return 'https://' + trimmed.replace(/^[a-z]*:\/\//, '');
+}
+
+const SUPABASE_URL = sanitizeSupabaseUrl(
   (typeof window !== 'undefined' && window.__ENV__?.VITE_SUPABASE_URL) ||
-  import.meta.env.VITE_SUPABASE_URL;
+  import.meta.env.VITE_SUPABASE_URL
+);
 
 const SUPABASE_PUBLISHABLE_KEY =
   (typeof window !== 'undefined' && window.__ENV__?.VITE_SUPABASE_PUBLISHABLE_KEY) ||
