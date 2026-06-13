@@ -198,6 +198,15 @@ const BusinessBanking = () => {
       </header>
 
       <div className="p-4 space-y-4">
+        <Button
+          variant="outline"
+          className="w-full gap-2 border-slate-300 justify-start"
+          onClick={() => navigate("/api-integrations")}
+        >
+          <Download className="h-4 w-4 text-slate-600" />
+          <span className="font-medium">API Integrations</span>
+          <span className="ml-auto text-xs text-muted-foreground">Keys · Webhooks · Apps</span>
+        </Button>
         <div className="flex gap-2">
           {(["wallets", "payroll", "vendors"] as const).map(tab => (
             <button key={tab}

@@ -114,9 +114,14 @@ const FinancialInsights   = lazy(() => import("./pages/FinancialInsights"));
 const ScheduledPayments   = lazy(() => import("./pages/ScheduledPayments"));
 const SplitBills          = lazy(() => import("./pages/SplitBills"));
 const AdminRPCNode        = lazy(() => import("./pages/AdminRPCNode"));
-const CurrencyConverter      = lazy(() => import("./pages/CurrencyConverter"));
-const AdminAIDefense         = lazy(() => import("./pages/AdminAIDefense"));
-const AIFinancialAssistant   = lazy(() => import("./pages/AIFinancialAssistant"));
+const CurrencyConverter             = lazy(() => import("./pages/CurrencyConverter"));
+const AdminAIDefense               = lazy(() => import("./pages/AdminAIDefense"));
+const AIFinancialAssistant         = lazy(() => import("./pages/AIFinancialAssistant"));
+const WhatsNew                     = lazy(() => import("./pages/WhatsNew"));
+const PersonalizedRecommendations  = lazy(() => import("./pages/PersonalizedRecommendations"));
+const NFCTapPayment                = lazy(() => import("./pages/NFCTapPayment"));
+const APIIntegrations              = lazy(() => import("./pages/APIIntegrations"));
+const OpenBanking                  = lazy(() => import("./pages/OpenBanking"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -236,6 +241,10 @@ const AppRoutes = () => {
         <Route path="/split-bills" element={<SplitBills />} />
         <Route path="/currency-converter" element={<CurrencyConverter />} />
         <Route path="/ai-assistant" element={<AIFinancialAssistant />} />
+        <Route path="/whats-new" element={<WhatsNew />} />
+        <Route path="/recommendations" element={<PersonalizedRecommendations />} />
+        <Route path="/nfc-payment" element={<NFCTapPayment />} />
+        <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -263,6 +272,10 @@ const AppRoutes = () => {
         <Route path="/kyc" element={<KYCSubmission />} />
         <Route path="/currency-converter" element={<CurrencyConverter />} />
         <Route path="/ai-assistant" element={<AIFinancialAssistant />} />
+        <Route path="/whats-new" element={<WhatsNew />} />
+        <Route path="/recommendations" element={<PersonalizedRecommendations />} />
+        <Route path="/nfc-payment" element={<NFCTapPayment />} />
+        <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     );
@@ -283,6 +296,10 @@ const AppRoutes = () => {
         <Route path="/kyc" element={<KYCSubmission />} />
         <Route path="/currency-converter" element={<CurrencyConverter />} />
         <Route path="/ai-assistant" element={<AIFinancialAssistant />} />
+        <Route path="/whats-new" element={<WhatsNew />} />
+        <Route path="/recommendations" element={<PersonalizedRecommendations />} />
+        <Route path="/nfc-payment" element={<NFCTapPayment />} />
+        <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
     );
@@ -335,6 +352,11 @@ const AppRoutes = () => {
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />
         <Route path="/currency-converter" element={<CurrencyConverter />} />
+        <Route path="/whats-new" element={<WhatsNew />} />
+        <Route path="/recommendations" element={<PersonalizedRecommendations />} />
+        <Route path="/nfc-payment" element={<NFCTapPayment />} />
+        <Route path="/api-integrations" element={<APIIntegrations />} />
+        <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     );

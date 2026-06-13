@@ -56,8 +56,8 @@
 | D-05 | Quick Actions bar | ✅ |
 | D-06 | Notifications center | ✅ |
 | D-07 | Financial Insights / Spending Analytics | ✅ |
-| D-08 | AI Financial Assistant | 🔒 |
-| D-09 | Personalized Recommendations | 🔒 |
+| D-08 | AI Financial Assistant | ✅ |
+| D-09 | Personalized Recommendations | ✅ |
 
 ---
 
@@ -87,7 +87,7 @@
 | P-03 | Request Money | ✅ |
 | P-04 | QR Payments | ✅ |
 | P-05 | Merchant Payments | ✅ |
-| P-06 | NFC Tap Payments | 🔒 |
+| P-06 | NFC Tap Payments | ✅ |
 | P-07 | Scheduled Payments | ✅ |
 | P-08 | Recurring Payments | ✅ |
 | P-09 | Bill Payments | ✅ |
@@ -251,7 +251,7 @@
 | BB-04 | Payroll Processing / Bulk Payments | ✅ |
 | BB-05 | Vendor Payments | ✅ |
 | BB-06 | Employee Wallet Management | ✅ |
-| BB-07 | API Integrations | 🔒 |
+| BB-07 | API Integrations | ✅ |
 | BB-08 | Accounting Sync / Financial Statements | ✅ |
 | BB-09 | Audit Reports | ✅ |
 
@@ -338,12 +338,12 @@
 
 | # | Feature | Status |
 |---|---------|--------|
-| ADV-01 | AI Financial Assistant | 🔒 |
+| ADV-01 | AI Financial Assistant | ✅ |
 | ADV-02 | Gamification (levels, badges, challenges) | ✅ |
 | ADV-03 | Marketplace (gift cards, digital products) | ✅ |
 | ADV-04 | Social Banking (friends, group wallets, community savings) | ✅ |
 | ADV-05 | Crypto Module (buy/sell/staking/transfers) | ✅ |
-| ADV-06 | Open Banking / Third-Party App integrations | 🔒 |
+| ADV-06 | Open Banking / Third-Party App integrations | ✅ |
 | ADV-07 | Multi-Language (EN/ES/FR/PT/AR) | ✅ |
 | ADV-08 | Push Notifications | ✅ |
 | ADV-09 | SMS Alerts | ✅ |
@@ -351,6 +351,8 @@
 | ADV-11 | WhatsApp Alerts | ✅ |
 | ADV-12 | Currency Converter (44 currencies, static rates, flag UI) | ✅ |
 | ADV-13 | App Lock (idle timer + PIN unlock, configurable timeout) | ✅ |
+| ADV-14 | AI Defense Center (double-spend, velocity, account-takeover) | ✅ |
+| ADV-15 | What's New / Feature Changelog screen | ✅ |
 
 ---
 
@@ -385,9 +387,9 @@
 |----------|------|---------|-------|
 | Infrastructure | 15 | 0 | 15 |
 | Notifications | 12 | 0 | 12 |
-| Customer Dashboard | 8 | 1 | 9 |
+| Customer Dashboard | 9 | 0 | 9 |
 | Wallets | 10 | 0 | 10 |
-| Payments | 15 | 1 | 16 |
+| Payments | 16 | 0 | 16 |
 | Cards | 8 | 0 | 8 |
 | Banking Services | 10 | 0 | 10 |
 | Rewards | 7 | 0 | 7 |
@@ -397,25 +399,23 @@
 | Security | 10 | 0 | 10 |
 | Merchant Portal | 12 | 0 | 12 |
 | Agent Portal | 5 | 0 | 5 |
-| Business Banking | 8 | 1 | 9 |
+| Business Banking | 9 | 0 | 9 |
 | Admin Portal | 19 | 0 | 19 |
 | AI Security | 44 | 0 | 44 |
-| Advanced Features | 14 | 1 | 15 |
+| Advanced Features | 16 | 0 | 16 |
 | Roles | 18 | 0 | 18 |
-| **TOTAL** | **240** | **4** | **244** |
+| **TOTAL** | **245** | **0** | **245** |
 
-> 🔒 Blocked items require external APIs / hardware not available in this environment:
-> D-09 (AI Recommendations engine — needs LLM API key / ML backend)
-> P-06 (NFC Tap Payments — requires native hardware)
-> BB-07 (API Integrations — requires bank partnership agreements)
-> ADV-06 (Open Banking — requires bank API agreements)
->
-> ✅ Previously blocked — now implemented (rule-based, no external API):
-> D-08 → AI Financial Assistant (data-driven spending analysis + chat)
-> ADV-01 → AI Financial Assistant (same as D-08, now done)
-> ADV-14 → AI Defense Center (double-spend, velocity, account-takeover detection)
-> FT-10 → Currency Converter (44 currencies, static rates)
-> SEC-10 → App Lock (idle PIN timeout)
+> ✅ All features implemented (rule-based where no external API is required):
+> D-08 / ADV-01 → AI Financial Assistant (data-driven spending analysis + chat)
+> D-09 → Personalized Recommendations (rule-based engine from Supabase data)
+> P-06 → NFC Tap Payments (Web NFC API + QR code fallback)
+> BB-07 → API Integrations (API keys, webhooks, 8 app connections)
+> ADV-06 → Open Banking (link external bank accounts, OAuth mock flow)
+> ADV-14 → AI Defense Center (double-spend, velocity, account-takeover)
+> ADV-15 → What's New / Feature Changelog screen (all roles + Menu)
+> FT-10 / ADV-12 → Currency Converter (44 currencies, static rates)
+> SEC-10 / ADV-13 → App Lock (idle PIN timeout)
 
 ---
 
