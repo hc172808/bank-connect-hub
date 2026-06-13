@@ -4,14 +4,15 @@ description: Current completion state of TODO.md, what's done, what's blocked, a
 ---
 
 ## Status (as of 2026-06-13)
-- ✅ Done: 229
-- 🔒 Blocked: 7 (P-06 NFC, ADV-01 AI Assistant, ADV-06 Open Banking, ADV-07 Multi-Language, BB-07 API Integrations, D-08/D-09 AI features)
+- ✅ Done: 233
+- 🔒 Blocked: 6 (P-06 NFC, ADV-01 AI Assistant, ADV-06 Open Banking, BB-07 API Integrations, D-08/D-09 AI features)
 - ⬜ Pending: 0 actionable items remain — all TODO.md items are either ✅ or 🔒
 
-## Last session completions
-- N-03 Web Push Notifications: switched VitePWA to `injectManifest` strategy using `src/sw.js` (has push handlers). `devOptions: { enabled: true, type: "classic" }` so push works in dev.
-- SEC-09 Push opt-in: already had PushNotificationCard in SecuritySettings.tsx — marked ✅
-- ADV-08 Push Notifications: wired `/api/push/send` in SendMoney.tsx for real-time delivery
+## Session completions
+- ADV-07 Multi-Language (EN/ES/FR/PT/AR): full i18n system — LanguageProvider, useT(), LanguageSelector in Profile
+- ADV-12 Currency Converter: 44 currencies, static rates vs USD, `/currency-converter` route for all roles
+- ADV-13 App Lock: idle timer + PIN unlock, AppLockCard in SecuritySettings, AppLockScreen in AppRoutes
+- N-03 Web Push: VitePWA injectManifest + src/sw.js, auto-subscribe hook in AppRoutes
 
 ## VitePWA setup (important — do not revert)
 - Strategy: `injectManifest`, srcDir: `"src"`, filename: `"sw.js"`

@@ -7,11 +7,61 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Trash2, Bell, BellOff, Lock, AlertTriangle, LogIn, Clock } from "lucide-react";
+import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Trash2, Bell, BellOff, Lock, AlertTriangle, LogIn, Clock, Timer } from "lucide-react";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
 import { UAParser } from "ua-parser-js";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { useAppLockSettings } from "@/hooks/useAppLock";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+
+const AppLockCard = () => {
+  const { settings, update } = useAppLockSettings();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Timer className="h-5 w-5" /> App Lock</CardTitle>
+        <CardDescription>Automatically lock the app after a period of inactivity.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-sm">Enable App Lock</p>
+            <p className="text-xs text-muted-foreground">Require PIN to resume after idle timeout</p>
+          </div>
+          <Switch
+            checked={settings.enabled}
+            onCheckedChange={(v) => update({ enabled: v })}
+          />
+        </div>
+        {settings.enabled && (
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Lock after inactivity</Label>
+            <Select
+              value={String(settings.timeoutMinutes)}
+              onValueChange={(v) => update({ timeoutMinutes: parseInt(v) })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">1 minute</SelectItem>
+                <SelectItem value="5">5 minutes</SelectItem>
+                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="30">30 minutes</SelectItem>
+                <SelectItem value="60">1 hour</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              You will need your transaction PIN to unlock the app.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const PushNotificationCard = () => {
   const { state, loading, enable, disable } = usePushNotifications();
@@ -328,6 +378,8 @@ const SecuritySettings = () => {
         </Card>
 
         <PushNotificationCard />
+
+        <AppLockCard />
 
         <Card>
           <CardHeader>

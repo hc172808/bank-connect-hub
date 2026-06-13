@@ -1,3 +1,5 @@
 - [Twilio SMS + SMTP email](notifications.md) — both handled by build-server.mjs; env vars required; fire-and-forget from frontend
 - [New feature pages](feature-pages.md) — BudgetPlanner, SavingsGoals, Beneficiaries, VirtualCards all use localStorage (keyed by user.id); no DB schema changes needed
-- [TODO progress & strategy](todo-progress.md) — 229 done, 7 blocked (AI/NFC/OpenBanking/MultiLanguage); VitePWA uses injectManifest + src/sw.js; all actionable items complete
+- [TODO progress & strategy](todo-progress.md) — 233/239 done, 6 blocked (AI/NFC/OpenBanking); i18n complete; App Lock + Currency Converter added
+- [i18n system](i18n.md) — LanguageProvider in main.tsx wraps ThemeProvider; useT()/useLanguage() hooks; 5 locales (en/es/fr/pt/ar); RTL for Arabic; localStorage key vbank_language
+- [App Lock](applock.md) — useAppLock() in AppRoutes (App.tsx); AppLockScreen component; settings via useAppLockSettings(); localStorage vbank_applock_v1; PIN validated against profiles.transaction_pin SHA-256

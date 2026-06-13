@@ -342,11 +342,13 @@
 | ADV-04 | Social Banking (friends, group wallets, community savings) | ✅ |
 | ADV-05 | Crypto Module (buy/sell/staking/transfers) | ✅ |
 | ADV-06 | Open Banking / Third-Party App integrations | 🔒 |
-| ADV-07 | Multi-Language (EN/ES/FR/PT/AR) | 🔒 |
+| ADV-07 | Multi-Language (EN/ES/FR/PT/AR) | ✅ |
 | ADV-08 | Push Notifications | ✅ |
 | ADV-09 | SMS Alerts | ✅ |
 | ADV-10 | Email Alerts | ✅ |
 | ADV-11 | WhatsApp Alerts | ✅ |
+| ADV-12 | Currency Converter (44 currencies, static rates, flag UI) | ✅ |
+| ADV-13 | App Lock (idle timer + PIN unlock, configurable timeout) | ✅ |
 
 ---
 
@@ -396,9 +398,9 @@
 | Business Banking | 8 | 1 | 9 |
 | Admin Portal | 19 | 0 | 19 |
 | AI Security | 44 | 0 | 44 |
-| Advanced Features | 8 | 3 | 11 |
+| Advanced Features | 11 | 2 | 13 |
 | Roles | 18 | 0 | 18 |
-| **TOTAL** | **229** | **7** | **236** |
+| **TOTAL** | **233** | **6** | **239** |
 
 > 🔒 Blocked items require external APIs / hardware not available in this environment:
 > D-08, D-09 (AI Financial Assistant / Recommendations — needs LLM API key)
@@ -406,7 +408,6 @@
 > BB-07 (API Integrations — requires bank partnership agreements)
 > ADV-01 (AI Financial Assistant — duplicate of D-08)
 > ADV-06 (Open Banking — requires bank API agreements)
-> ADV-07 (Multi-Language — large i18n effort, deferred)
 
 ---
 

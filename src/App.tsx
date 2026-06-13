@@ -8,6 +8,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
 import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
+import { useAppLock } from "./hooks/useAppLock";
+import { AppLockScreen } from "./components/AppLockScreen";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ScrollToTop } from "./components/ScrollToTop";
 
@@ -112,6 +114,7 @@ const FinancialInsights   = lazy(() => import("./pages/FinancialInsights"));
 const ScheduledPayments   = lazy(() => import("./pages/ScheduledPayments"));
 const SplitBills          = lazy(() => import("./pages/SplitBills"));
 const AdminRPCNode        = lazy(() => import("./pages/AdminRPCNode"));
+const CurrencyConverter   = lazy(() => import("./pages/CurrencyConverter"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -158,8 +161,10 @@ const ProtectedRoute = ({
 const AppRoutes = () => {
   const { user, role, loading } = useAuth();
   useAutoPushSubscribe(user?.id);
+  const { locked, unlock } = useAppLock();
 
   if (loading) return <FullScreenLoader />;
+  if (locked && user) return <AppLockScreen onUnlock={unlock} />;
 
   if (!user) {
     return (
@@ -227,6 +232,7 @@ const AppRoutes = () => {
         <Route path="/insights" element={<FinancialInsights />} />
         <Route path="/scheduled-payments" element={<ScheduledPayments />} />
         <Route path="/split-bills" element={<SplitBills />} />
+        <Route path="/currency-converter" element={<CurrencyConverter />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -252,6 +258,7 @@ const AppRoutes = () => {
         <Route path="/feedback" element={<Feedback />} />
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/kyc" element={<KYCSubmission />} />
+        <Route path="/currency-converter" element={<CurrencyConverter />} />
         <Route path="*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     );
@@ -270,6 +277,7 @@ const AppRoutes = () => {
         <Route path="/feedback" element={<Feedback />} />
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/kyc" element={<KYCSubmission />} />
+        <Route path="/currency-converter" element={<CurrencyConverter />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
     );
@@ -320,6 +328,7 @@ const AppRoutes = () => {
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />
+        <Route path="/currency-converter" element={<CurrencyConverter />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     );

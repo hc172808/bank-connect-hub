@@ -26,6 +26,8 @@ import { SetPinDialog } from '@/components/SetPinDialog';
 import { isBiometricAvailable, enrollBiometric, linkCredentialToPhone, checkBiometricSupport, isInIframe } from '@/lib/biometricAuth';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { AppDownloadButton } from '@/components/AppDownloadButton';
+import { LanguageSelector } from '@/components/LanguageSelector';
+import { Globe } from 'lucide-react';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -807,6 +809,14 @@ export default function Profile() {
                   );
                 })}
               </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Globe className="w-4 h-4 text-muted-foreground" />
+                <p className="font-medium text-sm">App Language</p>
+              </div>
+              <LanguageSelector />
             </div>
           </CardContent>
         </Card>
