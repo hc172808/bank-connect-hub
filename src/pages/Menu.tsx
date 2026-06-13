@@ -27,6 +27,7 @@ import {
   Briefcase,
   HeadphonesIcon,
   Trophy,
+  ArrowLeftRight,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -60,6 +61,7 @@ const menuSections = [
       { icon: Globe,         label: "International Transfer", path: "/international-transfers" },
       { icon: UsersRound,    label: "Group Payments",         path: "/group-payments" },
       { icon: Receipt,       label: "Split Bills",            path: "/split-bills" },
+      { icon: ArrowLeftRight, label: "Currency Converter",    path: "/currency-converter" },
       { icon: Users,         label: "Beneficiaries",          path: "/beneficiaries" },
       { icon: CreditCard,    label: "Virtual Cards",          path: "/virtual-cards" },
       { icon: Wallet,        label: "All Wallets",             path: "/multi-wallet" },

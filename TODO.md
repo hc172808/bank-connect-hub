@@ -175,6 +175,7 @@
 | FT-07 | Net Worth Calculator | ✅ |
 | FT-08 | Financial Health Score | ✅ |
 | FT-09 | Tax Reports | ✅ |
+| FT-10 | Currency Converter (44 currencies, static rates, flag UI) | ✅ |
 
 ---
 
@@ -205,6 +206,7 @@
 | SEC-07 | Anti-Fraud Protection | ✅ |
 | SEC-08 | Emergency Account Lock | ✅ |
 | SEC-09 | Push notification opt-in in Security Settings | ✅ |
+| SEC-10 | App Lock (idle timer + PIN unlock, configurable timeout) | ✅ |
 
 ---
 
