@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { usePWAInstall } from "@/hooks/usePWAInstall";
+import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -9,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft, Download, Smartphone, Globe, Apple, CheckCircle2,
   Loader2, Share, MoreHorizontal, Plus, Star, Zap, Shield, Wifi,
-  RefreshCw, ChevronDown, ChevronUp, Clock,
+  RefreshCw, ChevronDown, ChevronUp, Clock, QrCode, Copy, Check,
 } from "lucide-react";
 
 interface AppRelease {
@@ -39,6 +40,28 @@ export default function DownloadApp() {
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const appUrl = `${window.location.origin}/download-app`;
+
+  const copyUrl = () => {
+    navigator.clipboard.writeText(appUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const shareUrl = async () => {
+    if (navigator.share) {
+      await navigator.share({
+        title: "Download NETLIFE CASH",
+        text: "Install NETLIFE CASH — digital wallet & instant payments",
+        url: appUrl,
+      });
+    } else {
+      copyUrl();
+    }
+  };
 
   const latest = releases.find((r) => r.is_latest && r.platform === "android");
   const latestIOS = releases.find((r) => r.is_latest && r.platform === "ios");
@@ -317,6 +340,52 @@ export default function DownloadApp() {
             )}
           </div>
         )}
+
+        {/* ── QR Code Share ── */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-primary" />
+              <CardTitle className="text-base">Share Download Link</CardTitle>
+            </div>
+            <CardDescription>
+              Scan this QR code or share the link to let others install NETLIFE CASH.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-center gap-6">
+              {/* QR Code */}
+              <div className="flex-shrink-0 p-3 bg-white rounded-xl border shadow-sm">
+                <QRCodeSVG
+                  value={appUrl}
+                  size={140}
+                  level="M"
+                  includeMargin={false}
+                  fgColor="#0B1B3F"
+                />
+              </div>
+              {/* Actions */}
+              <div className="flex-1 space-y-2 w-full">
+                <p className="text-xs text-muted-foreground break-all font-mono bg-muted/60 rounded-lg px-3 py-2">
+                  {appUrl}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" size="sm" onClick={copyUrl} className="w-full">
+                    {copied
+                      ? <><Check className="w-3.5 h-3.5 mr-1.5 text-green-600" /> Copied!</>
+                      : <><Copy className="w-3.5 h-3.5 mr-1.5" /> Copy Link</>}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={shareUrl} className="w-full">
+                    <Share className="w-3.5 h-3.5 mr-1.5" /> Share
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground text-center">
+                  Point any camera at the QR code to open the download page
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <Separator />
 
