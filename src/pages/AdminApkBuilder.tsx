@@ -129,6 +129,7 @@ export default function AdminApkBuilder() {
   const [publishNotes, setPublishNotes] = useState("");
   const [forceUpdate, setForceUpdate] = useState(false);
   const [forceMinVersion, setForceMinVersion] = useState("");
+  const [notifyOnPublish, setNotifyOnPublish] = useState(true);
   const [publishing, setPublishing] = useState(false);
 
   const scrollToBottom = () => logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -375,6 +376,37 @@ export default function AdminApkBuilder() {
           { key: "force_update_enabled", value: "false" },
           { onConflict: "key" }
         );
+      }
+
+      // 6. Send push broadcast to all subscribed devices
+      if (notifyOnPublish) {
+        try {
+          await fetch("/api/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: `NETLIFE CASH v${publishTarget.version} is live 🚀`,
+              body: publishNotes.trim() || "A new update is available. Tap to download and install.",
+              url: "/download-app",
+              icon: "/icon.svg",
+            }),
+          });
+          // Also write the latest_broadcast to app_settings for in-app banner
+          await supabase.from("app_settings").upsert(
+            {
+              key: "latest_broadcast",
+              value: JSON.stringify({
+                title: `NETLIFE CASH v${publishTarget.version} is live 🚀`,
+                body: publishNotes.trim() || "A new update is available. Open the app to download.",
+                url: "/download-app",
+                sent_at: new Date().toISOString(),
+              }),
+            },
+            { onConflict: "key" }
+          );
+        } catch {
+          // Push is best-effort — don't block the publish on failure
+        }
       }
 
       toast({
@@ -882,6 +914,21 @@ export default function AdminApkBuilder() {
                 placeholder={"• New feature added\n• Bug fixes\n• Performance improvements"}
                 rows={4}
               />
+            </div>
+
+            {/* Notify all users */}
+            <div className="rounded-lg border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-1.5">
+                    <Bell className="h-4 w-4 text-blue-500" /> Notify all users
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Send a push notification + in-app banner to every user
+                  </p>
+                </div>
+                <Switch checked={notifyOnPublish} onCheckedChange={setNotifyOnPublish} />
+              </div>
             </div>
 
             {/* Force update */}

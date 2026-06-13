@@ -498,6 +498,24 @@ const AdminDashboard = () => {
               </Button>
               <Button
                 className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/send-update")}
+                data-testid="button-send-update"
+              >
+                <Megaphone size={20} />
+                Send Update to All Apps
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="outline"
+                onClick={() => navigate("/admin/download-poster")}
+                data-testid="button-download-poster"
+              >
+                <QrCode size={20} />
+                QR Download Poster
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
                 variant="outline"
                 onClick={() => navigate("/admin/themes")}
                 data-testid="button-app-themes"
