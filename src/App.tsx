@@ -1,11 +1,11 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { ForceUpdateGate } from "@/components/ForceUpdateGate";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
 import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
 import { useAppLock } from "./hooks/useAppLock";
@@ -169,6 +169,17 @@ const AppRoutes = () => {
   const { user, role, loading } = useAuth();
   useAutoPushSubscribe(user?.id);
   const { locked, unlock } = useAppLock();
+  const navigate = useNavigate();
+
+  // Auto-show What's New on first launch after a new version
+  useEffect(() => {
+    if (!user) return;
+    const seen = localStorage.getItem("vbank_whats_new_seen_v1_6_0");
+    if (!seen) {
+      const t = setTimeout(() => navigate("/whats-new"), 700);
+      return () => clearTimeout(t);
+    }
+  }, [user?.id]);
 
   if (loading) return <FullScreenLoader />;
   if (locked && user) return <AppLockScreen onUnlock={unlock} />;
