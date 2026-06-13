@@ -437,6 +437,16 @@ const AdminDashboard = () => {
               <Button
                 className="w-full justify-start gap-3 h-14 rounded-xl"
                 variant="secondary"
+                onClick={() => navigate("/admin/ai-defense")}
+                data-testid="button-ai-defense"
+              >
+                <Shield size={20} />
+                AI Defense Center
+                <span className="ml-auto text-xs opacity-60">Anti-hack · Double-spend</span>
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
                 onClick={() => navigate("/admin/firewall")}
                 data-testid="button-firewall"
               >

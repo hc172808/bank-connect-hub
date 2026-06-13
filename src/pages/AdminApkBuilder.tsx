@@ -217,7 +217,10 @@ export default function AdminApkBuilder() {
     es.onerror = () => es.close();
   };
 
-  const startBuild = async () => {
+  const startBuild = async (overrideBuildType?: "debug" | "release") => {
+    const effectiveBuildType = overrideBuildType ?? buildType;
+    if (overrideBuildType) setBuildType(overrideBuildType);
+
     if (!/^\d+\.\d+\.\d+$/.test(version)) {
       toast({ title: "Invalid version", description: "Use format: 1.0.0", variant: "destructive" });
       return;
@@ -245,7 +248,7 @@ export default function AdminApkBuilder() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           version,
-          buildType,
+          buildType: effectiveBuildType,
           includeRpcNode,
           rpcUrl: netConfig?.rpc_url || undefined,
           chainId: netConfig?.chain_id || undefined,
@@ -528,6 +531,70 @@ export default function AdminApkBuilder() {
       {/* ── APK tab ─────────────────────────────────────────────────────────── */}
       {buildTab === "apk" && (
       <>
+
+      {/* ── Admin Test Debug APK ─────────────────────────────────────────────── */}
+      <Card className="border-2 border-orange-400 dark:border-orange-600 bg-orange-50/40 dark:bg-orange-900/10">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldAlert className="h-5 w-5 text-orange-600" /> Quick Admin Test Build
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Builds a <strong>debug APK</strong> signed with the debug keystore — for admin/QA testing only. Not for public distribution.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Version</p>
+              <Input
+                value={version}
+                onChange={e => setVersion(e.target.value)}
+                placeholder="1.0.0"
+                className="h-8 w-28 text-sm"
+                disabled={building}
+              />
+            </div>
+            <div className="flex flex-col gap-1 pt-1">
+              <Badge variant="outline" className="text-orange-600 border-orange-400 self-start">DEBUG BUILD</Badge>
+              <p className="text-[10px] text-muted-foreground">Unsigned release not required</p>
+            </div>
+            <div className="ml-auto flex gap-2 items-center">
+              {!building ? (
+                <Button
+                  onClick={() => startBuild("debug")}
+                  className="gap-2 bg-orange-600 hover:bg-orange-700 text-white"
+                  disabled={building || serverOnline === false}
+                >
+                  <Play className="h-4 w-4" /> Build Debug APK
+                </Button>
+              ) : buildType === "debug" ? (
+                <Button variant="destructive" onClick={cancelBuild} className="gap-2">
+                  <Square className="h-4 w-4" /> Cancel
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          {buildStatus === "success" && currentApkFile && currentApkFile.includes("debug") && (
+            <div className="flex items-center gap-3 p-3 rounded-xl border border-green-400 bg-green-50 dark:bg-green-900/20">
+              <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-green-800 dark:text-green-300">Debug APK ready!</p>
+                <p className="text-xs text-green-700 dark:text-green-400 font-mono truncate">{currentApkFile}</p>
+              </div>
+              <Button
+                size="sm"
+                className="gap-1 bg-green-600 hover:bg-green-700 text-white shrink-0"
+                onClick={() => window.open(`/api/download/${currentApkFile}`, "_blank")}
+              >
+                <Download className="h-4 w-4" /> Download
+              </Button>
+            </div>
+          )}
+          <p className="text-[10px] text-muted-foreground">
+            ⚠️ Debug builds are not minified and may expose logs. Only install on trusted test devices.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Network Config card */}
       <Card className="border-blue-200 dark:border-blue-800">

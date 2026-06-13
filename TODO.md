@@ -385,31 +385,37 @@
 |----------|------|---------|-------|
 | Infrastructure | 15 | 0 | 15 |
 | Notifications | 12 | 0 | 12 |
-| Customer Dashboard | 7 | 2 | 9 |
+| Customer Dashboard | 8 | 1 | 9 |
 | Wallets | 10 | 0 | 10 |
 | Payments | 15 | 1 | 16 |
 | Cards | 8 | 0 | 8 |
 | Banking Services | 10 | 0 | 10 |
 | Rewards | 7 | 0 | 7 |
 | Investments | 8 | 0 | 8 |
-| Financial Tools | 9 | 0 | 9 |
+| Financial Tools | 10 | 0 | 10 |
 | Account Management | 7 | 0 | 7 |
-| Security | 9 | 0 | 9 |
+| Security | 10 | 0 | 10 |
 | Merchant Portal | 12 | 0 | 12 |
 | Agent Portal | 5 | 0 | 5 |
 | Business Banking | 8 | 1 | 9 |
 | Admin Portal | 19 | 0 | 19 |
 | AI Security | 44 | 0 | 44 |
-| Advanced Features | 11 | 2 | 13 |
+| Advanced Features | 14 | 1 | 15 |
 | Roles | 18 | 0 | 18 |
-| **TOTAL** | **233** | **6** | **239** |
+| **TOTAL** | **240** | **4** | **244** |
 
 > 🔒 Blocked items require external APIs / hardware not available in this environment:
-> D-08, D-09 (AI Financial Assistant / Recommendations — needs LLM API key)
+> D-09 (AI Recommendations engine — needs LLM API key / ML backend)
 > P-06 (NFC Tap Payments — requires native hardware)
 > BB-07 (API Integrations — requires bank partnership agreements)
-> ADV-01 (AI Financial Assistant — duplicate of D-08)
 > ADV-06 (Open Banking — requires bank API agreements)
+>
+> ✅ Previously blocked — now implemented (rule-based, no external API):
+> D-08 → AI Financial Assistant (data-driven spending analysis + chat)
+> ADV-01 → AI Financial Assistant (same as D-08, now done)
+> ADV-14 → AI Defense Center (double-spend, velocity, account-takeover detection)
+> FT-10 → Currency Converter (44 currencies, static rates)
+> SEC-10 → App Lock (idle PIN timeout)
 
 ---
 

@@ -114,7 +114,9 @@ const FinancialInsights   = lazy(() => import("./pages/FinancialInsights"));
 const ScheduledPayments   = lazy(() => import("./pages/ScheduledPayments"));
 const SplitBills          = lazy(() => import("./pages/SplitBills"));
 const AdminRPCNode        = lazy(() => import("./pages/AdminRPCNode"));
-const CurrencyConverter   = lazy(() => import("./pages/CurrencyConverter"));
+const CurrencyConverter      = lazy(() => import("./pages/CurrencyConverter"));
+const AdminAIDefense         = lazy(() => import("./pages/AdminAIDefense"));
+const AIFinancialAssistant   = lazy(() => import("./pages/AIFinancialAssistant"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -233,6 +235,7 @@ const AppRoutes = () => {
         <Route path="/scheduled-payments" element={<ScheduledPayments />} />
         <Route path="/split-bills" element={<SplitBills />} />
         <Route path="/currency-converter" element={<CurrencyConverter />} />
+        <Route path="/ai-assistant" element={<AIFinancialAssistant />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -259,6 +262,7 @@ const AppRoutes = () => {
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/kyc" element={<KYCSubmission />} />
         <Route path="/currency-converter" element={<CurrencyConverter />} />
+        <Route path="/ai-assistant" element={<AIFinancialAssistant />} />
         <Route path="*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     );
@@ -278,6 +282,7 @@ const AppRoutes = () => {
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/kyc" element={<KYCSubmission />} />
         <Route path="/currency-converter" element={<CurrencyConverter />} />
+        <Route path="/ai-assistant" element={<AIFinancialAssistant />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
     );
@@ -309,6 +314,7 @@ const AppRoutes = () => {
         <Route path="/admin/mobile-providers" element={<ProtectedRoute allowedRoles={["admin"]}><ManageMobileProviders /></ProtectedRoute>} />
         <Route path="/admin/changelog" element={<ProtectedRoute allowedRoles={["admin"]}><ManageChangelog /></ProtectedRoute>} />
         <Route path="/admin/ai-security" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAISecurity /></ProtectedRoute>} />
+        <Route path="/admin/ai-defense" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAIDefense /></ProtectedRoute>} />
         <Route path="/admin/firewall" element={<ProtectedRoute allowedRoles={["admin"]}><AdminFirewall /></ProtectedRoute>} />
         <Route path="/admin/litenode" element={<ProtectedRoute allowedRoles={["admin"]}><AdminLitenode /></ProtectedRoute>} />
         <Route path="/admin/rpc-node" element={<ProtectedRoute allowedRoles={["admin"]}><AdminRPCNode /></ProtectedRoute>} />

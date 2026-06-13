@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, DollarSign, TrendingUp, TrendingDown, PiggyBank,
   CreditCard, BarChart3, Target, Minus, Plus, Calculator,
-  Heart, AlertTriangle, CheckCircle, ArrowLeftRight,
+  Heart, AlertTriangle, CheckCircle, ArrowLeftRight, Sparkles,
 } from "lucide-react";
 import { format, subDays } from "date-fns";
 
@@ -171,16 +171,28 @@ const FinancialTools = () => {
       </header>
 
       <div className="p-4 space-y-4">
-        <button
-          onClick={() => navigate("/currency-converter")}
-          className="w-full flex items-center justify-between bg-white/20 hover:bg-white/30 rounded-xl px-4 py-3 transition-colors text-primary-foreground"
-        >
-          <span className="flex items-center gap-2 text-sm font-medium">
-            <ArrowLeftRight className="h-4 w-4" />
-            Currency Converter
-          </span>
-          <span className="text-xs opacity-75">44 currencies →</span>
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => navigate("/ai-assistant")}
+            className="flex items-center justify-between bg-white/20 hover:bg-white/30 rounded-xl px-4 py-3 transition-colors text-primary-foreground"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="h-4 w-4" />
+              AI Assistant
+            </span>
+            <span className="text-xs opacity-75">→</span>
+          </button>
+          <button
+            onClick={() => navigate("/currency-converter")}
+            className="flex items-center justify-between bg-white/20 hover:bg-white/30 rounded-xl px-4 py-3 transition-colors text-primary-foreground"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium">
+              <ArrowLeftRight className="h-4 w-4" />
+              Currency Converter
+            </span>
+            <span className="text-xs opacity-75">→</span>
+          </button>
+        </div>
 
         <div className="grid grid-cols-4 gap-1">
           {(["expenses", "income", "debt", "networth"] as const).map(tab => (
