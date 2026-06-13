@@ -33,6 +33,7 @@ import {
   Wifi,
   Building2,
   Newspaper,
+  Smartphone,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -82,6 +83,7 @@ const menuSections = [
   {
     title: "Other",
     items: [
+      { icon: Smartphone,      label: "Download App",     path: "/download-app" },
       { icon: Newspaper,       label: "What's New",       path: "/whats-new" },
       { icon: Bell,            label: "Notifications",    path: "/notifications" },
       { icon: HeadphonesIcon,  label: "Support Center",   path: "/support" },

@@ -9,6 +9,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-route
 import { useAuth, UserRole } from "./hooks/useAuth";
 import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
 import { useAppLock } from "./hooks/useAppLock";
+import { useNewReleaseAlert } from "./hooks/useNewReleaseAlert";
 import { AppLockScreen } from "./components/AppLockScreen";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ScrollToTop } from "./components/ScrollToTop";
@@ -122,6 +123,7 @@ const PersonalizedRecommendations  = lazy(() => import("./pages/PersonalizedReco
 const NFCTapPayment                = lazy(() => import("./pages/NFCTapPayment"));
 const APIIntegrations              = lazy(() => import("./pages/APIIntegrations"));
 const OpenBanking                  = lazy(() => import("./pages/OpenBanking"));
+const DownloadApp                  = lazy(() => import("./pages/DownloadApp"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -170,6 +172,10 @@ const AppRoutes = () => {
   useAutoPushSubscribe(user?.id);
   const { locked, unlock } = useAppLock();
   const navigate = useNavigate();
+  const { setNavigate: setAlertNavigate } = useNewReleaseAlert(user?.id);
+
+  // Give the release alert hook access to navigate
+  useEffect(() => { setAlertNavigate((path) => navigate(path)); }, [navigate]);
 
   // Auto-show What's New on first launch after a new version
   useEffect(() => {
@@ -256,6 +262,7 @@ const AppRoutes = () => {
         <Route path="/recommendations" element={<PersonalizedRecommendations />} />
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
+        <Route path="/download-app" element={<DownloadApp />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -287,6 +294,7 @@ const AppRoutes = () => {
         <Route path="/recommendations" element={<PersonalizedRecommendations />} />
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
+        <Route path="/download-app" element={<DownloadApp />} />
         <Route path="*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     );
@@ -311,6 +319,7 @@ const AppRoutes = () => {
         <Route path="/recommendations" element={<PersonalizedRecommendations />} />
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
+        <Route path="/download-app" element={<DownloadApp />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
     );
@@ -368,6 +377,7 @@ const AppRoutes = () => {
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/api-integrations" element={<APIIntegrations />} />
         <Route path="/open-banking" element={<OpenBanking />} />
+        <Route path="/download-app" element={<DownloadApp />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     );
