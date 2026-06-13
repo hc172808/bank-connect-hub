@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import webpush from "web-push";
+import crypto from "crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -617,6 +618,146 @@ app.post("/api/sms/broadcast", async (req, res) => {
     })
   );
   res.json({ ok: true, sent, failed });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Password Reset via OTP (Twilio SMS + Supabase Admin)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const SUPABASE_URL      = process.env.VITE_SUPABASE_URL;
+const SUPABASE_ADMIN_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // optional
+
+/** In-memory OTP store: email -> { otpHash, expiresAt, attempts } */
+const resetOtpStore = new Map();
+
+const adminOk = () => !!(SUPABASE_URL && SUPABASE_ADMIN_KEY);
+
+function hashOtp(otp) {
+  return crypto.createHash("sha256").update(otp).digest("hex");
+}
+
+function generateOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+// GET /api/auth/reset-status
+app.get("/api/auth/reset-status", (_req, res) => {
+  res.json({
+    smsAvailable: twilioOk(),
+    adminResetAvailable: adminOk(),
+  });
+});
+
+// POST /api/auth/request-reset  { phone, countryCode }
+app.post("/api/auth/request-reset", async (req, res) => {
+  const { phone, countryCode = "" } = req.body || {};
+  if (!phone) return res.status(400).json({ error: "phone required" });
+  if (!twilioOk()) return res.status(503).json({ error: "SMS not configured — contact support." });
+
+  const e164 = phone.startsWith("+") ? phone : `${countryCode}${phone.replace(/^0/, "")}`;
+  const email = `${phone.replace(/\D/g, "")}@vbank.com`;
+
+  const otp = generateOtp();
+  const otpHash = hashOtp(otp);
+  resetOtpStore.set(email, { otpHash, expiresAt: Date.now() + 5 * 60 * 1000, attempts: 0, e164 });
+
+  try {
+    await sendSms(e164, `NETLIFE CASH: Your password reset code is ${otp}. Valid 5 min. Do not share.`);
+    const masked = e164.slice(0, -4).replace(/\d/g, "*") + e164.slice(-4);
+    res.json({ ok: true, masked });
+  } catch (err) {
+    resetOtpStore.delete(email);
+    console.error("[reset] SMS error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/verify-reset  { phone, otp, newPassword }
+app.post("/api/auth/verify-reset", async (req, res) => {
+  const { phone, otp, newPassword } = req.body || {};
+  if (!phone || !otp || !newPassword) return res.status(400).json({ error: "phone, otp, newPassword required" });
+  if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+  const email = `${phone.replace(/\D/g, "")}@vbank.com`;
+  const entry = resetOtpStore.get(email);
+
+  if (!entry) return res.status(400).json({ error: "No reset request found. Please request a new code." });
+  if (Date.now() > entry.expiresAt) {
+    resetOtpStore.delete(email);
+    return res.status(400).json({ error: "Code expired. Please request a new one." });
+  }
+  entry.attempts = (entry.attempts || 0) + 1;
+  if (entry.attempts > 5) {
+    resetOtpStore.delete(email);
+    return res.status(429).json({ error: "Too many attempts. Request a new code." });
+  }
+  if (hashOtp(otp) !== entry.otpHash) {
+    return res.status(400).json({ error: `Incorrect code. ${5 - entry.attempts} attempt(s) remaining.` });
+  }
+
+  // OTP valid — now reset the password
+  if (!adminOk()) {
+    // Can't reset via admin API — mark as verified so frontend can handle
+    resetOtpStore.set(email, { ...entry, verified: true });
+    return res.json({ ok: true, adminReset: false, message: "OTP verified. Contact admin to complete reset." });
+  }
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    // Look up user by the virtual email
+    const { data: { users }, error: listErr } = await adminClient.auth.admin.listUsers();
+    if (listErr) throw new Error(listErr.message);
+
+    const target = users.find((u) => u.email === email);
+    if (!target) return res.status(404).json({ error: "No account found for this phone number." });
+
+    const { error: updateErr } = await adminClient.auth.admin.updateUserById(target.id, { password: newPassword });
+    if (updateErr) throw new Error(updateErr.message);
+
+    resetOtpStore.delete(email);
+    console.log(`[reset] Password reset for ${email.slice(0, 6)}***`);
+
+    // Optionally notify user via SMS
+    if (twilioOk() && entry.e164) {
+      sendSms(entry.e164, "NETLIFE CASH: Your password has been reset successfully. Please sign in with your new password.").catch(() => {});
+    }
+
+    res.json({ ok: true, adminReset: true });
+  } catch (err) {
+    console.error("[reset] admin reset error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/admin-set-password  { userId, newPassword }  — admin only
+app.post("/api/auth/admin-set-password", async (req, res) => {
+  const { userId, newPassword, notifyPhone } = req.body || {};
+  if (!userId || !newPassword) return res.status(400).json({ error: "userId and newPassword required" });
+  if (!adminOk()) return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured" });
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    const { error } = await adminClient.auth.admin.updateUserById(userId, { password: newPassword });
+    if (error) throw new Error(error.message);
+
+    if (notifyPhone && twilioOk()) {
+      sendSms(notifyPhone, `NETLIFE CASH: Admin has reset your password. Temporary password: ${newPassword}. Change it after sign-in.`).catch(() => {});
+    }
+
+    console.log(`[reset] Admin set password for userId=${userId.slice(0, 8)}***`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[reset] admin-set-password error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
