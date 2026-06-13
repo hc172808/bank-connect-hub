@@ -361,6 +361,27 @@ const SendMoney = () => {
             message: `Your transfer of $${parseFloat(amount).toFixed(2)} to ${receiverName} was successful.`,
             type: "transaction_complete",
           } as never);
+          // ADV-08: Web Push delivery via build-server
+          fetch("/api/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: receiverId,
+              title: "💸 Money Received",
+              body: `You received $${parseFloat(amount).toFixed(2)} from ${senderName || "a NETLIFE CASH user"}.`,
+              url: "/client",
+            }),
+          }).catch(() => {});
+          fetch("/api/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: user.id,
+              title: "✅ Transfer Complete",
+              body: `Your transfer of $${parseFloat(amount).toFixed(2)} to ${receiverName} was successful.`,
+              url: "/transactions",
+            }),
+          }).catch(() => {});
         }
 
         setTimeout(() => {

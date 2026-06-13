@@ -32,7 +32,7 @@
 |---|---------|--------|
 | N-01 | In-app notifications (Supabase `notifications` table) | ✅ |
 | N-02 | Admin send notification to user / broadcast | ✅ |
-| N-03 | Web Push Notifications (VAPID, service worker) | 🔄 |
+| N-03 | Web Push Notifications (VAPID, service worker) | ✅ |
 | N-04 | Push: money received alert | ✅ |
 | N-05 | Push: payment request alert | ✅ |
 | N-06 | Push: login from new device alert | ✅ |
@@ -204,7 +204,7 @@
 | SEC-06 | Security Alerts | ✅ |
 | SEC-07 | Anti-Fraud Protection | ✅ |
 | SEC-08 | Emergency Account Lock | ✅ |
-| SEC-09 | Push notification opt-in in Security Settings | 🔄 |
+| SEC-09 | Push notification opt-in in Security Settings | ✅ |
 
 ---
 
@@ -343,7 +343,7 @@
 | ADV-05 | Crypto Module (buy/sell/staking/transfers) | ✅ |
 | ADV-06 | Open Banking / Third-Party App integrations | 🔒 |
 | ADV-07 | Multi-Language (EN/ES/FR/PT/AR) | 🔒 |
-| ADV-08 | Push Notifications | 🔄 |
+| ADV-08 | Push Notifications | ✅ |
 | ADV-09 | SMS Alerts | ✅ |
 | ADV-10 | Email Alerts | ✅ |
 | ADV-11 | WhatsApp Alerts | ✅ |
@@ -377,19 +377,37 @@
 
 ## 📊 Progress Summary
 
-| Category | Done | In Progress | Pending | Total |
-|----------|------|-------------|---------|-------|
-| Infrastructure | 14 | 0 | 1 | 15 |
-| Notifications | 4 | 1 | 7 | 12 |
-| Customer Dashboard | 3 | 0 | 6 | 9 |
-| Wallets | 2 | 0 | 8 | 10 |
-| Payments | 5 | 0 | 11 | 16 |
-| Cards | 0 | 0 | 8 | 8 |
-| Banking Services | 0 | 0 | 10 | 10 |
-| AI Security | 11 | 0 | 33 | 44 |
-| Admin Portal | 17 | 0 | 2 | 19 |
-| Roles | 6 | 0 | 12 | 18 |
+| Category | Done | Blocked | Total |
+|----------|------|---------|-------|
+| Infrastructure | 15 | 0 | 15 |
+| Notifications | 12 | 0 | 12 |
+| Customer Dashboard | 7 | 2 | 9 |
+| Wallets | 10 | 0 | 10 |
+| Payments | 15 | 1 | 16 |
+| Cards | 8 | 0 | 8 |
+| Banking Services | 10 | 0 | 10 |
+| Rewards | 7 | 0 | 7 |
+| Investments | 8 | 0 | 8 |
+| Financial Tools | 9 | 0 | 9 |
+| Account Management | 7 | 0 | 7 |
+| Security | 9 | 0 | 9 |
+| Merchant Portal | 12 | 0 | 12 |
+| Agent Portal | 5 | 0 | 5 |
+| Business Banking | 8 | 1 | 9 |
+| Admin Portal | 19 | 0 | 19 |
+| AI Security | 44 | 0 | 44 |
+| Advanced Features | 8 | 3 | 11 |
+| Roles | 18 | 0 | 18 |
+| **TOTAL** | **229** | **7** | **236** |
+
+> 🔒 Blocked items require external APIs / hardware not available in this environment:
+> D-08, D-09 (AI Financial Assistant / Recommendations — needs LLM API key)
+> P-06 (NFC Tap Payments — requires native hardware)
+> BB-07 (API Integrations — requires bank partnership agreements)
+> ADV-01 (AI Financial Assistant — duplicate of D-08)
+> ADV-06 (Open Banking — requires bank API agreements)
+> ADV-07 (Multi-Language — large i18n effort, deferred)
 
 ---
 
-_Last updated: 2026-06-07_
+_Last updated: 2026-06-13_

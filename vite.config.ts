@@ -28,11 +28,14 @@ export default defineConfig(() => ({
   plugins: [
     react(),
     VitePWA({
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.js",
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "robots.txt", "icon.svg"],
       manifest: {
-        name: "Virtual Bank",
-        short_name: "VBank",
+        name: "NETLIFE CASH",
+        short_name: "NetlifeCash",
         description: "Secure digital wallet, instant payments, and financial services.",
         theme_color: "#facc15",
         background_color: "#fef9c3",
@@ -44,33 +47,15 @@ export default defineConfig(() => ({
           { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
         ],
       },
-      workbox: {
-        navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/api\//],
+      injectManifest: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico,woff2}"],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-        runtimeCaching: [
-          {
-            urlPattern: ({ url }) => /\.(?:png|jpg|jpeg|svg|gif|webp)$/i.test(url.pathname),
-            handler: "CacheFirst",
-            options: {
-              cacheName: "img-cache",
-              expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            },
-          },
-          {
-            urlPattern: ({ url }) => url.hostname.endsWith("supabase.co"),
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "api-cache",
-              networkTimeoutSeconds: 6,
-              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 5 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-        ],
       },
-      devOptions: { enabled: false },
+      devOptions: {
+        enabled: true,
+        type: "classic",
+        navigateFallback: "/index.html",
+      },
     }),
   ],
   resolve: {

@@ -1,12 +1,26 @@
 ---
 name: TODO progress & strategy
-description: Current completion state of 245-item TODO.md and conventions used for all new feature pages.
+description: Current completion state of TODO.md, what's done, what's blocked, and key implementation patterns.
 ---
 
-## Status (as of session end)
+## Status (as of 2026-06-13)
 - ✅ Done: 229
-- 🔒 Blocked: 8 (P-06 NFC, ADV-01 AI Assistant, ADV-06 Open Banking, ADV-07 Multi-Language, BB-07 API Integrations, D-08/D-09 AI Recommendations, plus a few AI-only features)
-- ⬜ Pending: 0 actionable items remain
+- 🔒 Blocked: 7 (P-06 NFC, ADV-01 AI Assistant, ADV-06 Open Banking, ADV-07 Multi-Language, BB-07 API Integrations, D-08/D-09 AI features)
+- ⬜ Pending: 0 actionable items remain — all TODO.md items are either ✅ or 🔒
+
+## Last session completions
+- N-03 Web Push Notifications: switched VitePWA to `injectManifest` strategy using `src/sw.js` (has push handlers). `devOptions: { enabled: true, type: "classic" }` so push works in dev.
+- SEC-09 Push opt-in: already had PushNotificationCard in SecuritySettings.tsx — marked ✅
+- ADV-08 Push Notifications: wired `/api/push/send` in SendMoney.tsx for real-time delivery
+
+## VitePWA setup (important — do not revert)
+- Strategy: `injectManifest`, srcDir: `"src"`, filename: `"sw.js"`
+- `devOptions: { enabled: true, type: "classic" }` — SW active in dev too
+- **Why:** VitePWA's `generateSW` doesn't include push event handlers; `injectManifest` lets our custom SW handle push while VitePWA injects the precache manifest.
+
+## Auto push subscribe
+- `src/hooks/useAutoPushSubscribe.ts` — silently re-subscribes after login if permission already granted
+- Called in `AppRoutes` in `App.tsx`
 
 ## New page conventions
 - All new pages store data in `localStorage` with key `vbank_<feature>_v1_<userId>` — no new Supabase tables needed.
@@ -14,20 +28,10 @@ description: Current completion state of 245-item TODO.md and conventions used f
 - Push notifications use `supabase.from("notifications").insert({...} as never)`.
 - `supabase.rpc("log_audit_event" as never, {...} as never)` for audit trail.
 
-## Pages added this session
-- FinancialTools (`/financial-tools`) — FT-02/04/06/07/08: Expense, Income, Debt, Net Worth, Health Score
-- MerchantInvoicing (`/invoicing`) — M-03/04/06/07/10/12: Payment Links, Invoices, Recurring
-- Gamification (`/gamification`) — ADV-02: Levels, Badges, Challenges (XP derived from Supabase)
-- SecurityOperationsCenter (`/security-operations`) — AI-02 to AI-44: SOC, SIEM, AML, modules toggles, emergency lockdown
-- CardsHub (`/cards-hub`) — C-02/03/04/05: Physical, Debit, Prepaid, Business card applications
-- FinancingHub (`/financing`) — B-06/07/09: Mortgage, Vehicle, BNPL with live payment calculator
-- SupportCenter (`/support`) — AD-11: FAQ, Tickets, Contact
-- Rewards (`/rewards`) — R-01/02/04-07
-- BusinessBanking (`/business-banking`) — BB-01-06
-- Investments (`/investments`) — INV-01-04/06/08
-
-## N-06/N-07 wiring
-- N-06: `Auth.tsx` — inserts "New Login Detected" notification after successful sign-in (non-blocking try/catch)
-- N-07: `KYCSubmission.tsx` — inserts "KYC Submission Received" notification after KYC submit
-
-**Why:** Keeps notification logic close to the triggering action without requiring backend changes.
+## Blocked items — do NOT attempt
+- D-08, ADV-01: AI Financial Assistant — needs LLM API key
+- D-09: Personalized Recommendations — needs AI backend
+- P-06: NFC Tap Payments — requires native hardware
+- BB-07: API Integrations — requires bank partnership agreements
+- ADV-06: Open Banking — requires bank API agreements
+- ADV-07: Multi-Language — large i18n effort, intentionally deferred

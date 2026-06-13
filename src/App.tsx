@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
+import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ScrollToTop } from "./components/ScrollToTop";
 
@@ -156,6 +157,7 @@ const ProtectedRoute = ({
 
 const AppRoutes = () => {
   const { user, role, loading } = useAuth();
+  useAutoPushSubscribe(user?.id);
 
   if (loading) return <FullScreenLoader />;
 

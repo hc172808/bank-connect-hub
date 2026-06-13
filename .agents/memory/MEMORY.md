@@ -1,3 +1,3 @@
 - [Twilio SMS + SMTP email](notifications.md) — both handled by build-server.mjs; env vars required; fire-and-forget from frontend
 - [New feature pages](feature-pages.md) — BudgetPlanner, SavingsGoals, Beneficiaries, VirtualCards all use localStorage (keyed by user.id); no DB schema changes needed
-- [TODO progress & strategy](todo-progress.md) — 229/245 done; 8 blocked (AI/NFC/OpenBanking/MultiLanguage); all new pages use localStorage with `vbank_<feature>_v1_<userId>` keys and `as never` for untyped Supabase columns.
+- [TODO progress & strategy](todo-progress.md) — 229 done, 7 blocked (AI/NFC/OpenBanking/MultiLanguage); VitePWA uses injectManifest + src/sw.js; all actionable items complete
