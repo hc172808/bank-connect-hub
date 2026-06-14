@@ -33,8 +33,8 @@ export async function initSupabase(): Promise<void> {
 initSupabase();
 
 // Placeholder client — replaced by initSupabase() before any auth call resolves.
-// We create it with empty strings; auth state changes won't fire until real creds are set.
-let _client = createClient<Database>('https://placeholder.supabase.co', 'placeholder', {
+// Using localhost as placeholder avoids DNS resolution attempts before real creds load.
+let _client = createClient<Database>('http://localhost', 'placeholder', {
   auth: {
     storage: typeof localStorage !== 'undefined' ? localStorage : undefined,
     persistSession: true,

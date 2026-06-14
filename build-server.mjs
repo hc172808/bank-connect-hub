@@ -430,14 +430,18 @@ app.get("/api/builds/:id/logs", (req, res) => {
 const VAPID_FILE = path.join(__dirname, ".local", "vapid.json");
 
 function loadOrGenerateVapidKeys() {
-  // Prefer env vars (set by deploy.sh / Portainer)
+  // Prefer env vars (set by Replit Secrets)
   if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-    webpush.setVapidDetails(
-      `mailto:${process.env.VAPID_EMAIL || "admin@virtualbank.app"}`,
-      process.env.VAPID_PUBLIC_KEY,
-      process.env.VAPID_PRIVATE_KEY
-    );
-    return { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY };
+    try {
+      webpush.setVapidDetails(
+        `mailto:${process.env.VAPID_EMAIL || "admin@virtualbank.app"}`,
+        process.env.VAPID_PUBLIC_KEY,
+        process.env.VAPID_PRIVATE_KEY
+      );
+      return { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY };
+    } catch (e) {
+      console.warn("[push] VAPID env vars invalid, falling back to local file:", e.message);
+    }
   }
 
   // Fall back to persisted local file
