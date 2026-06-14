@@ -1,7 +1,31 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase, initSupabase } from '@/integrations/supabase/client';
-import { claimDeviceSession, checkDeviceSession } from './useDeviceSession';
+import { claimDeviceSession, checkDeviceSession, getOrCreateDeviceId } from './useDeviceSession';
+
+// ── Session audit logging ─────────────────────────────────────────────────────
+async function logSessionEvent(
+  action: string,
+  userId: string,
+  metadata: Record<string, unknown> = {}
+) {
+  try {
+    await supabase.from('audit_logs' as never).insert({
+      action,
+      actor_id: userId,
+      entity_type: 'session',
+      entity_id: userId,
+      user_agent: navigator.userAgent.slice(0, 200),
+      metadata: {
+        device_id: getOrCreateDeviceId(),
+        timestamp: new Date().toISOString(),
+        ...metadata,
+      },
+    });
+  } catch {
+    // Non-critical — never block auth flow on logging failure
+  }
+}
 
 export type UserRole = 'admin' | 'agent' | 'client' | 'vendor';
 
@@ -24,6 +48,7 @@ export const useAuth = () => {
 
   const checkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasSessionRef = useRef(false);
+  const currentUserIdRef = useRef<string | null>(null);
 
   const fetchUserRole = async (userId: string): Promise<UserRole | null> => {
     const { data, error } = await supabase
@@ -50,8 +75,15 @@ export const useAuth = () => {
     const result = await checkDeviceSession();
     if (result === 'displaced') {
       stopDeviceCheck();
+      const uid = currentUserIdRef.current;
+      if (uid) {
+        void logSessionEvent('session.displaced', uid, {
+          reason: 'Another device claimed this session',
+        });
+      }
       await supabase.auth.signOut();
       hasSessionRef.current = false;
+      currentUserIdRef.current = null;
       setAuthState({
         user: null,
         session: null,
@@ -92,14 +124,22 @@ export const useAuth = () => {
 
           if (event === 'SIGNED_IN' && session?.user) {
             hasSessionRef.current = true;
+            currentUserIdRef.current = session.user.id;
             // Claim this device as the active session for this user
             await claimDeviceSession();
             startDeviceCheck();
+            void logSessionEvent('session.sign_in', session.user.id, {
+              email: session.user.email,
+              provider: session.user.app_metadata?.provider ?? 'email',
+            });
           }
 
           if (event === 'SIGNED_OUT') {
+            const uid = currentUserIdRef.current;
             hasSessionRef.current = false;
+            currentUserIdRef.current = null;
             stopDeviceCheck();
+            if (uid) void logSessionEvent('session.sign_out', uid);
           }
 
           if (session?.user) {

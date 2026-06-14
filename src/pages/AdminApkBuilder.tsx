@@ -37,6 +37,7 @@ import {
   Link2,
   Hash,
   Settings,
+  Bell,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
