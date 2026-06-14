@@ -71,7 +71,10 @@ export default function ForgotPassword() {
   const [loading, setLoading]       = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
 
-  const whatsappNumber = import.meta.env.VITE_WHATSAPP_SUPPORT_NUMBER || "";
+  const [whatsappNumber, setWhatsappNumber] = useState("");
+  useEffect(() => {
+    fetch("/api/config").then(r => r.json()).then(cfg => setWhatsappNumber(cfg.whatsappNumber || "")).catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/auth/reset-status")

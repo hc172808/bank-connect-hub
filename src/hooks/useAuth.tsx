@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, initSupabase } from '@/integrations/supabase/client';
 
 export type UserRole = 'admin' | 'agent' | 'client' | 'vendor';
 
@@ -35,13 +35,41 @@ export const useAuth = () => {
   };
 
   useEffect(() => {
-    // Safety timeout — if Supabase never responds, stop showing blank screen after 6s
+    // Safety timeout — stop showing blank screen after 8s
     const safetyTimer = setTimeout(() => {
       setAuthState(prev => prev.loading ? { ...prev, loading: false } : prev);
-    }, 6000);
+    }, 8000);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+    // Wait for Supabase config to load before subscribing to auth events
+    initSupabase().then(() => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        async (event, session) => {
+          setAuthState(prev => ({
+            ...prev,
+            session,
+            user: session?.user ?? null,
+          }));
+
+          if (session?.user) {
+            setTimeout(async () => {
+              const role = await fetchUserRole(session.user.id);
+              setAuthState(prev => ({
+                ...prev,
+                role,
+                loading: false,
+              }));
+            }, 0);
+          } else {
+            setAuthState(prev => ({
+              ...prev,
+              role: null,
+              loading: false,
+            }));
+          }
+        }
+      );
+
+      supabase.auth.getSession().then(({ data: { session } }) => {
         setAuthState(prev => ({
           ...prev,
           session,
@@ -49,51 +77,24 @@ export const useAuth = () => {
         }));
 
         if (session?.user) {
-          setTimeout(async () => {
-            const role = await fetchUserRole(session.user.id);
+          fetchUserRole(session.user.id).then(role => {
             setAuthState(prev => ({
               ...prev,
               role,
               loading: false,
             }));
-          }, 0);
+          });
         } else {
-          setAuthState(prev => ({
-            ...prev,
-            role: null,
-            loading: false,
-          }));
+          setAuthState({ user: null, session: null, role: null, loading: false });
         }
-      }
-    );
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setAuthState(prev => ({
-        ...prev,
-        session,
-        user: session?.user ?? null,
-      }));
-
-      if (session?.user) {
-        fetchUserRole(session.user.id).then(role => {
-          setAuthState(prev => ({
-            ...prev,
-            role,
-            loading: false,
-          }));
-        });
-      } else {
+      }).catch(() => {
         setAuthState({ user: null, session: null, role: null, loading: false });
-      }
-    }).catch(() => {
-      // Supabase unreachable — stop loading, show login
-      setAuthState({ user: null, session: null, role: null, loading: false });
+      });
+
+      return () => subscription.unsubscribe();
     });
 
-    return () => {
-      clearTimeout(safetyTimer);
-      subscription.unsubscribe();
-    };
+    return () => clearTimeout(safetyTimer);
   }, []);
 
   return authState;

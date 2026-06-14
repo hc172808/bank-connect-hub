@@ -53,3 +53,4 @@ externalPort = 3001
 [userenv.shared]
 NODE_ENV = "development"
 PORT = "3000"
+VITE_WHATSAPP_SUPPORT_NUMBER = "5926421651"

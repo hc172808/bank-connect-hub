@@ -59,6 +59,15 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
+// GET /api/config — serve public client config (keeps secrets off the browser bundle)
+app.get("/api/config", (_req, res) => {
+  res.json({
+    supabaseUrl: process.env.VITE_SUPABASE_URL || "",
+    supabaseAnonKey: process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "",
+    whatsappNumber: process.env.VITE_WHATSAPP_SUPPORT_NUMBER || "",
+  });
+});
+
 // GET /api/services/status — check all system services
 app.get("/api/services/status", async (_req, res) => {
   const check = (cmd) => {
