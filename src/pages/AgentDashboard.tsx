@@ -12,7 +12,7 @@ import {
   AlertCircle, CheckCircle2, MessageSquare,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
-import { requestNotificationPermission, subscribeToTransactionNotifications } from "@/lib/pushNotifications";
+import { requestNotificationPermission, subscribeToTransactionNotifications, subscribeToChatNotifications } from "@/lib/pushNotifications";
 import { format, startOfDay, startOfMonth, subDays } from "date-fns";
 
 interface ProfileData { full_name: string; phone_number: string | null; }
@@ -94,7 +94,12 @@ const AgentDashboard = () => {
 
     // Enable push notifications
     const granted = await requestNotificationPermission();
-    if (granted) subscribeToTransactionNotifications(user.id);
+    if (granted) {
+      subscribeToTransactionNotifications(user.id);
+      subscribeToChatNotifications(user.id, (senderName, text) => {
+        toast({ title: `💬 ${senderName}`, description: text });
+      });
+    }
   }, [navigate]);
 
   useEffect(() => {

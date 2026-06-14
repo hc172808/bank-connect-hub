@@ -35,7 +35,7 @@ import {
   Scan,
 } from "lucide-react";
 import { format, startOfMonth } from "date-fns";
-import { requestNotificationPermission, subscribeToTransactionNotifications } from "@/lib/pushNotifications";
+import { requestNotificationPermission, subscribeToTransactionNotifications, subscribeToChatNotifications } from "@/lib/pushNotifications";
 import { PiggyBank, CalendarClock, Target } from "lucide-react";
 
 interface SavingsGoal { id: string; name: string; target: number; saved: number; }
@@ -130,9 +130,14 @@ const ClientDashboard = () => {
 
     // Subscribe to push notifications
     requestNotificationPermission().then(granted => {
-      if (granted) subscribeToTransactionNotifications(user.id, (title, body) => {
-        toast({ title, description: body });
-      });
+      if (granted) {
+        subscribeToTransactionNotifications(user.id, (title, body) => {
+          toast({ title, description: body });
+        });
+        subscribeToChatNotifications(user.id, (senderName, text) => {
+          toast({ title: `💬 ${senderName}`, description: text });
+        });
+      }
     });
 
     const [walletRes, profileRes, blockchainRes, featuresRes] = await Promise.all([
