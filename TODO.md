@@ -207,6 +207,12 @@
 | SEC-08 | Emergency Account Lock | ✅ |
 | SEC-09 | Push notification opt-in in Security Settings | ✅ |
 | SEC-10 | App Lock (idle timer + PIN unlock, configurable timeout) | ✅ |
+| SEC-11 | Single-device login enforcement (displaced-session detection) | ✅ |
+| SEC-12 | Session activity log (sign-in/sign-out/displacement → audit_logs) | ✅ |
+| SEC-13 | Password reset via email (Supabase built-in link flow) | ✅ |
+| SEC-14 | Password reset via phone/SMS OTP (build-server reset flow) | ✅ |
+| SEC-15 | In-app mobile recovery (PWA/APK detection + guidance) | ✅ |
+| SEC-16 | Mobile browser verification popup (prompt to install PWA) | ✅ |
 
 ---
 

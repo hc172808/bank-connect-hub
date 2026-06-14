@@ -666,6 +666,7 @@ app.get("/api/auth/reset-status", (_req, res) => {
   res.json({
     smsAvailable: twilioOk(),
     adminResetAvailable: adminOk(),
+    emailAvailable: smtpOk(),
   });
 });
 
