@@ -113,6 +113,8 @@ const SecurityOperationsCenter = lazy(() => import("./pages/SecurityOperationsCe
 const CardsHub              = lazy(() => import("./pages/CardsHub"));
 const FinancingHub          = lazy(() => import("./pages/FinancingHub"));
 const SupportCenter         = lazy(() => import("./pages/SupportCenter"));
+const ChatInbox             = lazy(() => import("./pages/ChatInbox"));
+const ChatThread            = lazy(() => import("./pages/ChatThread"));
 const Beneficiaries         = lazy(() => import("./pages/Beneficiaries"));
 const VirtualCards        = lazy(() => import("./pages/VirtualCards"));
 const FinancialInsights   = lazy(() => import("./pages/FinancialInsights"));
@@ -280,6 +282,8 @@ const AppRoutes = () => {
         <Route path="/cards-hub" element={<CardsHub />} />
         <Route path="/financing" element={<FinancingHub />} />
         <Route path="/support" element={<SupportCenter />} />
+        <Route path="/chat" element={<ChatInbox />} />
+        <Route path="/chat/:peerId" element={<ChatThread />} />
         <Route path="/beneficiaries" element={<Beneficiaries />} />
         <Route path="/virtual-cards" element={<VirtualCards />} />
         <Route path="/insights" element={<FinancialInsights />} />

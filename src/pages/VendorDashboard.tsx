@@ -28,6 +28,7 @@ import {
   BarChart3,
   Target,
   Star,
+  MessageSquare,
   ArrowUpRight,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -496,6 +497,13 @@ const VendorDashboard = () => {
             onClick={() => navigate("/transactions")}
             testId="quick-transactions"
             color="text-orange-600"
+          />
+          <QuickAction
+            icon={MessageSquare}
+            label="Messages"
+            onClick={() => navigate("/chat")}
+            testId="quick-chat"
+            color="text-purple-600"
           />
         </div>
 

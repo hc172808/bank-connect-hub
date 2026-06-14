@@ -213,6 +213,7 @@
 | SEC-14 | Password reset via phone/SMS OTP (build-server reset flow) | ✅ |
 | SEC-15 | In-app mobile recovery (PWA/APK detection + guidance) | ✅ |
 | SEC-16 | Mobile browser verification popup (prompt to install PWA) | ✅ |
+| SEC-17 | In-app real-time chat (client ↔ agent, client ↔ vendor, realtime via Supabase) | ✅ |
 
 ---
 

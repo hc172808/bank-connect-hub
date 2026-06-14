@@ -86,6 +86,7 @@ const menuSections = [
       { icon: Smartphone,      label: "Download App",     path: "/download-app" },
       { icon: Newspaper,       label: "What's New",       path: "/whats-new" },
       { icon: Bell,            label: "Notifications",    path: "/notifications" },
+      { icon: MessageSquare,   label: "Messages",         path: "/chat" },
       { icon: HeadphonesIcon,  label: "Support Center",   path: "/support" },
       { icon: Trophy,          label: "Achievements",     path: "/gamification" },
       { icon: HelpCircle,      label: "Help & Support",   path: "/feedback" },
