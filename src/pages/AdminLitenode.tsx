@@ -111,7 +111,9 @@ const AdminLitenode = () => {
         setStats(null);
       }
     } catch {
+      // Docker not available in this environment — suppress silent; UI already shows "unavailable" badge
       setDockerStatus("unavailable");
+      setDockerAvailable(false);
     }
   }, []);
 

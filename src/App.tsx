@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { ForceUpdateGate } from "@/components/ForceUpdateGate";
 import { Toaster } from "@/components/ui/toaster";
@@ -11,6 +11,8 @@ import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
 import { useAppLock } from "./hooks/useAppLock";
 import { useNewReleaseAlert } from "./hooks/useNewReleaseAlert";
 import { AppLockScreen } from "./components/AppLockScreen";
+import { DisplacedSessionDialog } from "./components/DisplacedSessionDialog";
+import { MobileBrowserVerifyDialog } from "./components/MobileBrowserVerifyDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ScrollToTop } from "./components/ScrollToTop";
 
@@ -167,6 +169,31 @@ const ProtectedRoute = ({
   if (role && !allowedRoles.includes(role)) return <Navigate to={`/${role}`} replace />;
 
   return <>{children}</>;
+};
+
+// ── Global overlays (displaced-session + mobile-browser verify) ──────────────
+// Rendered as a sibling of AppRoutes so they're always in the tree and never
+// blocked by early returns inside AppRoutes.
+const GlobalOverlays = () => {
+  const { user, loading, displacedByDevice } = useAuth();
+  const [showDisplaced, setShowDisplaced] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (displacedByDevice) setShowDisplaced(true);
+  }, [displacedByDevice]);
+
+  const handleDisplacedClose = () => {
+    setShowDisplaced(false);
+    navigate("/auth", { replace: true });
+  };
+
+  return (
+    <>
+      <DisplacedSessionDialog open={showDisplaced} onClose={handleDisplacedClose} />
+      <MobileBrowserVerifyDialog isLoggedIn={!loading && !!user} />
+    </>
+  );
 };
 
 const AppRoutes = () => {
@@ -405,6 +432,7 @@ const App = () => (
         >
           <ForceUpdateGate>
             <ScrollToTop />
+            <GlobalOverlays />
             <Suspense fallback={<FullScreenLoader />}>
               <AppRoutes />
             </Suspense>
