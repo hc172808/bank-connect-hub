@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "bash", "go-1.21"]
+modules = ["nodejs-20", "bash", "go-1.21", "web"]
 [agent]
 expertMode = true
 integrations = ["javascript_database:1.0.0"]
@@ -51,10 +51,5 @@ externalPort = 3001
 [userenv]
 
 [userenv.shared]
-PORT = "3000"
 NODE_ENV = "development"
-VITE_SUPABASE_URL = "https://qdtsheoodhxmggiavukj.supabase.co"
-VITE_SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkdHNoZW9vZGh4bWdnaWF2dWtqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1OTUzMjgsImV4cCI6MjA3OTE3MTMyOH0.IvQINOHea1EwK5H89acHlyRw0dLuOcBMCUuvRgTXsr8"
-VITE_SUPABASE_PROJECT_ID = "qdtsheoodhxmggiavukj"
-JWT_SECRET = "change-this-now"
-VITE_WHATSAPP_SUPPORT_NUMBER = "5926421651"
+PORT = "3000"
