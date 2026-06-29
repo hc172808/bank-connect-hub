@@ -437,6 +437,16 @@ const AdminDashboard = () => {
               <Button
                 className="w-full justify-start gap-3 h-14 rounded-xl"
                 variant="secondary"
+                onClick={() => navigate("/admin/ai-defense")}
+                data-testid="button-ai-defense"
+              >
+                <Shield size={20} />
+                AI Defense Center
+                <span className="ml-auto text-xs opacity-60">Anti-hack · Double-spend</span>
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
                 onClick={() => navigate("/admin/firewall")}
                 data-testid="button-firewall"
               >
@@ -485,6 +495,24 @@ const AdminDashboard = () => {
               >
                 <Terminal size={20} />
                 APK Builder (Version · RPC · Download)
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/send-update")}
+                data-testid="button-send-update"
+              >
+                <Megaphone size={20} />
+                Send Update to All Apps
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="outline"
+                onClick={() => navigate("/admin/download-poster")}
+                data-testid="button-download-poster"
+              >
+                <QrCode size={20} />
+                QR Download Poster
               </Button>
               <Button
                 className="w-full justify-start gap-3 h-14 rounded-xl"

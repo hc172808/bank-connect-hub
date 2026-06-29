@@ -35,7 +35,7 @@ import {
   Scan,
 } from "lucide-react";
 import { format, startOfMonth } from "date-fns";
-import { requestNotificationPermission, subscribeToTransactionNotifications } from "@/lib/pushNotifications";
+import { requestNotificationPermission, subscribeToTransactionNotifications, subscribeToChatNotifications } from "@/lib/pushNotifications";
 import { PiggyBank, CalendarClock, Target } from "lucide-react";
 
 interface SavingsGoal { id: string; name: string; target: number; saved: number; }
@@ -75,6 +75,8 @@ const ClientDashboard = () => {
   const [monthIn, setMonthIn] = useState(0);
   const [monthOut, setMonthOut] = useState(0);
   const [monthCount, setMonthCount] = useState(0);
+  const [pendingOut, setPendingOut] = useState(0);
+  const [pendingIn, setPendingIn] = useState(0);
   const [recentTx, setRecentTx] = useState<any[]>([]);
   const [topPayees, setTopPayees] = useState<{ id: string; name: string; total: number }[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
@@ -128,9 +130,14 @@ const ClientDashboard = () => {
 
     // Subscribe to push notifications
     requestNotificationPermission().then(granted => {
-      if (granted) subscribeToTransactionNotifications(user.id, (title, body) => {
-        toast({ title, description: body });
-      });
+      if (granted) {
+        subscribeToTransactionNotifications(user.id, (title, body) => {
+          toast({ title, description: body });
+        });
+        subscribeToChatNotifications(user.id, (senderName, text) => {
+          toast({ title: `💬 ${senderName}`, description: text });
+        });
+      }
     });
 
     const [walletRes, profileRes, blockchainRes, featuresRes] = await Promise.all([
@@ -153,6 +160,22 @@ const ClientDashboard = () => {
       .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
       .gte("created_at", monthStart)
       .order("created_at", { ascending: false });
+
+    // Pending transactions (all time — affects available balance)
+    const { data: pendingTxData } = await supabase
+      .from("transactions")
+      .select("amount, sender_id, receiver_id")
+      .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+      .eq("status", "pending");
+    if (pendingTxData) {
+      let pOut = 0, pIn = 0;
+      pendingTxData.forEach((t: any) => {
+        if (t.sender_id === user.id) pOut += Number(t.amount || 0);
+        if (t.receiver_id === user.id) pIn += Number(t.amount || 0);
+      });
+      setPendingOut(pOut);
+      setPendingIn(pIn);
+    }
 
     if (txMonth) {
       let inc = 0;
@@ -328,6 +351,23 @@ const ClientDashboard = () => {
                     : "****"}
                 </h2>
                 <p className="text-sm text-foreground/70 mt-1">Main Wallet</p>
+                {/* D-02: Pending balance indicators */}
+                {(pendingOut > 0 || pendingIn > 0) && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {pendingOut > 0 && (
+                      <div className="flex items-center gap-1 bg-foreground/10 rounded-lg px-2 py-1">
+                        <ArrowUpRight size={12} className="text-orange-300" />
+                        <span className="text-xs text-foreground/70">-${pendingOut.toFixed(2)} pending</span>
+                      </div>
+                    )}
+                    {pendingIn > 0 && (
+                      <div className="flex items-center gap-1 bg-foreground/10 rounded-lg px-2 py-1">
+                        <ArrowDownLeft size={12} className="text-green-300" />
+                        <span className="text-xs text-foreground/70">+${pendingIn.toFixed(2)} incoming</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

@@ -9,10 +9,10 @@ import {
   Users, DollarSign, TrendingUp, Activity, QrCode, LogOut,
   ArrowUpRight, ArrowDownLeft, Plus, Send, BarChart3, Clock,
   RefreshCw, ChevronRight, Wallet, Receipt, Phone, UserCheck,
-  AlertCircle, CheckCircle2,
+  AlertCircle, CheckCircle2, MessageSquare,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
-import { requestNotificationPermission, subscribeToTransactionNotifications } from "@/lib/pushNotifications";
+import { requestNotificationPermission, subscribeToTransactionNotifications, subscribeToChatNotifications } from "@/lib/pushNotifications";
 import { format, startOfDay, startOfMonth, subDays } from "date-fns";
 
 interface ProfileData { full_name: string; phone_number: string | null; }
@@ -94,7 +94,12 @@ const AgentDashboard = () => {
 
     // Enable push notifications
     const granted = await requestNotificationPermission();
-    if (granted) subscribeToTransactionNotifications(user.id);
+    if (granted) {
+      subscribeToTransactionNotifications(user.id);
+      subscribeToChatNotifications(user.id, (senderName, text) => {
+        toast({ title: `💬 ${senderName}`, description: text });
+      });
+    }
   }, [navigate]);
 
   useEffect(() => {
@@ -152,10 +157,10 @@ const AgentDashboard = () => {
         {/* Quick Actions */}
         <div className="grid grid-cols-4 gap-2">
           {[
-            { icon: Plus, label: "Add Funds", path: "/agent-deposit", color: "text-green-600" },
-            { icon: QrCode, label: "Print QR", path: "/print-qr", color: "text-blue-600" },
-            { icon: Send, label: "Send Money", path: "/send-money", color: "text-purple-600" },
-            { icon: Receipt, label: "Transactions", path: "/transactions", color: "text-orange-600" },
+            { icon: Plus,         label: "Add Funds",    path: "/agent-deposit",       color: "text-green-600" },
+            { icon: Wallet,       label: "Withdraw",     path: "/agent-cash-withdrawal", color: "text-red-600" },
+            { icon: MessageSquare, label: "Messages",    path: "/chat",                color: "text-purple-600" },
+            { icon: Receipt,      label: "Transactions", path: "/transactions",        color: "text-orange-600" },
           ].map(a => (
             <button key={a.label} onClick={() => navigate(a.path)}
               className="flex flex-col items-center gap-2 bg-card border rounded-xl p-3 hover:shadow-md transition-all active:scale-95">

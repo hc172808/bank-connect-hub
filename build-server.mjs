@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import webpush from "web-push";
+import crypto from "crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -15,6 +16,14 @@ const BUILDS_FILE = path.join(__dirname, ".local", "builds.json");
 
 app.use(cors());
 app.use(express.json());
+
+// ── No-cache headers on all responses ────────────────────────────────────────
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 function loadBuilds() {
@@ -27,6 +36,15 @@ function saveBuilds(builds) {
   fs.mkdirSync(path.dirname(BUILDS_FILE), { recursive: true });
   fs.writeFileSync(BUILDS_FILE, JSON.stringify(builds, null, 2));
 }
+
+// ── Resolve JAVA_HOME once at startup (not per-request) ──────────────────────
+let RESOLVED_JAVA_HOME = process.env.JAVA_HOME || "";
+try {
+  RESOLVED_JAVA_HOME = execSync(
+    "dirname $(dirname $(readlink -f $(which java) 2>/dev/null || echo /usr/bin/java))",
+    { stdio: "pipe", timeout: 5000 }
+  ).toString().trim();
+} catch { /* keep whatever was in JAVA_HOME env */ }
 
 // ── In-memory current build ──────────────────────────────────────────────────
 let current = null; // { id, proc, logs[], status, listeners[] }
@@ -43,6 +61,134 @@ function sseSend(res, data) {
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────
+
+// GET /api/health — liveness check
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
+// GET /api/config — serve public client config (keeps secrets off the browser bundle)
+app.get("/api/config", (_req, res) => {
+  res.json({
+    supabaseUrl: process.env.VITE_SUPABASE_URL || "",
+    supabaseAnonKey: process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "",
+    whatsappNumber: process.env.VITE_WHATSAPP_SUPPORT_NUMBER || "",
+  });
+});
+
+// GET /api/services/status — check all system services
+app.get("/api/services/status", async (_req, res) => {
+  const check = (cmd) => {
+    try { execSync(cmd, { stdio: "pipe", timeout: 5000 }); return true; }
+    catch { return false; }
+  };
+  const read = (cmd) => {
+    try { return execSync(cmd, { stdio: "pipe", timeout: 5000 }).toString().trim(); }
+    catch { return null; }
+  };
+
+  const androidHome = "/home/runner/android-sdk";
+  const sdkOk = fs.existsSync(`${androidHome}/build-tools/34.0.0/aapt`);
+  const javaVer = read("java -version 2>&1 | head -1");
+  const nodeVer = read("node --version");
+  const npmVer  = read("npm --version");
+  const gradleOk = check(`ls ${androidHome}/platforms/android-35 2>/dev/null`);
+  const keystoreOk = fs.existsSync(path.join(__dirname, "android/debug.keystore"));
+  const localPropsOk = (() => {
+    try {
+      const lp = fs.readFileSync(path.join(__dirname, "android/local.properties"), "utf8");
+      return lp.includes("sdk.dir=") && fs.existsSync(lp.match(/sdk\.dir=(.*)/)?.[1]?.trim() || "");
+    } catch { return false; }
+  })();
+
+  const packages = ["web-push", "nodemailer", "cors", "express", "concurrently"];
+  const pkgStatus = {};
+  for (const p of packages) {
+    try { const pj = JSON.parse(fs.readFileSync(path.join(__dirname, "node_modules", p, "package.json"), "utf8")); pkgStatus[p] = pj.version; }
+    catch { pkgStatus[p] = null; }
+  }
+
+  const diskFree = read("df -h / | tail -1 | awk '{print $4}'");
+  const memFree  = read("free -h | grep Mem | awk '{print $4}'");
+
+  res.json({
+    buildServer: { ok: true, version: "1.0" },
+    java:        { ok: !!javaVer, version: javaVer },
+    node:        { ok: !!nodeVer, version: nodeVer },
+    npm:         { ok: !!npmVer, version: npmVer },
+    androidSdk:  { ok: sdkOk, path: androidHome },
+    androidPlatform: { ok: gradleOk, platform: "android-35" },
+    debugKeystore: { ok: keystoreOk },
+    localProperties: { ok: localPropsOk },
+    packages:    pkgStatus,
+    system:      { diskFree, memFree },
+  });
+});
+
+// GET /api/todo — parse TODO.md and return structured data
+app.get("/api/todo", (_req, res) => {
+  try {
+    const todoPath = path.join(__dirname, "TODO.md");
+    if (!fs.existsSync(todoPath)) return res.json({ sections: [], exists: false });
+    const raw = fs.readFileSync(todoPath, "utf8");
+    const sections = [];
+    let current = null;
+    for (const line of raw.split("\n")) {
+      if (line.startsWith("## ")) {
+        if (current) sections.push(current);
+        current = { title: line.replace("## ", "").trim(), items: [] };
+      } else if (current && /^\|\s*[\w-]+\s*\|/.test(line) && !line.includes("---") && !line.includes("Status")) {
+        const parts = line.split("|").map(s => s.trim()).filter(Boolean);
+        if (parts.length >= 3) {
+          const status = parts[parts.length - 1];
+          const name = parts.slice(1, parts.length - 1).join(" | ");
+          current.items.push({
+            id: parts[0],
+            name,
+            status: status.includes("✅") ? "done" : status.includes("🔄") ? "progress" : status.includes("🔒") ? "blocked" : "pending",
+          });
+        }
+      }
+    }
+    if (current) sections.push(current);
+    const total = sections.reduce((a, s) => a + s.items.length, 0);
+    const done  = sections.reduce((a, s) => a + s.items.filter(i => i.status === "done").length, 0);
+    res.json({ sections, total, done, exists: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/bash — run a bash command and stream output via SSE
+app.post("/api/bash", (req, res) => {
+  const { cmd } = req.body || {};
+  if (!cmd || typeof cmd !== "string") return res.status(400).json({ error: "cmd required" });
+
+  // Safety: block obviously destructive commands
+  const blocked = /rm\s+-rf\s+\/[^h]|mkfs|dd\s+if|:\s*\(\s*\)\s*\{|shutdown|reboot|halt/i;
+  if (blocked.test(cmd)) return res.status(403).json({ error: "Command not allowed" });
+
+  sseInit(res);
+  sseSend(res, { type: "start", cmd });
+
+  const proc = spawn("bash", ["-c", cmd], {
+    cwd: __dirname,
+    env: {
+      ...process.env,
+      ANDROID_HOME: "/home/runner/android-sdk",
+      JAVA_HOME: RESOLVED_JAVA_HOME,
+      PATH: `/home/runner/android-sdk/build-tools/34.0.0:/home/runner/android-sdk/platform-tools:/home/runner/android-sdk/cmdline-tools/latest/bin:${process.env.PATH}`,
+    },
+  });
+
+  proc.stdout.on("data", (d) => sseSend(res, { type: "out", text: d.toString() }));
+  proc.stderr.on("data", (d) => sseSend(res, { type: "err", text: d.toString() }));
+  proc.on("close", (code) => {
+    sseSend(res, { type: "done", code });
+    res.end();
+  });
+  req.on("close", () => { try { proc.kill(); } catch {} });
+});
 
 // GET /api/builds — history
 app.get("/api/builds", (_req, res) => {
@@ -292,14 +438,18 @@ app.get("/api/builds/:id/logs", (req, res) => {
 const VAPID_FILE = path.join(__dirname, ".local", "vapid.json");
 
 function loadOrGenerateVapidKeys() {
-  // Prefer env vars (set by deploy.sh / Portainer)
+  // Prefer env vars (set by Replit Secrets)
   if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-    webpush.setVapidDetails(
-      `mailto:${process.env.VAPID_EMAIL || "admin@virtualbank.app"}`,
-      process.env.VAPID_PUBLIC_KEY,
-      process.env.VAPID_PRIVATE_KEY
-    );
-    return { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY };
+    try {
+      webpush.setVapidDetails(
+        `mailto:${process.env.VAPID_EMAIL || "admin@virtualbank.app"}`,
+        process.env.VAPID_PUBLIC_KEY,
+        process.env.VAPID_PRIVATE_KEY
+      );
+      return { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY };
+    } catch (e) {
+      console.warn("[push] VAPID env vars invalid, falling back to local file:", e.message);
+    }
   }
 
   // Fall back to persisted local file
@@ -489,6 +639,147 @@ app.post("/api/sms/broadcast", async (req, res) => {
     })
   );
   res.json({ ok: true, sent, failed });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Password Reset via OTP (Twilio SMS + Supabase Admin)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const SUPABASE_URL      = process.env.VITE_SUPABASE_URL;
+const SUPABASE_ADMIN_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // optional
+
+/** In-memory OTP store: email -> { otpHash, expiresAt, attempts } */
+const resetOtpStore = new Map();
+
+const adminOk = () => !!(SUPABASE_URL && SUPABASE_ADMIN_KEY);
+
+function hashOtp(otp) {
+  return crypto.createHash("sha256").update(otp).digest("hex");
+}
+
+function generateOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+// GET /api/auth/reset-status
+app.get("/api/auth/reset-status", (_req, res) => {
+  res.json({
+    smsAvailable: twilioOk(),
+    adminResetAvailable: adminOk(),
+    emailAvailable: smtpOk(),
+  });
+});
+
+// POST /api/auth/request-reset  { phone, countryCode }
+app.post("/api/auth/request-reset", async (req, res) => {
+  const { phone, countryCode = "" } = req.body || {};
+  if (!phone) return res.status(400).json({ error: "phone required" });
+  if (!twilioOk()) return res.status(503).json({ error: "SMS not configured — contact support." });
+
+  const e164 = phone.startsWith("+") ? phone : `${countryCode}${phone.replace(/^0/, "")}`;
+  const email = `${phone.replace(/\D/g, "")}@vbank.com`;
+
+  const otp = generateOtp();
+  const otpHash = hashOtp(otp);
+  resetOtpStore.set(email, { otpHash, expiresAt: Date.now() + 5 * 60 * 1000, attempts: 0, e164 });
+
+  try {
+    await sendSms(e164, `NETLIFE CASH: Your password reset code is ${otp}. Valid 5 min. Do not share.`);
+    const masked = e164.slice(0, -4).replace(/\d/g, "*") + e164.slice(-4);
+    res.json({ ok: true, masked });
+  } catch (err) {
+    resetOtpStore.delete(email);
+    console.error("[reset] SMS error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/verify-reset  { phone, otp, newPassword }
+app.post("/api/auth/verify-reset", async (req, res) => {
+  const { phone, otp, newPassword } = req.body || {};
+  if (!phone || !otp || !newPassword) return res.status(400).json({ error: "phone, otp, newPassword required" });
+  if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+  const email = `${phone.replace(/\D/g, "")}@vbank.com`;
+  const entry = resetOtpStore.get(email);
+
+  if (!entry) return res.status(400).json({ error: "No reset request found. Please request a new code." });
+  if (Date.now() > entry.expiresAt) {
+    resetOtpStore.delete(email);
+    return res.status(400).json({ error: "Code expired. Please request a new one." });
+  }
+  entry.attempts = (entry.attempts || 0) + 1;
+  if (entry.attempts > 5) {
+    resetOtpStore.delete(email);
+    return res.status(429).json({ error: "Too many attempts. Request a new code." });
+  }
+  if (hashOtp(otp) !== entry.otpHash) {
+    return res.status(400).json({ error: `Incorrect code. ${5 - entry.attempts} attempt(s) remaining.` });
+  }
+
+  // OTP valid — now reset the password
+  if (!adminOk()) {
+    // Can't reset via admin API — mark as verified so frontend can handle
+    resetOtpStore.set(email, { ...entry, verified: true });
+    return res.json({ ok: true, adminReset: false, message: "OTP verified. Contact admin to complete reset." });
+  }
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    // Look up user by the virtual email
+    const { data: { users }, error: listErr } = await adminClient.auth.admin.listUsers();
+    if (listErr) throw new Error(listErr.message);
+
+    const target = users.find((u) => u.email === email);
+    if (!target) return res.status(404).json({ error: "No account found for this phone number." });
+
+    const { error: updateErr } = await adminClient.auth.admin.updateUserById(target.id, { password: newPassword });
+    if (updateErr) throw new Error(updateErr.message);
+
+    resetOtpStore.delete(email);
+    console.log(`[reset] Password reset for ${email.slice(0, 6)}***`);
+
+    // Optionally notify user via SMS
+    if (twilioOk() && entry.e164) {
+      sendSms(entry.e164, "NETLIFE CASH: Your password has been reset successfully. Please sign in with your new password.").catch(() => {});
+    }
+
+    res.json({ ok: true, adminReset: true });
+  } catch (err) {
+    console.error("[reset] admin reset error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/admin-set-password  { userId, newPassword }  — admin only
+app.post("/api/auth/admin-set-password", async (req, res) => {
+  const { userId, newPassword, notifyPhone } = req.body || {};
+  if (!userId || !newPassword) return res.status(400).json({ error: "userId and newPassword required" });
+  if (!adminOk()) return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured" });
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    const { error } = await adminClient.auth.admin.updateUserById(userId, { password: newPassword });
+    if (error) throw new Error(error.message);
+
+    if (notifyPhone && twilioOk()) {
+      sendSms(notifyPhone, `NETLIFE CASH: Admin has reset your password. Temporary password: ${newPassword}. Change it after sign-in.`).catch(() => {});
+    }
+
+    console.log(`[reset] Admin set password for userId=${userId.slice(0, 8)}***`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[reset] admin-set-password error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

@@ -37,6 +37,7 @@ import {
   Link2,
   Hash,
   Settings,
+  Bell,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -98,6 +99,9 @@ export default function AdminApkBuilder() {
   const { toast } = useToast();
   const { user } = useAuth();
 
+  // ── Server health ────────────────────────────────────────────────────────────
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null);
+
   // ── Build form state ────────────────────────────────────────────────────────
   const [version, setVersion] = useState("1.0.0");
   const [buildType, setBuildType] = useState<"debug" | "release">("debug");
@@ -126,10 +130,22 @@ export default function AdminApkBuilder() {
   const [publishNotes, setPublishNotes] = useState("");
   const [forceUpdate, setForceUpdate] = useState(false);
   const [forceMinVersion, setForceMinVersion] = useState("");
+  const [notifyOnPublish, setNotifyOnPublish] = useState(true);
   const [publishing, setPublishing] = useState(false);
 
   const scrollToBottom = () => logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   useEffect(scrollToBottom, [logs]);
+
+  const checkServerHealth = async () => {
+    try {
+      const r = await fetch("/api/health", { signal: AbortSignal.timeout(4000) });
+      setServerOnline(r.ok);
+      return r.ok;
+    } catch {
+      setServerOnline(false);
+      return false;
+    }
+  };
 
   const loadHistory = async () => {
     try {
@@ -139,9 +155,12 @@ export default function AdminApkBuilder() {
   };
 
   useEffect(() => {
+    checkServerHealth();
     loadHistory();
     checkRunningBuild();
     loadNetworkConfig();
+    const interval = setInterval(checkServerHealth, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadNetworkConfig = async () => {
@@ -200,11 +219,25 @@ export default function AdminApkBuilder() {
     es.onerror = () => es.close();
   };
 
-  const startBuild = async () => {
+  const startBuild = async (overrideBuildType?: "debug" | "release") => {
+    const effectiveBuildType = overrideBuildType ?? buildType;
+    if (overrideBuildType) setBuildType(overrideBuildType);
+
     if (!/^\d+\.\d+\.\d+$/.test(version)) {
       toast({ title: "Invalid version", description: "Use format: 1.0.0", variant: "destructive" });
       return;
     }
+
+    const online = await checkServerHealth();
+    if (!online) {
+      toast({
+        title: "Build server offline",
+        description: "The build server (port 3001) is not responding. Restart the 'Start application' workflow and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLogs([]);
     setSelectedLogBuild(null);
     setBuildStatus("running");
@@ -217,7 +250,7 @@ export default function AdminApkBuilder() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           version,
-          buildType,
+          buildType: effectiveBuildType,
           includeRpcNode,
           rpcUrl: netConfig?.rpc_url || undefined,
           chainId: netConfig?.chain_id || undefined,
@@ -346,6 +379,37 @@ export default function AdminApkBuilder() {
         );
       }
 
+      // 6. Send push broadcast to all subscribed devices
+      if (notifyOnPublish) {
+        try {
+          await fetch("/api/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: `NETLIFE CASH v${publishTarget.version} is live 🚀`,
+              body: publishNotes.trim() || "A new update is available. Tap to download and install.",
+              url: "/download-app",
+              icon: "/icon.svg",
+            }),
+          });
+          // Also write the latest_broadcast to app_settings for in-app banner
+          await supabase.from("app_settings").upsert(
+            {
+              key: "latest_broadcast",
+              value: JSON.stringify({
+                title: `NETLIFE CASH v${publishTarget.version} is live 🚀`,
+                body: publishNotes.trim() || "A new update is available. Open the app to download.",
+                url: "/download-app",
+                sent_at: new Date().toISOString(),
+              }),
+            },
+            { onConflict: "key" }
+          );
+        } catch {
+          // Push is best-effort — don't block the publish on failure
+        }
+      }
+
       toast({
         title: "Update published!",
         description: `v${publishTarget.version} is live. Users on older versions will see a download prompt.`,
@@ -373,13 +437,30 @@ export default function AdminApkBuilder() {
         <Button variant="ghost" size="icon" onClick={() => navigate("/admin")}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Package className="h-6 w-6" /> App Builder
           </h1>
           <p className="text-sm text-muted-foreground">
             Build Android APKs, Progressive Web Apps, and iOS archives
           </p>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          {serverOnline === null && (
+            <Badge variant="secondary" className="gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" /> Checking server…
+            </Badge>
+          )}
+          {serverOnline === true && (
+            <Badge className="gap-1 bg-green-600 text-white">
+              <CheckCircle2 className="h-3 w-3" /> Build server online
+            </Badge>
+          )}
+          {serverOnline === false && (
+            <Badge variant="destructive" className="gap-1 cursor-pointer" onClick={checkServerHealth}>
+              <XCircle className="h-3 w-3" /> Server offline — click to retry
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -483,6 +564,70 @@ export default function AdminApkBuilder() {
       {/* ── APK tab ─────────────────────────────────────────────────────────── */}
       {buildTab === "apk" && (
       <>
+
+      {/* ── Admin Test Debug APK ─────────────────────────────────────────────── */}
+      <Card className="border-2 border-orange-400 dark:border-orange-600 bg-orange-50/40 dark:bg-orange-900/10">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldAlert className="h-5 w-5 text-orange-600" /> Quick Admin Test Build
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Builds a <strong>debug APK</strong> signed with the debug keystore — for admin/QA testing only. Not for public distribution.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Version</p>
+              <Input
+                value={version}
+                onChange={e => setVersion(e.target.value)}
+                placeholder="1.0.0"
+                className="h-8 w-28 text-sm"
+                disabled={building}
+              />
+            </div>
+            <div className="flex flex-col gap-1 pt-1">
+              <Badge variant="outline" className="text-orange-600 border-orange-400 self-start">DEBUG BUILD</Badge>
+              <p className="text-[10px] text-muted-foreground">Unsigned release not required</p>
+            </div>
+            <div className="ml-auto flex gap-2 items-center">
+              {!building ? (
+                <Button
+                  onClick={() => startBuild("debug")}
+                  className="gap-2 bg-orange-600 hover:bg-orange-700 text-white"
+                  disabled={building || serverOnline === false}
+                >
+                  <Play className="h-4 w-4" /> Build Debug APK
+                </Button>
+              ) : buildType === "debug" ? (
+                <Button variant="destructive" onClick={cancelBuild} className="gap-2">
+                  <Square className="h-4 w-4" /> Cancel
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          {buildStatus === "success" && currentApkFile && currentApkFile.includes("debug") && (
+            <div className="flex items-center gap-3 p-3 rounded-xl border border-green-400 bg-green-50 dark:bg-green-900/20">
+              <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-green-800 dark:text-green-300">Debug APK ready!</p>
+                <p className="text-xs text-green-700 dark:text-green-400 font-mono truncate">{currentApkFile}</p>
+              </div>
+              <Button
+                size="sm"
+                className="gap-1 bg-green-600 hover:bg-green-700 text-white shrink-0"
+                onClick={() => window.open(`/api/download/${currentApkFile}`, "_blank")}
+              >
+                <Download className="h-4 w-4" /> Download
+              </Button>
+            </div>
+          )}
+          <p className="text-[10px] text-muted-foreground">
+            ⚠️ Debug builds are not minified and may expose logs. Only install on trusted test devices.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Network Config card */}
       <Card className="border-blue-200 dark:border-blue-800">
@@ -770,6 +915,21 @@ export default function AdminApkBuilder() {
                 placeholder={"• New feature added\n• Bug fixes\n• Performance improvements"}
                 rows={4}
               />
+            </div>
+
+            {/* Notify all users */}
+            <div className="rounded-lg border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-1.5">
+                    <Bell className="h-4 w-4 text-blue-500" /> Notify all users
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Send a push notification + in-app banner to every user
+                  </p>
+                </div>
+                <Switch checked={notifyOnPublish} onCheckedChange={setNotifyOnPublish} />
+              </div>
             </div>
 
             {/* Force update */}

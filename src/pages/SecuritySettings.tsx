@@ -7,11 +7,61 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Trash2, Bell, BellOff } from "lucide-react";
+import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Trash2, Bell, BellOff, Lock, AlertTriangle, LogIn, Clock, Timer } from "lucide-react";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
 import { UAParser } from "ua-parser-js";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { useAppLockSettings } from "@/hooks/useAppLock";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+
+const AppLockCard = () => {
+  const { settings, update } = useAppLockSettings();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Timer className="h-5 w-5" /> App Lock</CardTitle>
+        <CardDescription>Automatically lock the app after a period of inactivity.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-sm">Enable App Lock</p>
+            <p className="text-xs text-muted-foreground">Require PIN to resume after idle timeout</p>
+          </div>
+          <Switch
+            checked={settings.enabled}
+            onCheckedChange={(v) => update({ enabled: v })}
+          />
+        </div>
+        {settings.enabled && (
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Lock after inactivity</Label>
+            <Select
+              value={String(settings.timeoutMinutes)}
+              onValueChange={(v) => update({ timeoutMinutes: parseInt(v) })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">1 minute</SelectItem>
+                <SelectItem value="5">5 minutes</SelectItem>
+                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="30">30 minutes</SelectItem>
+                <SelectItem value="60">1 hour</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              You will need your transaction PIN to unlock the app.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const PushNotificationCard = () => {
   const { state, loading, enable, disable } = usePushNotifications();
@@ -102,10 +152,30 @@ const SecuritySettings = () => {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [sessions, setSessions] = useState<DeviceSession[]>([]);
   const [userEmail, setUserEmail] = useState("");
+  const [accountLocked, setAccountLocked] = useState(false);
+  const [lockLoading, setLockLoading] = useState(false);
+  const [recentAlerts, setRecentAlerts] = useState<{ action: string; created_at: string; ip?: string }[]>([]);
 
   useEffect(() => {
     void load();
   }, []);
+
+  const emergencyLock = async () => {
+    if (!confirm("EMERGENCY LOCK: This will immediately sign you out of ALL devices and sessions. No transactions will be possible until you contact support. Continue?")) return;
+    setLockLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.rpc("log_audit_event" as never, {
+        _action: "emergency_account_lock",
+        _entity_type: "user",
+        _entity_id: user.id,
+      } as never);
+    }
+    await supabase.auth.signOut({ scope: "global" });
+    toast.success("Account locked. All sessions terminated. Contact support to unlock.");
+    setLockLoading(false);
+    window.location.href = "/auth";
+  };
 
   const load = async () => {
     setLoading(true);
@@ -128,6 +198,22 @@ const SecuritySettings = () => {
       .is("revoked_at", null)
       .order("last_active_at", { ascending: false });
     setSessions((ds as DeviceSession[]) || []);
+
+    // SEC-06: Load recent security alerts from audit log
+    const { data: alerts } = await supabase
+      .from("audit_logs")
+      .select("action, created_at, ip_address")
+      .eq("actor_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(10);
+    if (alerts) {
+      setRecentAlerts(alerts.map((a: any) => ({
+        action: a.action,
+        created_at: a.created_at,
+        ip: a.ip_address,
+      })));
+    }
+
     setLoading(false);
   };
 
@@ -293,6 +379,8 @@ const SecuritySettings = () => {
 
         <PushNotificationCard />
 
+        <AppLockCard />
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Smartphone className="h-5 w-5" /> Active Sessions</CardTitle>
@@ -321,6 +409,70 @@ const SecuritySettings = () => {
             ))}
           </CardContent>
         </Card>
+
+        {/* SEC-06: Security Alerts */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-500" /> Security Activity
+            </CardTitle>
+            <CardDescription>Recent security events on your account.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
+            {!loading && recentAlerts.length === 0 && (
+              <p className="text-sm text-muted-foreground">No recent security events.</p>
+            )}
+            {recentAlerts.map((a, i) => (
+              <div key={i} className="flex items-start gap-3 border p-3 rounded">
+                <div className="mt-0.5">
+                  {a.action.includes("login") || a.action.includes("sign") ? (
+                    <LogIn className="h-4 w-4 text-blue-500" />
+                  ) : a.action.includes("lock") || a.action.includes("disable") ? (
+                    <AlertTriangle className="h-4 w-4 text-red-500" />
+                  ) : (
+                    <ShieldCheck className="h-4 w-4 text-green-500" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium capitalize">{a.action.replace(/_/g, " ")}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <Clock className="h-3 w-3 text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">{new Date(a.created_at).toLocaleString()}</p>
+                    {a.ip && <Badge variant="outline" className="text-xs">{a.ip}</Badge>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* SEC-08: Emergency Account Lock */}
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-destructive">
+              <Lock className="h-5 w-5" /> Emergency Account Lock
+            </CardTitle>
+            <CardDescription>
+              Immediately terminate all active sessions across all devices. Use if your account is compromised.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="bg-destructive/10 border border-destructive/30 rounded p-3 text-sm text-destructive">
+              <strong>Warning:</strong> This action signs you out of every device instantly. You will need to contact support to re-enable full access.
+            </div>
+            <Button
+              variant="destructive"
+              onClick={emergencyLock}
+              disabled={lockLoading}
+              className="w-full"
+            >
+              <Lock className="h-4 w-4 mr-2" />
+              {lockLoading ? "Locking Account..." : "Lock My Account Now"}
+            </Button>
+          </CardContent>
+        </Card>
+
       </div>
     </div>
   );

@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2, MessageCircle, ShieldCheck, LogOut, Palette, Sun, Moon, Check, Smartphone, Download, Plus, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Save, User, Phone, MapPin, Calendar, Camera, FileText, Wallet, Copy, AlertTriangle, Lock, Fingerprint, ScanFace, Trash2, MessageCircle, ShieldCheck, LogOut, Palette, Sun, Moon, Check, Smartphone, Download, Plus, Eye, EyeOff, KeyRound, Loader2 } from 'lucide-react';
 import { isVerified as isWhatsAppVerified } from '@/lib/whatsapp';
 import { useTheme } from '@/components/ThemeProvider';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -26,6 +26,8 @@ import { SetPinDialog } from '@/components/SetPinDialog';
 import { isBiometricAvailable, enrollBiometric, linkCredentialToPhone, checkBiometricSupport, isInIframe } from '@/lib/biometricAuth';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { AppDownloadButton } from '@/components/AppDownloadButton';
+import { LanguageSelector } from '@/components/LanguageSelector';
+import { Globe } from 'lucide-react';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -56,6 +58,12 @@ export default function Profile() {
   const [biometricDevices, setBiometricDevices] = useState<any[]>([]);
   const [enrollingBiometric, setEnrollingBiometric] = useState(false);
   const [showBiometricPasswordDialog, setShowBiometricPasswordDialog] = useState(false);
+  const [showChangePassDialog, setShowChangePassDialog] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassFields, setShowPassFields] = useState(false);
+  const [changingPass, setChangingPass] = useState(false);
   const [biometricPassword, setBiometricPassword] = useState('');
   const [pendingBiometricType, setPendingBiometricType] = useState<'fingerprint' | 'face'>('fingerprint');
   const [profile, setProfile] = useState({
@@ -808,6 +816,14 @@ export default function Profile() {
                 })}
               </div>
             </div>
+
+            <div className="border-t pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Globe className="w-4 h-4 text-muted-foreground" />
+                <p className="font-medium text-sm">App Language</p>
+              </div>
+              <LanguageSelector />
+            </div>
           </CardContent>
         </Card>
 
@@ -837,6 +853,20 @@ export default function Profile() {
                 {user && isWhatsAppVerified(user.id) ? 'Verified' : 'Not yet'}
               </Badge>
             </Button>
+            {/* Change password */}
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              onClick={() => {
+                setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
+                setShowChangePassDialog(true);
+              }}
+              data-testid="button-change-password"
+            >
+              <KeyRound className="w-4 h-4 text-primary" />
+              Change Password
+            </Button>
+
             <Button
               variant="outline"
               className="w-full justify-start gap-2"
@@ -1108,6 +1138,110 @@ export default function Profile() {
               </Button>
               <Button onClick={handleEnrollBiometric} disabled={!biometricPassword || enrollingBiometric} className="flex-1">
                 {enrollingBiometric ? 'Setting up...' : 'Continue'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change Password Dialog */}
+      <Dialog open={showChangePassDialog} onOpenChange={(o) => { if (!o) setShowChangePassDialog(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-primary" /> Change Password
+            </DialogTitle>
+            <DialogDescription>Enter your current password and choose a new one.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Current Password</label>
+              <div className="relative">
+                <Input
+                  type={showPassFields ? 'text' : 'password'}
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Your current password"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowPassFields(!showPassFields)}
+                >
+                  {showPassFields ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">New Password</label>
+              <Input
+                type={showPassFields ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Minimum 6 characters"
+              />
+              {newPassword.length > 0 && (
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((i) => {
+                    const score = [
+                      newPassword.length >= 6,
+                      newPassword.length >= 10,
+                      /[A-Z]/.test(newPassword),
+                      /[0-9]/.test(newPassword),
+                      /[^A-Za-z0-9]/.test(newPassword),
+                    ].filter(Boolean).length;
+                    const cols = ["", "bg-red-500", "bg-orange-400", "bg-yellow-400", "bg-blue-400", "bg-green-500"];
+                    return <div key={i} className={`h-1 flex-1 rounded-full ${i <= score ? cols[score] : "bg-muted"}`} />;
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Confirm New Password</label>
+              <Input
+                type={showPassFields ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter new password"
+              />
+              {confirmPassword && confirmPassword !== newPassword && (
+                <p className="text-xs text-red-500">Passwords do not match</p>
+              )}
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => setShowChangePassDialog(false)} disabled={changingPass}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 gap-2"
+                disabled={changingPass || !currentPassword || newPassword.length < 6 || newPassword !== confirmPassword}
+                onClick={async () => {
+                  if (!user?.email) return;
+                  setChangingPass(true);
+                  try {
+                    // 1. Re-authenticate with current password
+                    const { error: signInErr } = await supabase.auth.signInWithPassword({
+                      email: user.email,
+                      password: currentPassword,
+                    });
+                    if (signInErr) throw new Error('Current password is incorrect');
+
+                    // 2. Update to new password
+                    const { error: updateErr } = await supabase.auth.updateUser({ password: newPassword });
+                    if (updateErr) throw updateErr;
+
+                    toast({ title: 'Password updated!', description: 'Your password has been changed successfully.' });
+                    setShowChangePassDialog(false);
+                    setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
+                  } catch (e: unknown) {
+                    toast({ variant: 'destructive', title: 'Failed', description: e instanceof Error ? e.message : String(e) });
+                  } finally {
+                    setChangingPass(false);
+                  }
+                }}
+              >
+                {changingPass ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</> : 'Update Password'}
               </Button>
             </div>
           </div>

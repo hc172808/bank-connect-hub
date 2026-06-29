@@ -121,6 +121,7 @@ export async function deleteSubscription(endpoint: string): Promise<boolean> {
 // ── Realtime (Supabase) notifications ────────────────────────────────────────
 
 let _realtimeChannel: ReturnType<typeof supabase.channel> | null = null;
+let _chatChannel: ReturnType<typeof supabase.channel> | null = null;
 
 export async function requestNotificationPermission(): Promise<boolean> {
   if (!("Notification" in window)) return false;
@@ -186,6 +187,52 @@ export function subscribeToTransactionNotifications(
 
 export function unsubscribeTransactionNotifications() {
   if (_realtimeChannel) { supabase.removeChannel(_realtimeChannel); _realtimeChannel = null; }
+}
+
+/**
+ * Subscribe to incoming chat messages (notifications table, type=chat_message).
+ * Shows a browser notification and calls onMessage with sender/text/senderId.
+ * Call from any dashboard that should surface in-app chat alerts.
+ */
+export function subscribeToChatNotifications(
+  userId: string,
+  onMessage?: (senderName: string, text: string, senderId: string) => void
+) {
+  if (_chatChannel) { supabase.removeChannel(_chatChannel); _chatChannel = null; }
+
+  _chatChannel = supabase
+    .channel(`chat-notif-${userId}`)
+    .on(
+      "postgres_changes" as any,
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "notifications",
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload: any) => {
+        const row = payload.new;
+        if (row.type !== "chat_message") return;
+
+        let text = "New message";
+        let senderName = row.title || "Someone";
+        let senderId = "";
+        try {
+          const p = JSON.parse(row.message);
+          text = p.text ?? text;
+          senderName = p.sender_name || senderName;
+          senderId = p.sender_id || "";
+        } catch { /* keep defaults */ }
+
+        showBrowserNotification(`💬 ${senderName}`, text);
+        onMessage?.(senderName, text, senderId);
+      }
+    )
+    .subscribe();
+}
+
+export function unsubscribeChatNotifications() {
+  if (_chatChannel) { supabase.removeChannel(_chatChannel); _chatChannel = null; }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

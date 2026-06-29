@@ -2,9 +2,10 @@
 // No paid API required: we generate a code, open wa.me with it pre-filled,
 // and the user sends it to your support line for human/automated verification.
 
-export const WHATSAPP_SUPPORT_NUMBER =
-  (import.meta.env.VITE_WHATSAPP_SUPPORT_NUMBER as string | undefined) ||
-  "+15555555555"; // Replace via VITE_WHATSAPP_SUPPORT_NUMBER or admin settings.
+export let WHATSAPP_SUPPORT_NUMBER = "+15555555555";
+fetch("/api/config").then(r => r.json()).then((cfg: { whatsappNumber?: string }) => {
+  if (cfg.whatsappNumber) WHATSAPP_SUPPORT_NUMBER = cfg.whatsappNumber;
+}).catch(() => {});
 
 const STORAGE_KEY = "vb.whatsappVerification";
 

@@ -297,23 +297,31 @@ const AdminRPCNode = () => {
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               {[
-                { label: "Double-spend guard",    on: true  },
-                { label: "Per-IP rate limiting",  on: true  },
-                { label: "Block/TX deduplication",on: true  },
-                { label: "Nonce tracking",        on: true  },
-                { label: "Read-only container",   on: true  },
-                { label: "No privilege escalation",on: true },
-                { label: "All capabilities dropped",on: true },
-                { label: "Exposed to internet",   on: false },
-              ].map(f => (
-                <div key={f.label} className="flex items-center justify-between border-b pb-1.5 last:border-0 last:pb-0">
-                  <span className="text-muted-foreground">{f.label}</span>
-                  {f.on
-                    ? <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 size={12} /> Yes</span>
-                    : <span className="text-xs text-red-500 flex items-center gap-1"><XCircle size={12} /> No</span>
-                  }
-                </div>
-              ))}
+                { label: "Double-spend guard",       on: true,  safeWhenOff: false },
+                { label: "Per-IP rate limiting",     on: true,  safeWhenOff: false },
+                { label: "Block/TX deduplication",   on: true,  safeWhenOff: false },
+                { label: "Nonce tracking",           on: true,  safeWhenOff: false },
+                { label: "Read-only container",      on: true,  safeWhenOff: false },
+                { label: "No privilege escalation",  on: true,  safeWhenOff: false },
+                { label: "All capabilities dropped", on: true,  safeWhenOff: false },
+                { label: "Exposed to internet",      on: false, safeWhenOff: true  },
+              ].map(f => {
+                // "Exposed to internet = No" is GOOD (not exposed = secure)
+                const isGood = f.safeWhenOff ? !f.on : f.on;
+                return (
+                  <div key={f.label} className="flex items-center justify-between border-b pb-1.5 last:border-0 last:pb-0">
+                    <span className="text-muted-foreground">{f.label}</span>
+                    {f.on
+                      ? isGood
+                        ? <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 size={12} /> Yes</span>
+                        : <span className="text-xs text-red-500 flex items-center gap-1"><XCircle size={12} /> Yes</span>
+                      : isGood
+                        ? <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 size={12} /> No — Secured</span>
+                        : <span className="text-xs text-red-500 flex items-center gap-1"><XCircle size={12} /> No</span>
+                    }
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
         </div>

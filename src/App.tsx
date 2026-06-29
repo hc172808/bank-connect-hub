@@ -1,12 +1,18 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { ForceUpdateGate } from "@/components/ForceUpdateGate";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
+import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
+import { useAppLock } from "./hooks/useAppLock";
+import { useNewReleaseAlert } from "./hooks/useNewReleaseAlert";
+import { AppLockScreen } from "./components/AppLockScreen";
+import { DisplacedSessionDialog } from "./components/DisplacedSessionDialog";
+import { MobileBrowserVerifyDialog } from "./components/MobileBrowserVerifyDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ScrollToTop } from "./components/ScrollToTop";
 
@@ -33,7 +39,8 @@ const SendMoney = lazy(() => import("./pages/SendMoney"));
 const RequestFunds = lazy(() => import("./pages/RequestFunds"));
 const FeeManagement = lazy(() => import("./pages/FeeManagement"));
 const AdminDeposit = lazy(() => import("./pages/AdminDeposit"));
-const AgentDeposit = lazy(() => import("./pages/AgentDeposit"));
+const AgentDeposit         = lazy(() => import("./pages/AgentDeposit"));
+const AgentCashWithdrawal  = lazy(() => import("./pages/AgentCashWithdrawal"));
 const ApprovePendingDeposits = lazy(() => import("./pages/ApprovePendingDeposits"));
 const MyQRCode = lazy(() => import("./pages/MyQRCode"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -84,15 +91,45 @@ const AdminAnnouncements = lazy(() => import("./pages/AdminAnnouncements"));
 const AdminCountries = lazy(() => import("./pages/AdminCountries"));
 const AdminConsole = lazy(() => import("./pages/AdminConsole"));
 const AdminApkBuilder = lazy(() => import("./pages/AdminApkBuilder"));
+const AdminDownloadPoster = lazy(() => import("./pages/AdminDownloadPoster"));
+const AdminSendUpdate = lazy(() => import("./pages/AdminSendUpdate"));
 const LegalCompliance = lazy(() => import("./pages/LegalCompliance"));
 const BudgetPlanner       = lazy(() => import("./pages/BudgetPlanner"));
 const SavingsGoals        = lazy(() => import("./pages/SavingsGoals"));
-const Beneficiaries       = lazy(() => import("./pages/Beneficiaries"));
+const SavingsAccounts       = lazy(() => import("./pages/SavingsAccounts"));
+const Loans                 = lazy(() => import("./pages/Loans"));
+const InternationalTransfers = lazy(() => import("./pages/InternationalTransfers"));
+const GroupPayments         = lazy(() => import("./pages/GroupPayments"));
+const CreditBuilder         = lazy(() => import("./pages/CreditBuilder"));
+const MultiWallet           = lazy(() => import("./pages/MultiWallet"));
+const RoleManagement        = lazy(() => import("./pages/RoleManagement"));
+const Rewards               = lazy(() => import("./pages/Rewards"));
+const BusinessBanking       = lazy(() => import("./pages/BusinessBanking"));
+const Investments           = lazy(() => import("./pages/Investments"));
+const FinancialTools        = lazy(() => import("./pages/FinancialTools"));
+const MerchantInvoicing     = lazy(() => import("./pages/MerchantInvoicing"));
+const Gamification          = lazy(() => import("./pages/Gamification"));
+const SecurityOperationsCenter = lazy(() => import("./pages/SecurityOperationsCenter"));
+const CardsHub              = lazy(() => import("./pages/CardsHub"));
+const FinancingHub          = lazy(() => import("./pages/FinancingHub"));
+const SupportCenter         = lazy(() => import("./pages/SupportCenter"));
+const ChatInbox             = lazy(() => import("./pages/ChatInbox"));
+const ChatThread            = lazy(() => import("./pages/ChatThread"));
+const Beneficiaries         = lazy(() => import("./pages/Beneficiaries"));
 const VirtualCards        = lazy(() => import("./pages/VirtualCards"));
 const FinancialInsights   = lazy(() => import("./pages/FinancialInsights"));
 const ScheduledPayments   = lazy(() => import("./pages/ScheduledPayments"));
 const SplitBills          = lazy(() => import("./pages/SplitBills"));
 const AdminRPCNode        = lazy(() => import("./pages/AdminRPCNode"));
+const CurrencyConverter             = lazy(() => import("./pages/CurrencyConverter"));
+const AdminAIDefense               = lazy(() => import("./pages/AdminAIDefense"));
+const AIFinancialAssistant         = lazy(() => import("./pages/AIFinancialAssistant"));
+const WhatsNew                     = lazy(() => import("./pages/WhatsNew"));
+const PersonalizedRecommendations  = lazy(() => import("./pages/PersonalizedRecommendations"));
+const NFCTapPayment                = lazy(() => import("./pages/NFCTapPayment"));
+const APIIntegrations              = lazy(() => import("./pages/APIIntegrations"));
+const OpenBanking                  = lazy(() => import("./pages/OpenBanking"));
+const DownloadApp                  = lazy(() => import("./pages/DownloadApp"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -106,13 +143,17 @@ const queryClient = new QueryClient({
 
 const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => (
   <div
-    className="min-h-screen bg-primary/10 flex items-center justify-center"
+    className="min-h-screen bg-background flex flex-col items-center justify-center gap-4"
     data-testid="loader-fullscreen"
   >
-    <div className="text-center">
-      <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p className="text-foreground">{label}</p>
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg">
+        <span className="text-primary-foreground font-black text-2xl">N</span>
+      </div>
+      <p className="text-lg font-bold text-foreground">NETLIFE CASH</p>
     </div>
+    <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+    <p className="text-sm text-muted-foreground">{label}</p>
   </div>
 );
 
@@ -132,10 +173,53 @@ const ProtectedRoute = ({
   return <>{children}</>;
 };
 
+// ── Global overlays (displaced-session + mobile-browser verify) ──────────────
+// Rendered as a sibling of AppRoutes so they're always in the tree and never
+// blocked by early returns inside AppRoutes.
+const GlobalOverlays = () => {
+  const { user, loading, displacedByDevice } = useAuth();
+  const [showDisplaced, setShowDisplaced] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (displacedByDevice) setShowDisplaced(true);
+  }, [displacedByDevice]);
+
+  const handleDisplacedClose = () => {
+    setShowDisplaced(false);
+    navigate("/auth", { replace: true });
+  };
+
+  return (
+    <>
+      <DisplacedSessionDialog open={showDisplaced} onClose={handleDisplacedClose} />
+      <MobileBrowserVerifyDialog isLoggedIn={!loading && !!user} />
+    </>
+  );
+};
+
 const AppRoutes = () => {
   const { user, role, loading } = useAuth();
+  useAutoPushSubscribe(user?.id);
+  const { locked, unlock } = useAppLock();
+  const navigate = useNavigate();
+  const { setNavigate: setAlertNavigate } = useNewReleaseAlert(user?.id);
+
+  // Give the release alert hook access to navigate
+  useEffect(() => { setAlertNavigate((path) => navigate(path)); }, [navigate]);
+
+  // Auto-show What's New on first launch after a new version
+  useEffect(() => {
+    if (!user) return;
+    const seen = localStorage.getItem("vbank_whats_new_seen_v1_6_0");
+    if (!seen) {
+      const t = setTimeout(() => navigate("/whats-new"), 700);
+      return () => clearTimeout(t);
+    }
+  }, [user?.id]);
 
   if (loading) return <FullScreenLoader />;
+  if (locked && user) return <AppLockScreen onUnlock={unlock} />;
 
   if (!user) {
     return (
@@ -181,11 +265,37 @@ const AppRoutes = () => {
         <Route path="/kyc" element={<KYCSubmission />} />
         <Route path="/budget" element={<BudgetPlanner />} />
         <Route path="/savings" element={<SavingsGoals />} />
+        <Route path="/savings-accounts" element={<SavingsAccounts />} />
+        <Route path="/loans" element={<Loans />} />
+        <Route path="/international-transfers" element={<InternationalTransfers />} />
+        <Route path="/group-payments" element={<GroupPayments />} />
+        <Route path="/credit-builder" element={<CreditBuilder />} />
+        <Route path="/multi-wallet" element={<MultiWallet />} />
+        <Route path="/role-management" element={<RoleManagement />} />
+        <Route path="/rewards" element={<Rewards />} />
+        <Route path="/business-banking" element={<BusinessBanking />} />
+        <Route path="/investments" element={<Investments />} />
+        <Route path="/financial-tools" element={<FinancialTools />} />
+        <Route path="/invoicing" element={<MerchantInvoicing />} />
+        <Route path="/gamification" element={<Gamification />} />
+        <Route path="/security-operations" element={<SecurityOperationsCenter />} />
+        <Route path="/cards-hub" element={<CardsHub />} />
+        <Route path="/financing" element={<FinancingHub />} />
+        <Route path="/support" element={<SupportCenter />} />
+        <Route path="/chat" element={<ChatInbox />} />
+        <Route path="/chat/:peerId" element={<ChatThread />} />
         <Route path="/beneficiaries" element={<Beneficiaries />} />
         <Route path="/virtual-cards" element={<VirtualCards />} />
         <Route path="/insights" element={<FinancialInsights />} />
         <Route path="/scheduled-payments" element={<ScheduledPayments />} />
         <Route path="/split-bills" element={<SplitBills />} />
+        <Route path="/currency-converter" element={<CurrencyConverter />} />
+        <Route path="/ai-assistant" element={<AIFinancialAssistant />} />
+        <Route path="/whats-new" element={<WhatsNew />} />
+        <Route path="/recommendations" element={<PersonalizedRecommendations />} />
+        <Route path="/nfc-payment" element={<NFCTapPayment />} />
+        <Route path="/open-banking" element={<OpenBanking />} />
+        <Route path="/download-app" element={<DownloadApp />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -211,6 +321,13 @@ const AppRoutes = () => {
         <Route path="/feedback" element={<Feedback />} />
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/kyc" element={<KYCSubmission />} />
+        <Route path="/currency-converter" element={<CurrencyConverter />} />
+        <Route path="/ai-assistant" element={<AIFinancialAssistant />} />
+        <Route path="/whats-new" element={<WhatsNew />} />
+        <Route path="/recommendations" element={<PersonalizedRecommendations />} />
+        <Route path="/nfc-payment" element={<NFCTapPayment />} />
+        <Route path="/open-banking" element={<OpenBanking />} />
+        <Route path="/download-app" element={<DownloadApp />} />
         <Route path="*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     );
@@ -221,6 +338,7 @@ const AppRoutes = () => {
       <Routes>
         <Route path="/agent" element={<AgentDashboard />} />
         <Route path="/agent-deposit" element={<AgentDeposit />} />
+        <Route path="/agent-cash-withdrawal" element={<AgentCashWithdrawal />} />
         <Route path="/print-qr" element={<AdminPrintQRCodes />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
@@ -228,6 +346,13 @@ const AppRoutes = () => {
         <Route path="/feedback" element={<Feedback />} />
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/kyc" element={<KYCSubmission />} />
+        <Route path="/currency-converter" element={<CurrencyConverter />} />
+        <Route path="/ai-assistant" element={<AIFinancialAssistant />} />
+        <Route path="/whats-new" element={<WhatsNew />} />
+        <Route path="/recommendations" element={<PersonalizedRecommendations />} />
+        <Route path="/nfc-payment" element={<NFCTapPayment />} />
+        <Route path="/open-banking" element={<OpenBanking />} />
+        <Route path="/download-app" element={<DownloadApp />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
     );
@@ -259,6 +384,7 @@ const AppRoutes = () => {
         <Route path="/admin/mobile-providers" element={<ProtectedRoute allowedRoles={["admin"]}><ManageMobileProviders /></ProtectedRoute>} />
         <Route path="/admin/changelog" element={<ProtectedRoute allowedRoles={["admin"]}><ManageChangelog /></ProtectedRoute>} />
         <Route path="/admin/ai-security" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAISecurity /></ProtectedRoute>} />
+        <Route path="/admin/ai-defense" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAIDefense /></ProtectedRoute>} />
         <Route path="/admin/firewall" element={<ProtectedRoute allowedRoles={["admin"]}><AdminFirewall /></ProtectedRoute>} />
         <Route path="/admin/litenode" element={<ProtectedRoute allowedRoles={["admin"]}><AdminLitenode /></ProtectedRoute>} />
         <Route path="/admin/rpc-node" element={<ProtectedRoute allowedRoles={["admin"]}><AdminRPCNode /></ProtectedRoute>} />
@@ -272,12 +398,21 @@ const AppRoutes = () => {
         <Route path="/admin/countries" element={<ProtectedRoute allowedRoles={["admin"]}><AdminCountries /></ProtectedRoute>} />
         <Route path="/admin/console" element={<ProtectedRoute allowedRoles={["admin"]}><AdminConsole /></ProtectedRoute>} />
         <Route path="/admin/apk-builder" element={<ProtectedRoute allowedRoles={["admin"]}><AdminApkBuilder /></ProtectedRoute>} />
+        <Route path="/admin/download-poster" element={<ProtectedRoute allowedRoles={["admin"]}><AdminDownloadPoster /></ProtectedRoute>} />
+        <Route path="/admin/send-update" element={<ProtectedRoute allowedRoles={["admin"]}><AdminSendUpdate /></ProtectedRoute>} />
         <Route path="/admin/legal" element={<ProtectedRoute allowedRoles={["admin"]}><LegalCompliance /></ProtectedRoute>} />
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/feedback" element={<Feedback />} />
+        <Route path="/currency-converter" element={<CurrencyConverter />} />
+        <Route path="/whats-new" element={<WhatsNew />} />
+        <Route path="/recommendations" element={<PersonalizedRecommendations />} />
+        <Route path="/nfc-payment" element={<NFCTapPayment />} />
+        <Route path="/api-integrations" element={<APIIntegrations />} />
+        <Route path="/open-banking" element={<OpenBanking />} />
+        <Route path="/download-app" element={<DownloadApp />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     );
@@ -301,6 +436,7 @@ const App = () => (
         >
           <ForceUpdateGate>
             <ScrollToTop />
+            <GlobalOverlays />
             <Suspense fallback={<FullScreenLoader />}>
               <AppRoutes />
             </Suspense>

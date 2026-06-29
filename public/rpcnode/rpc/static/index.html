@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GYDS Chain — Network Dashboard</title>
+  <style>
+    :root {
+      --bg:     #0b0f1a;
+      --card:   #111827;
+      --border: #1e2d40;
+      --accent: #10b981;
+      --accent2:#3b82f6;
+      --warn:   #f59e0b;
+      --danger: #ef4444;
+      --text:   #e2e8f0;
+      --muted:  #64748b;
+      --mono:   'JetBrains Mono','Fira Code','Courier New',monospace;
+    }
+
+    body.light {
+      --bg:     #f1f5f9;
+      --card:   #ffffff;
+      --border: #e2e8f0;
+      --text:   #1e293b;
+      --muted:  #94a3b8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      min-height: 100vh;
+      transition: background .25s, color .25s;
+    }
+
+    /* ── Top Bar ─────────────────────────────────────── */
+    .topbar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .topbar-left  { display: flex; align-items: center; gap: 14px; }
+    .topbar-right { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+
+    .logo {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 16px; color: #fff; letter-spacing: -1px;
+    }
+    .brand { font-size: 18px; font-weight: 700; }
+    .brand span { color: var(--accent); }
+
+    .status-pill {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.3);
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 12px; font-weight: 600; color: var(--accent);
+    }
+    .status-pill .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent); animation: pulse 2s infinite;
+    }
+    .status-pill.offline { background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.3); color: var(--danger); }
+    .status-pill.offline .dot { background: var(--danger); animation: none; }
+
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+
+    .icon-btn {
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); border-radius: 6px;
+      padding: 4px 10px; font-size: 13px; cursor: pointer;
+      transition: all .2s; line-height: 1.4;
+    }
+    .icon-btn:hover { color: var(--text); border-color: var(--accent); }
+
+    /* ── Layout ──────────────────────────────────────── */
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px 20px; }
+
+    /* ── Stat Cards ──────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
+      gap: 16px; margin-bottom: 24px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px;
+    }
+    .stat-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .08em; color: var(--muted); margin-bottom: 8px;
+    }
+    .stat-value { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .stat-value.accent  { color: var(--accent); }
+    .stat-value.accent2 { color: var(--accent2); }
+    .stat-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Validator Panel ─────────────────────────────── */
+    .val-grid { display: flex; flex-direction: column; gap: 8px; }
+    .val-row {
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px;
+    }
+    .val-idx {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      min-width: 22px; font-family: var(--mono);
+    }
+    .val-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent); flex-shrink: 0; animation: pulse 2s infinite;
+    }
+    .val-addr {
+      font-family: var(--mono); font-size: 12px; color: var(--text);
+      flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .val-badge {
+      font-size: 11px; font-weight: 600; color: var(--accent);
+      background: rgba(16,185,129,.12); border-radius: 12px; padding: 2px 9px;
+      flex-shrink: 0;
+    }
+    .val-loading { color: var(--muted); font-size: 13px; padding: 12px 0; }
+
+    /* ── Block Tx Chart ──────────────────────────────── */
+    .chart-wrap {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 18px 20px; margin-bottom: 24px;
+    }
+    .chart-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .chart-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .chart-bars {
+      display: flex; align-items: flex-end; gap: 3px;
+      height: 76px; padding-bottom: 0;
+    }
+    .chart-bar {
+      flex: 1; border-radius: 3px 3px 0 0; min-height: 3px; cursor: pointer;
+      background: linear-gradient(180deg, var(--accent2), rgba(59,130,246,.25));
+      transition: opacity .15s; position: relative;
+    }
+    .chart-bar.zero { background: rgba(255,255,255,.06); }
+    .chart-bar:hover { opacity: .7; }
+    .chart-bar::after {
+      content: attr(data-tip);
+      position: absolute; bottom: calc(100% + 6px);
+      left: 50%; transform: translateX(-50%);
+      background: #0b0f1a; color: #e2e8f0;
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 4px 8px; font-size: 11px; white-space: nowrap;
+      pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 10;
+    }
+    .chart-bar:hover::after { opacity: 1; }
+    .chart-axis {
+      display: flex; justify-content: space-between;
+      margin-top: 4px; font-size: 10px; color: var(--muted); font-family: var(--mono);
+    }
+
+    /* ── Wallet Connect Row ──────────────────────────── */
+    .wallet-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;
+    }
+    .wallet-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px;
+    }
+    .wallet-card h3 {
+      font-size: 14px; font-weight: 700; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; border-radius: 8px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      border: none; transition: all .2s; text-decoration: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #059669);
+      color: #fff; width: 100%; justify-content: center; margin-bottom: 8px;
+    }
+    .btn-primary:hover { opacity: .9; transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .btn-outline {
+      background: transparent; color: var(--text);
+      border: 1px solid var(--border); width: 100%; justify-content: center;
+    }
+    .btn-outline:hover { border-color: var(--accent2); color: var(--accent2); }
+
+    .net-fields { display: flex; flex-direction: column; gap: 6px; }
+    .net-row {
+      display: flex; align-items: center;
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: 6px; padding: 8px 12px; font-size: 12px;
+    }
+    .net-row .nk { color: var(--muted); min-width: 100px; }
+    .net-row .nv {
+      color: var(--text); font-family: var(--mono); flex: 1;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .copy-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-size: 12px; padding: 0 4px; transition: color .2s;
+    }
+    .copy-btn:hover { color: var(--accent); }
+
+    .tls-warn {
+      background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.3);
+      border-radius: 8px; padding: 10px 12px; font-size: 12px;
+      color: var(--warn); margin-top: 10px; display: none;
+    }
+    .tls-warn.show { display: block; }
+
+    /* ── Section Headers ─────────────────────────────── */
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
+    }
+    .section-title { font-size: 15px; font-weight: 700; }
+
+    /* ── Blocks Table ────────────────────────────────── */
+    .table-wrap {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      background: rgba(255,255,255,.03); text-align: left;
+      padding: 12px 16px; font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr {
+      border-bottom: 1px solid rgba(255,255,255,.04);
+      transition: background .15s; cursor: pointer;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(59,130,246,.07); }
+    tbody tr.new-block { animation: flashRow .6s ease-out; }
+    @keyframes flashRow {
+      0%   { background: rgba(16,185,129,.15); }
+      100% { background: transparent; }
+    }
+    td { padding: 12px 16px; vertical-align: middle; }
+
+    .block-num  { font-weight: 700; color: var(--accent2); font-family: var(--mono); }
+    .hash-cell  { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+    .tx-badge   {
+      background: rgba(59,130,246,.15); color: var(--accent2);
+      border-radius: 20px; padding: 2px 10px; font-size: 11px; font-weight: 600;
+    }
+    .tx-badge.zero { background: rgba(100,116,139,.1); color: var(--muted); }
+    .validator-cell { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .age-cell   { color: var(--muted); font-size: 12px; }
+    .loading-row td { text-align: center; color: var(--muted); padding: 40px; }
+
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .8s linear infinite;
+      vertical-align: middle; margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Block Detail Modal ──────────────────────────── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.65);
+      z-index: 1000; display: flex; align-items: center; justify-content: center;
+      padding: 16px; opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal-panel {
+      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+      width: min(700px,100%); max-height: 88vh; overflow-y: auto; padding: 28px;
+      transform: translateY(16px); transition: transform .2s;
+    }
+    .modal-overlay.open .modal-panel { transform: translateY(0); }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
+    }
+    .modal-title { font-size: 16px; font-weight: 700; color: var(--accent2); }
+    .modal-close {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      border-radius: 6px; width: 30px; height: 30px; font-size: 16px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: all .15s;
+    }
+    .modal-close:hover { color: var(--danger); border-color: var(--danger); }
+    .modal-row {
+      display: flex; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.05);
+    }
+    .modal-row:last-of-type { border-bottom: none; }
+    .modal-key {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--muted); min-width: 130px; padding-top: 2px; flex-shrink: 0;
+    }
+    .modal-val { font-size: 13px; color: var(--text); font-family: var(--mono); word-break: break-all; flex: 1; }
+    .modal-tx-section { margin-top: 20px; }
+    .modal-tx-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--muted); margin-bottom: 10px;
+    }
+    .modal-tx-item {
+      font-family: var(--mono); font-size: 11px; color: var(--accent2);
+      padding: 7px 10px; background: rgba(59,130,246,.06); border-radius: 6px;
+      margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      cursor: pointer; transition: background .15s;
+    }
+    .modal-tx-item:hover { background: rgba(59,130,246,.12); }
+    .modal-empty {
+      font-size: 13px; color: var(--muted); text-align: center;
+      padding: 20px; background: rgba(255,255,255,.02); border-radius: 8px;
+    }
+
+    /* ── RPC Tester ──────────────────────────────────── */
+    .rpc-tester {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px; margin-top: 24px;
+    }
+    .rpc-tester h3 { font-size: 14px; font-weight: 700; margin-bottom: 14px; }
+    .method-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .method-chip {
+      background: rgba(255,255,255,.05); border: 1px solid var(--border);
+      border-radius: 20px; padding: 5px 14px; font-size: 12px; font-family: var(--mono);
+      cursor: pointer; transition: all .15s; color: var(--muted);
+    }
+    .method-chip:hover, .method-chip.active {
+      background: rgba(16,185,129,.12); border-color: var(--accent); color: var(--accent);
+    }
+    .rpc-output {
+      background: rgba(0,0,0,.4); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px; font-family: var(--mono);
+      font-size: 12px; color: var(--accent); min-height: 60px;
+      max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+    }
+
+    /* ── Footer ──────────────────────────────────────── */
+    footer {
+      margin-top: 40px; padding: 20px; text-align: center;
+      border-top: 1px solid var(--border); font-size: 12px; color: var(--muted);
+    }
+    footer a { color: var(--accent2); text-decoration: none; }
+
+    /* ── Toast ───────────────────────────────────────── */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 18px; font-size: 13px;
+      color: var(--accent); box-shadow: 0 8px 32px rgba(0,0,0,.4);
+      opacity: 0; transform: translateY(10px); transition: all .3s;
+      z-index: 999; pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ── Mobile Responsive ───────────────────────────── */
+    @media (max-width: 768px) {
+      .wallet-row { grid-template-columns: 1fr; }
+      .topbar { padding: 12px 16px; }
+      .container { padding: 16px; }
+    }
+    @media (max-width: 640px) {
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .stat-value  { font-size: 22px; }
+      thead th:nth-child(2),
+      td:nth-child(2)  { display: none; }
+      thead th:nth-child(4),
+      td:nth-child(4)  { display: none; }
+      .chart-bars { height: 56px; }
+      #lastUpdate { display: none; }
+    }
+    @media (max-width: 400px) {
+      .stats-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Top Bar ─────────────────────────────────────── -->
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="logo">GY</div>
+    <span class="brand">GYDS <span>Chain</span></span>
+    <div class="status-pill offline" id="statusPill">
+      <div class="dot"></div>
+      <span id="statusText">Connecting…</span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span id="lastUpdate">—</span>
+    <button class="icon-btn" onclick="toggleTheme()" id="themeBtn" title="Toggle light/dark mode">🌙</button>
+    <button class="icon-btn" onclick="refresh()">⟳ Refresh</button>
+  </div>
+</header>
+
+<!-- ── Main Content ────────────────────────────────── -->
+<main class="container">
+
+  <!-- Stat Cards -->
+  <div class="stats-grid">
+    <div class="card">
+      <div class="stat-label">Block Height</div>
+      <div class="stat-value accent" id="blockHeight" style="transition:transform .3s">—</div>
+      <div class="stat-sub">Latest confirmed block</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Chain ID</div>
+      <div class="stat-value" id="chainId">13370</div>
+      <div class="stat-sub">Hex: 0x343A</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Gas Price</div>
+      <div class="stat-value accent2" id="gasPrice">1 Gwei</div>
+      <div class="stat-sub">Current base fee</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Block Time</div>
+      <div class="stat-value">5s</div>
+      <div class="stat-sub">PoS target interval</div>
+    </div>
+  </div>
+
+  <!-- Validator Stats Panel -->
+  <div class="section-header" style="margin-bottom:12px">
+    <span class="section-title">⚡ Active Validators</span>
+    <span style="font-size:12px;color:var(--muted)" id="valCount">—</span>
+  </div>
+  <div class="card" style="margin-bottom:24px">
+    <div class="val-grid" id="validatorGrid">
+      <div class="val-loading"><span class="spinner"></span> Loading validators…</div>
+    </div>
+  </div>
+
+  <!-- Block Tx Chart -->
+  <div class="chart-wrap">
+    <div class="chart-header">
+      <span style="font-size:14px;font-weight:700">📊 Transactions per Block</span>
+      <span class="chart-label" id="chartMeta">last 20 blocks</span>
+    </div>
+    <div class="chart-bars" id="chartBars">
+      <div style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px">
+        <span class="spinner"></span> Waiting for blocks…
+      </div>
+    </div>
+    <div class="chart-axis" id="chartAxis"></div>
+  </div>
+
+  <!-- Wallet Connect Row -->
+  <div class="wallet-row">
+
+    <!-- MetaMask -->
+    <div class="wallet-card">
+      <h3>🦊 Add to MetaMask</h3>
+      <button class="btn btn-primary" id="mmBtn" onclick="addToMetaMask()">
+        ➕ Add GYDS Chain to MetaMask
+      </button>
+      <button class="btn btn-outline" id="mmSwitchBtn" onclick="switchToGyds()" style="display:none">
+        🔄 Switch to GYDS Chain
+      </button>
+      <div class="net-fields" style="margin-top:12px">
+        <div class="net-row"><span class="nk">Network</span><span class="nv">GYDS Chain</span></div>
+        <div class="net-row"><span class="nk">Chain ID</span><span class="nv">13370 (0x343A)</span></div>
+        <div class="net-row">
+          <span class="nk">RPC URL</span>
+          <span class="nv" id="rpcUrl">—</span>
+          <button class="copy-btn" onclick="copyText('rpcUrl')" title="Copy">⧉</button>
+        </div>
+        <div class="net-row">
+          <span class="nk">WebSocket</span>
+          <span class="nv" id="wsUrl">—</span>
+          <button class="copy-btn" onclick="copyText('wsUrl')" title="Copy">⧉</button>
+        </div>
+        <div class="net-row"><span class="nk">Symbol</span><span class="nv">GYDS</span></div>
+        <div class="net-row"><span class="nk">Decimals</span><span class="nv">18</span></div>
+      </div>
+    </div>
+
+    <!-- Trust Wallet -->
+    <div class="wallet-card">
+      <h3>📱 Trust Wallet / Manual Setup</h3>
+      <div class="net-fields">
+        <div class="net-row"><span class="nk">App</span><span class="nv">Settings → Networks → + Add</span></div>
+        <div class="net-row"><span class="nk">Name</span><span class="nv">GYDS Chain</span></div>
+        <div class="net-row">
+          <span class="nk">RPC URL</span>
+          <span class="nv" id="twRpcUrl">—</span>
+          <button class="copy-btn" onclick="copyText('twRpcUrl')" title="Copy">⧉</button>
+        </div>
+        <div class="net-row"><span class="nk">Chain ID</span><span class="nv">13370</span></div>
+        <div class="net-row"><span class="nk">Symbol</span><span class="nv">GYDS</span></div>
+        <div class="net-row"><span class="nk">Decimals</span><span class="nv">18</span></div>
+      </div>
+      <div class="tls-warn" id="tlsWarn">
+        ⚠️ Trust Wallet mobile requires an <strong>https://</strong> RPC URL.
+        Run the setup script with <code>--domain your.domain.com</code> to enable TLS.
+      </div>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div style="margin-bottom:24px">
+    <div class="section-header" style="margin-bottom:12px">
+      <span class="section-title">🔍 Search</span>
+      <span style="font-size:12px;color:var(--muted)">Transaction hash or wallet address</span>
+    </div>
+    <div class="card" style="padding:20px">
+      <div style="display:flex;gap:10px;margin-bottom:16px">
+        <input id="searchInput" type="text"
+          placeholder="0x… transaction hash (66 chars) or wallet address (42 chars)"
+          style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-family:var(--mono);font-size:13px;outline:none;transition:border-color .2s"
+          onfocus="this.style.borderColor='var(--accent)'"
+          onblur="this.style.borderColor='var(--border)'"
+          onkeydown="if(event.key==='Enter')doSearch()" />
+        <button onclick="doSearch()" style="background:linear-gradient(135deg,var(--accent),#059669);border:none;border-radius:8px;padding:10px 22px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;transition:opacity .2s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">Search</button>
+      </div>
+      <div id="searchResult"></div>
+    </div>
+  </div>
+
+  <!-- Recent Blocks -->
+  <div class="section-header">
+    <span class="section-title">Recent Blocks</span>
+    <span style="font-size:12px;color:var(--muted)" id="blockCount">—</span>
+  </div>
+  <div class="table-wrap" style="margin-bottom:0">
+    <table>
+      <thead>
+        <tr>
+          <th>Block</th>
+          <th>Hash</th>
+          <th>Txns</th>
+          <th>Validator</th>
+          <th>Age</th>
+        </tr>
+      </thead>
+      <tbody id="blocksBody">
+        <tr class="loading-row">
+          <td colspan="5"><span class="spinner"></span> Loading blocks…</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div style="font-size:12px;color:var(--muted);margin-top:8px;margin-bottom:24px">
+    💡 Click any block row to see full details
+  </div>
+
+  <!-- Live RPC Tester -->
+  <div class="rpc-tester">
+    <h3>🧪 Live RPC Tester</h3>
+    <div class="method-grid" id="methodGrid"></div>
+    <div class="rpc-output" id="rpcOutput">// Click a method above to test the RPC endpoint</div>
+  </div>
+
+</main>
+
+<!-- Footer -->
+<footer>
+  GYDS Chain · Chain ID 13370 · Symbol GYDS · Decimals 18 ·
+  <a href="/api/status" target="_blank">API Status</a> ·
+  <a href="/metrics" target="_blank">Prometheus</a> ·
+  <a href="https://github.com/hc172808" target="_blank">GitHub</a>
+</footer>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Block Detail Modal -->
+<div class="modal-overlay" id="blockModal" onclick="handleModalClick(event)">
+  <div class="modal-panel" id="modalPanel">
+    <div class="modal-header">
+      <span class="modal-title" id="modalTitle">Block Details</span>
+      <button class="modal-close" onclick="closeBlockModal()">✕</button>
+    </div>
+    <div id="modalBody">
+      <div style="text-align:center;padding:40px;color:var(--muted)"><span class="spinner"></span> Loading…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Config ────────────────────────────────────────────────
+  const CHAIN_ID     = 13370;
+  const CHAIN_ID_HEX = '0x343A';
+  const CHAIN_NAME   = 'GYDS Chain';
+  const SYMBOL       = 'GYDS';
+  const REFRESH_MS   = 5000;
+
+  const origin   = window.location.origin;
+  const wsProto  = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsOrigin = origin.replace(/^https?/, wsProto);
+
+  // ── State ─────────────────────────────────────────────────
+  let lastHeight = -1;
+  let chartBlocks = [];
+
+  // ── Init ──────────────────────────────────────────────────
+  window.addEventListener('load', () => {
+    restoreTheme();
+    setUrls();
+    checkTLS();
+    buildMethodChips();
+    fetchValidators();
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeBlockModal();
+  });
+
+  // ── Theme Toggle ──────────────────────────────────────────
+  function restoreTheme() {
+    if (localStorage.getItem('gyds-theme') === 'light') applyLight();
+  }
+  function applyLight() {
+    document.body.classList.add('light');
+    document.getElementById('themeBtn').textContent = '☀️';
+  }
+  function applyDark() {
+    document.body.classList.remove('light');
+    document.getElementById('themeBtn').textContent = '🌙';
+  }
+  function toggleTheme() {
+    if (document.body.classList.contains('light')) {
+      applyDark();
+      localStorage.setItem('gyds-theme', 'dark');
+    } else {
+      applyLight();
+      localStorage.setItem('gyds-theme', 'light');
+    }
+  }
+
+  // ── URLs ──────────────────────────────────────────────────
+  function setUrls() {
+    const ws = wsOrigin + '/api/ws';
+    document.getElementById('rpcUrl').textContent   = origin;
+    document.getElementById('wsUrl').textContent    = ws;
+    document.getElementById('twRpcUrl').textContent = origin;
+  }
+  function checkTLS() {
+    if (location.protocol !== 'https:')
+      document.getElementById('tlsWarn').classList.add('show');
+  }
+
+  // ── Refresh ───────────────────────────────────────────────
+  async function refresh() {
+    try {
+      const [numRes, blocksRes] = await Promise.all([
+        rpc('eth_blockNumber'),
+        fetch('/api/blocks?limit=20')
+      ]);
+      const blockNum = parseInt(numRes.result, 16);
+      updateStats(blockNum);
+      const { blocks } = await blocksRes.json();
+      const list = blocks || [];
+      renderBlocks(list, blockNum);
+      renderChart(list);
+      setOnline(true);
+    } catch {
+      setOnline(false);
+    }
+    document.getElementById('lastUpdate').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+  }
+
+  function updateStats(height) {
+    if (height !== lastHeight) {
+      const el = document.getElementById('blockHeight');
+      el.textContent = height.toLocaleString();
+      el.style.transform = 'scale(1.05)';
+      setTimeout(() => el.style.transform = '', 300);
+      lastHeight = height;
+    }
+  }
+
+  function setOnline(online) {
+    const pill = document.getElementById('statusPill');
+    const txt  = document.getElementById('statusText');
+    pill.className = 'status-pill' + (online ? '' : ' offline');
+    txt.textContent = online ? 'Live' : 'Offline';
+  }
+
+  // ── Block Chart ───────────────────────────────────────────
+  function renderChart(blocks) {
+    if (!blocks || blocks.length === 0) return;
+    chartBlocks = blocks;
+    const counts = blocks.map(b => typeof b.transactions === 'number' ? b.transactions : 0);
+    const maxCount = Math.max(...counts, 1);
+    const total = counts.reduce((a, b) => a + b, 0);
+
+    const bars = blocks.map(b => {
+      const c   = typeof b.transactions === 'number' ? b.transactions : 0;
+      const pct = Math.max(4, Math.round((c / maxCount) * 100));
+      const tip = `#${(b.number||0).toLocaleString()} · ${c} txn${c !== 1 ? 's' : ''}`;
+      return `<div class="chart-bar${c === 0 ? ' zero' : ''}" style="height:${pct}%" data-tip="${tip}" onclick="openBlockModal(${b.number||0})"></div>`;
+    }).join('');
+
+    document.getElementById('chartBars').innerHTML = bars;
+    document.getElementById('chartMeta').textContent =
+      `${blocks.length} blocks · ${total} total txns · peak ${maxCount}`;
+
+    if (blocks.length > 0) {
+      const first = blocks[blocks.length - 1];
+      const last  = blocks[0];
+      document.getElementById('chartAxis').innerHTML =
+        `<span>#${(first.number||0).toLocaleString()}</span><span>#${(last.number||0).toLocaleString()}</span>`;
+    }
+  }
+
+  // ── Block Table ───────────────────────────────────────────
+  function renderBlocks(blocks, latestHeight) {
+    const tbody = document.getElementById('blocksBody');
+    document.getElementById('blockCount').textContent = `${blocks.length} blocks shown`;
+
+    if (!blocks.length) {
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="5">No blocks yet</td></tr>';
+      return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    tbody.innerHTML = blocks.map(b => {
+      const isNew     = b.number === latestHeight && lastHeight !== latestHeight;
+      const age       = b.timestamp ? ago(now - b.timestamp) : '—';
+      const hash      = b.hash || '—';
+      const shortHash = hash.length > 14 ? hash.slice(0,10)+'…'+hash.slice(-6) : hash;
+      const validator = b.validator || '—';
+      const shortVal  = validator.length > 14 ? validator.slice(0,8)+'…'+validator.slice(-4) : validator;
+      const txCount   = typeof b.transactions === 'number' ? b.transactions : 0;
+      return `<tr class="${isNew ? 'new-block' : ''}" onclick="openBlockModal(${b.number||0})" title="Click to view block #${b.number||0} details">
+        <td><span class="block-num">#${(b.number||0).toLocaleString()}</span></td>
+        <td><span class="hash-cell" title="${hash}">${shortHash}</span></td>
+        <td><span class="tx-badge ${txCount === 0 ? 'zero' : ''}">${txCount}</span></td>
+        <td><span class="validator-cell" title="${validator}">${shortVal}</span></td>
+        <td><span class="age-cell">${age}</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function ago(seconds) {
+    if (seconds < 5)    return 'just now';
+    if (seconds < 60)   return seconds + 's ago';
+    if (seconds < 3600) return Math.floor(seconds/60) + 'm ago';
+    return Math.floor(seconds/3600) + 'h ago';
+  }
+
+  // ── Block Detail Modal ────────────────────────────────────
+  async function openBlockModal(blockNum) {
+    const modal = document.getElementById('blockModal');
+    document.getElementById('modalTitle').textContent = `Block #${blockNum.toLocaleString()}`;
+    document.getElementById('modalBody').innerHTML =
+      '<div style="text-align:center;padding:40px;color:var(--muted)"><span class="spinner"></span> Loading…</div>';
+    modal.classList.add('open');
+
+    try {
+      const res = await rpc('eth_getBlockByNumber', ['0x' + blockNum.toString(16), true]);
+      const b   = res.result;
+      if (!b) throw new Error('Block not found');
+
+      const num       = parseInt(b.number, 16);
+      const ts        = parseInt(b.timestamp, 16);
+      const gasUsed   = parseInt(b.gasUsed, 16);
+      const gasLimit  = parseInt(b.gasLimit, 16);
+      const gasStr    = `${gasUsed.toLocaleString()} / ${gasLimit.toLocaleString()} (${Math.round(gasUsed/gasLimit*100)}%)`;
+      const txs       = b.transactions || [];
+      const timeStr   = ts ? new Date(ts * 1000).toLocaleString() : '—';
+      const pct       = gasLimit > 0 ? Math.round(gasUsed / gasLimit * 100) : 0;
+
+      const rows = [
+        ['Block Number', `#${num.toLocaleString()}`],
+        ['Hash',         b.hash || '—'],
+        ['Parent Hash',  b.parentHash || '—'],
+        ['Validator',    b.miner || '—'],
+        ['Timestamp',    `${timeStr} (${ts})`],
+        ['Gas Used',     gasStr],
+        ['Difficulty',   b.difficulty || '—'],
+        ['Size',         parseInt(b.size||'0x0', 16).toLocaleString() + ' bytes'],
+        ['Transactions', txs.length.toLocaleString()],
+      ].map(([k,v]) =>
+        `<div class="modal-row"><span class="modal-key">${k}</span><span class="modal-val">${v}</span></div>`
+      ).join('');
+
+      const txList = txs.length === 0
+        ? '<div class="modal-empty">No transactions in this block</div>'
+        : txs.map(tx => {
+            const h = typeof tx === 'string' ? tx : tx.hash;
+            return `<div class="modal-tx-item" onclick="document.getElementById('searchInput').value='${h}';closeBlockModal();doSearch()" title="${h}">${h}</div>`;
+          }).join('');
+
+      document.getElementById('modalBody').innerHTML = `
+        <div>${rows}</div>
+        <div class="modal-tx-section">
+          <div class="modal-tx-label">Transactions (${txs.length})</div>
+          ${txList}
+        </div>`;
+    } catch (e) {
+      document.getElementById('modalBody').innerHTML =
+        `<div style="color:var(--danger);padding:20px;text-align:center">❌ Could not load block: ${e.message}</div>`;
+    }
+  }
+
+  function closeBlockModal() {
+    document.getElementById('blockModal').classList.remove('open');
+  }
+
+  function handleModalClick(e) {
+    if (e.target === document.getElementById('blockModal')) closeBlockModal();
+  }
+
+  // ── Validator Panel ───────────────────────────────────────
+  async function fetchValidators() {
+    try {
+      const res = await rpc('gyds_validatorSet', []);
+      const data = res.result;
+      if (!data) throw new Error('no result');
+      const validators = data.validators || [];
+      document.getElementById('valCount').textContent =
+        `${validators.length} validator${validators.length !== 1 ? 's' : ''} · epoch ${data.epoch||1}`;
+      if (validators.length === 0) {
+        document.getElementById('validatorGrid').innerHTML =
+          '<div class="val-loading" style="color:var(--muted)">No validators found</div>';
+        return;
+      }
+      document.getElementById('validatorGrid').innerHTML = validators.map((v, i) => `
+        <div class="val-row">
+          <span class="val-idx">#${i}</span>
+          <div class="val-dot"></div>
+          <span class="val-addr" title="${v.address}">${v.address}</span>
+          <button class="copy-btn" onclick="navigator.clipboard.writeText('${v.address}').then(()=>toast('Copied!'))" title="Copy">⧉</button>
+          <span class="val-badge">${v.status||'active'}</span>
+        </div>`).join('');
+    } catch {
+      document.getElementById('validatorGrid').innerHTML =
+        '<div class="val-loading" style="color:var(--muted);font-size:13px">⚠️ Could not load validators. Update node to expose <code>gyds_validatorSet</code>.</div>';
+    }
+  }
+
+  // ── MetaMask ──────────────────────────────────────────────
+  async function addToMetaMask() {
+    if (!window.ethereum) {
+      toast('MetaMask not detected. Install it at metamask.io');
+      return;
+    }
+    try {
+      await window.ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [{ chainId: CHAIN_ID_HEX, chainName: CHAIN_NAME,
+          nativeCurrency: { name: SYMBOL, symbol: SYMBOL, decimals: 18 },
+          rpcUrls: [origin], blockExplorerUrls: null }]
+      });
+      toast('✅ GYDS Chain added to MetaMask!');
+      document.getElementById('mmBtn').style.display = 'none';
+      document.getElementById('mmSwitchBtn').style.display = 'flex';
+    } catch (e) {
+      if (e.code !== 4001) toast('Error: ' + (e.message || e));
+    }
+  }
+
+  async function switchToGyds() {
+    if (!window.ethereum) return;
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID_HEX }]
+      });
+      toast('✅ Switched to GYDS Chain');
+    } catch (e) {
+      if (e.code === 4902) addToMetaMask();
+    }
+  }
+
+  if (window.ethereum) {
+    window.ethereum.request({ method: 'eth_chainId' }).then(id => {
+      if (parseInt(id, 16) === CHAIN_ID) {
+        document.getElementById('mmBtn').style.display = 'none';
+        document.getElementById('mmSwitchBtn').style.display = 'flex';
+      }
+    }).catch(() => {});
+  }
+
+  // ── RPC Tester ────────────────────────────────────────────
+  const METHODS = [
+    { label: 'eth_chainId',        params: [] },
+    { label: 'eth_blockNumber',    params: [] },
+    { label: 'net_version',        params: [] },
+    { label: 'eth_gasPrice',       params: [] },
+    { label: 'eth_syncing',        params: [] },
+    { label: 'web3_clientVersion', params: [] },
+    { label: 'net_peerCount',      params: [] },
+    { label: 'gyds_validatorSet',  params: [] },
+  ];
+
+  function buildMethodChips() {
+    const grid = document.getElementById('methodGrid');
+    METHODS.forEach(m => {
+      const c = document.createElement('button');
+      c.className = 'method-chip';
+      c.textContent = m.label;
+      c.onclick = async () => {
+        document.querySelectorAll('.method-chip').forEach(x => x.classList.remove('active'));
+        c.classList.add('active');
+        const out = document.getElementById('rpcOutput');
+        out.textContent = '// Calling ' + m.label + '…';
+        try {
+          const res = await rpc(m.label, m.params);
+          out.textContent = JSON.stringify(res, null, 2);
+        } catch (e) {
+          out.textContent = '// Error: ' + e.message;
+        }
+      };
+      grid.appendChild(c);
+    });
+  }
+
+  // ── Helpers ───────────────────────────────────────────────
+  async function rpc(method, params = []) {
+    const res = await fetch('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 })
+    });
+    return res.json();
+  }
+
+  function copyText(elementId) {
+    const text = document.getElementById(elementId).textContent;
+    navigator.clipboard.writeText(text).then(() => toast('Copied!'));
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+  }
+
+  // ── Search ─────────────────────────────────────────────────
+  async function doSearch() {
+    const raw = document.getElementById('searchInput').value.trim();
+    const out = document.getElementById('searchResult');
+    if (!raw) return;
+
+    out.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:8px 0"><span class="spinner"></span> Searching…</div>`;
+
+    const clean = raw.startsWith('0x') ? raw : '0x' + raw;
+
+    if (/^\d+$/.test(raw)) {
+      await searchBlock(parseInt(raw), out);
+    } else if (clean.length === 66) {
+      await searchTx(clean, out);
+    } else if (clean.length === 42) {
+      await searchAccount(clean, out);
+    } else {
+      out.innerHTML = renderSearchError('Input must be a block number, 66-char tx hash, or 42-char wallet address.');
+    }
+  }
+
+  async function searchBlock(num, out) {
+    try {
+      const res = await rpc('eth_getBlockByNumber', ['0x' + num.toString(16), true]);
+      if (!res.result) throw new Error('not found');
+      const b = res.result;
+      const ts = parseInt(b.timestamp, 16);
+      out.innerHTML = `
+        <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:18px;margin-top:4px">
+          <div style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:13px;font-weight:700;color:var(--accent2)">Block #${num.toLocaleString()}</span>
+            <button class="btn-primary btn" style="width:auto;margin:0;padding:6px 14px;font-size:12px" onclick="openBlockModal(${num})">View Details →</button>
+          </div>
+          ${searchRow('Hash',        `<span style="font-family:var(--mono);font-size:11px;word-break:break-all">${b.hash}</span>`)}
+          ${searchRow('Validator',   `<span style="font-family:var(--mono);font-size:12px">${b.miner||'—'}</span>`)}
+          ${searchRow('Timestamp',   new Date(ts*1000).toLocaleString())}
+          ${searchRow('Transactions',`${(b.transactions||[]).length} txns`)}
+          ${searchRow('Gas Used',    `${parseInt(b.gasUsed,16).toLocaleString()} / ${parseInt(b.gasLimit,16).toLocaleString()}`)}
+        </div>`;
+    } catch {
+      out.innerHTML = renderSearchError('Block #' + num + ' not found.');
+    }
+  }
+
+  async function searchTx(hash, out) {
+    try {
+      const res = await fetch('/api/transactions/' + hash);
+      if (!res.ok) throw new Error('not found');
+      const data = await res.json();
+      const tx = data.transaction || data;
+      if (!tx || !tx.hash) throw new Error('not found');
+      out.innerHTML = renderTxCard(tx);
+    } catch {
+      try {
+        const rpcRes = await rpc('eth_getTransactionByHash', [hash]);
+        if (rpcRes.result) {
+          out.innerHTML = renderTxCard(normalizeRpcTx(rpcRes.result));
+        } else {
+          out.innerHTML = renderSearchError('Transaction not found: ' + hash);
+        }
+      } catch {
+        out.innerHTML = renderSearchError('Transaction not found: ' + hash);
+      }
+    }
+  }
+
+  async function searchAccount(address, out) {
+    try {
+      const [acctRes, txRes, balRpc] = await Promise.all([
+        fetch('/api/accounts/' + address).then(r => r.json()).catch(() => null),
+        fetch('/api/transactions?limit=100').then(r => r.json()).catch(() => ({ transactions: [] })),
+        rpc('eth_getBalance', [address, 'latest'])
+      ]);
+      const balWei = BigInt(balRpc.result || '0x0');
+      const balEth = (Number(balWei) / 1e18).toFixed(6);
+      const nonce  = acctRes?.nonce ?? acctRes?.tx_count ?? 0;
+      const all    = txRes.transactions || [];
+      const addr   = address.toLowerCase();
+      const mine   = all.filter(tx =>
+        (tx.from||'').toLowerCase() === addr || (tx.to||'').toLowerCase() === addr);
+      out.innerHTML = renderAccountCard(address, balEth, nonce, mine);
+    } catch (e) {
+      out.innerHTML = renderSearchError('Could not load account: ' + e.message);
+    }
+  }
+
+  function normalizeRpcTx(t) {
+    const weiVal = BigInt(t.value || '0x0');
+    return {
+      hash: t.hash, from: t.from, to: t.to,
+      value: '0x' + weiVal.toString(16),
+      gas: parseInt(t.gas, 16), gasPrice: parseInt(t.gasPrice, 16),
+      nonce: parseInt(t.nonce, 16), blockNumber: t.blockNumber ? parseInt(t.blockNumber, 16) : null,
+      status: 'confirmed'
+    };
+  }
+
+  function renderTxCard(tx) {
+    const weiVal  = BigInt(tx.value || '0x0');
+    const ethVal  = (Number(weiVal) / 1e18).toFixed(6);
+    const gasGwei = tx.gasPrice ? (Number(BigInt(tx.gasPrice || '0')) / 1e9).toFixed(2) + ' Gwei' : '1 Gwei';
+    const block   = tx.blockNumber || tx.block_num || '—';
+    const status  = tx.status || 'confirmed';
+    const statusColor = status === 'pending' ? 'var(--warn)' : 'var(--accent)';
+    return `
+      <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:18px;margin-top:4px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <span style="font-size:13px;font-weight:700;color:var(--accent2)">Transaction</span>
+          <span style="font-size:12px;font-weight:600;color:${statusColor};background:rgba(0,0,0,.2);border-radius:20px;padding:3px 10px">${status}</span>
+        </div>
+        ${searchRow('Hash',   `<span style="font-family:var(--mono);font-size:12px;word-break:break-all">${tx.hash}</span>`)}
+        ${searchRow('From',   `<span style="font-family:var(--mono);font-size:12px">${tx.from||'—'}</span><button class="copy-btn" onclick="navigator.clipboard.writeText('${tx.from||''}').then(()=>toast('Copied!'))">⧉</button>`)}
+        ${searchRow('To',     `<span style="font-family:var(--mono);font-size:12px">${tx.to||'—'}</span><button class="copy-btn" onclick="navigator.clipboard.writeText('${tx.to||''}').then(()=>toast('Copied!'))">⧉</button>`)}
+        ${searchRow('Value',  `<strong style="color:var(--accent)">${ethVal} GYDS</strong>`)}
+        ${searchRow('Gas',    `${(tx.gas||tx.gasLimit||21000).toLocaleString()} units @ ${gasGwei}`)}
+        ${searchRow('Block',  block !== '—' ? `<span style="color:var(--accent2);cursor:pointer" onclick="openBlockModal(${block})">#${block}</span>` : '—')}
+      </div>`;
+  }
+
+  function renderAccountCard(address, balEth, nonce, txs) {
+    const txRows = txs.length === 0
+      ? `<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">No transactions found for this address</div>`
+      : txs.map(tx => {
+          const isOut   = (tx.from||'').toLowerCase() === address.toLowerCase();
+          const other   = isOut ? tx.to : tx.from;
+          const shortOther = other ? other.slice(0,10)+'…'+other.slice(-6) : '—';
+          const weiVal  = BigInt(tx.value||'0x0');
+          const ethVal  = (Number(weiVal)/1e18).toFixed(4);
+          const shortHash = tx.hash ? tx.hash.slice(0,12)+'…'+tx.hash.slice(-6) : '—';
+          return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="width:30px;height:30px;border-radius:50%;background:${isOut?'rgba(239,68,68,.12)':'rgba(16,185,129,.12)'};display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">${isOut?'↑':'↓'}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-family:var(--mono);font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shortHash}</div>
+              <div style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${isOut?'To: ':'From: '}${shortOther}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div style="font-size:13px;font-weight:700;color:${isOut?'var(--danger)':'var(--accent)'}">${isOut?'-':'+'}${ethVal}</div>
+              <div style="font-size:11px;color:var(--muted)">GYDS</div>
+            </div>
+          </div>`;
+        }).join('');
+    return `
+      <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:18px;margin-top:4px">
+        <div style="margin-bottom:14px">
+          <span style="font-size:13px;font-weight:700;color:var(--accent2)">Wallet Account</span>
+        </div>
+        ${searchRow('Address', `<span style="font-family:var(--mono);font-size:12px;word-break:break-all">${address}</span><button class="copy-btn" onclick="navigator.clipboard.writeText('${address}').then(()=>toast('Copied!'))">⧉</button>`)}
+        ${searchRow('Balance', `<strong style="color:var(--accent);font-size:18px">${parseFloat(balEth).toLocaleString()} GYDS</strong>`)}
+        ${searchRow('Tx Count', nonce + ' transactions sent')}
+        <div style="margin-top:14px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">
+          Transactions (${txs.length} found)
+        </div>
+        <div style="max-height:280px;overflow-y:auto">${txRows}</div>
+      </div>`;
+  }
+
+  function searchRow(label, valueHtml) {
+    return `<div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+      <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);min-width:80px;padding-top:1px">${label}</span>
+      <span style="font-size:13px;color:var(--text);flex:1;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${valueHtml}</span>
+    </div>`;
+  }
+
+  function renderSearchError(msg) {
+    return `<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:12px 14px;font-size:13px;color:var(--danger);margin-top:4px">❌ ${msg}</div>`;
+  }
+</script>
+</body>
+</html>

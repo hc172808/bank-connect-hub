@@ -1,45 +1,70 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Supabase client
-//
-// ENV VAR PRIORITY (runtime env injection for multi-server support):
-//   1. window.__ENV__        ← injected by docker/generate-env.sh at container start
-//   2. import.meta.env.*     ← baked at Vite build time (development / Replit)
-//
-// This means one Docker image can run on any number of servers — each server
-// sets its own .env file pointing at the shared Supabase project.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-// Runtime env injected by docker/generate-env.sh (production)
-declare global {
-  interface Window {
-    __ENV__?: {
-      VITE_SUPABASE_URL?: string;
-      VITE_SUPABASE_PUBLISHABLE_KEY?: string;
-      VITE_SUPABASE_PROJECT_ID?: string;
-      VITE_WHATSAPP_SUPPORT_NUMBER?: string;
-      [key: string]: string | undefined;
-    };
-  }
+// Build-time env vars (baked into the bundle by Vite — safe for the anon/public key).
+// Used as an immediate fallback if /api/config is unreachable (e.g. mobile APK builds).
+const ENV_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const ENV_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+
+let _supabaseUrl = ENV_URL || '';
+let _supabaseAnonKey = ENV_KEY || '';
+let _initPromise: Promise<void> | null = null;
+
+function makeClient(url: string, key: string) {
+  return createClient<Database>(url, key, {
+    auth: {
+      storage: typeof localStorage !== 'undefined' ? localStorage : undefined,
+      persistSession: true,
+      autoRefreshToken: true,
+    },
+  });
 }
 
-const SUPABASE_URL =
-  (typeof window !== 'undefined' && window.__ENV__?.VITE_SUPABASE_URL) ||
-  import.meta.env.VITE_SUPABASE_URL;
+// Start with real credentials if env vars are available (covers mobile APK builds),
+// otherwise use a placeholder that will be replaced once /api/config responds.
+let _client = (_supabaseUrl && _supabaseAnonKey)
+  ? makeClient(_supabaseUrl, _supabaseAnonKey)
+  : makeClient('http://localhost', 'placeholder');
 
-const SUPABASE_PUBLISHABLE_KEY =
-  (typeof window !== 'undefined' && window.__ENV__?.VITE_SUPABASE_PUBLISHABLE_KEY) ||
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+export async function initSupabase(): Promise<void> {
+  if (_initPromise) return _initPromise;
+  _initPromise = fetch('/api/config')
+    .then(r => r.json())
+    .then((cfg: { supabaseUrl: string; supabaseAnonKey: string }) => {
+      if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
+        _supabaseUrl = cfg.supabaseUrl;
+        _supabaseAnonKey = cfg.supabaseAnonKey;
+        _client = makeClient(_supabaseUrl, _supabaseAnonKey);
+      }
+    })
+    .catch(() => {
+      // /api/config unreachable (e.g. mobile APK, offline). Fall back to build-time
+      // env vars which Vite has already baked into the bundle.
+      if (ENV_URL && ENV_KEY) {
+        _supabaseUrl = ENV_URL;
+        _supabaseAnonKey = ENV_KEY;
+        _client = makeClient(ENV_URL, ENV_KEY);
+        console.warn('[supabase] /api/config unreachable — using build-time env vars');
+      } else {
+        console.error('[supabase] No credentials available — set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY');
+      }
+    });
+  return _initPromise;
+}
 
-// Import the supabase client like this:
-// import { supabase } from "@/integrations/supabase/client";
+// Start the init immediately so it runs in parallel with React rendering.
+initSupabase();
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    storage: localStorage,
-    persistSession: true,
-    autoRefreshToken: true,
-  }
+// Export a stable reference — internal _client is replaced on init.
+// All callers go through this getter so they always get the live client.
+export function getSupabase() {
+  return _client;
+}
+
+// Legacy named export kept for the 112+ files that import it directly.
+// Wraps getSupabase() via a Proxy so property access always hits the live client.
+export const supabase = new Proxy({} as ReturnType<typeof createClient<Database>>, {
+  get(_t, prop) {
+    return (getSupabase() as any)[prop];
+  },
 });
