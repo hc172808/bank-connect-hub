@@ -45,7 +45,7 @@ const AgentDashboard = () => {
 
     const [profileRes, clientsRes, txRes, pendingRes] = await Promise.all([
       supabase.from("profiles").select("full_name, phone_number").eq("id", user.id).single(),
-      supabase.from("profiles").select("id, full_name, phone_number, created_at").eq("agent_id", user.id).order("created_at", { ascending: false }).limit(20),
+      (supabase.from("profiles") as any).select("id, full_name, phone_number, created_at").eq("agent_id", user.id).order("created_at", { ascending: false }).limit(20),
       supabase.from("transactions").select("amount, transaction_type, created_at, status, description, fee, sender_id, receiver_id")
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
         .gte("created_at", sevenDaysAgo)
