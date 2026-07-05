@@ -762,6 +762,75 @@ else
 fi
 
 # =============================================================================
+# STEP 13.5 — GYDS RPC Node (public/rpcnode) + Docker socket wiring
+# =============================================================================
+section "STEP 13.5 — GYDS RPC Node"
+
+RPCNODE_SRC="${APP_DIR}/public/rpcnode"
+if [[ -d "$RPCNODE_SRC" ]]; then
+  log "Preparing RPC node in ${RPCNODE_SRC}…"
+
+  # Seed .env from example on first run
+  if [[ ! -f "${RPCNODE_SRC}/.env" && -f "${RPCNODE_SRC}/.env.example" ]]; then
+    cp "${RPCNODE_SRC}/.env.example" "${RPCNODE_SRC}/.env"
+    ok "RPC node .env created from example"
+  fi
+
+  # Allow the app server to talk to the node
+  ufw allow 8545/tcp   comment "GYDS RPC JSON-RPC"   &>/dev/null || true
+  ufw allow 8546/tcp   comment "GYDS RPC WebSocket"  &>/dev/null || true
+  ufw allow 30305/tcp  comment "GYDS RPC P2P"        &>/dev/null || true
+  ufw allow 30305/udp  comment "GYDS RPC P2P (UDP)"  &>/dev/null || true
+
+  # Build + start the node as a long-running Docker service
+  ( cd "$RPCNODE_SRC" && docker compose up -d --build ) \
+    && ok "GYDS RPC node running on :8545 (JSON-RPC) / :8546 (WS) / :30305 (P2P)" \
+    || warn "RPC node failed to start — check: cd ${RPCNODE_SRC} && docker compose logs"
+
+  # Register a systemd unit that keeps the compose stack up across reboots
+  cat > /etc/systemd/system/gyds-rpcnode.service << RPCSVC
+[Unit]
+Description=GYDS RPC Node (docker compose stack)
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=${RPCNODE_SRC}
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+
+[Install]
+WantedBy=multi-user.target
+RPCSVC
+  systemctl daemon-reload
+  systemctl enable gyds-rpcnode &>/dev/null || true
+else
+  warn "public/rpcnode not found in ${APP_DIR} — skipping RPC node deployment"
+fi
+
+# ── Docker socket wiring for the build server ────────────────────────────────
+# Lets build-server.mjs manage containers (start/stop litenode, trigger rebuilds)
+if [[ -S /var/run/docker.sock ]]; then
+  log "Wiring Docker socket into build-server systemd unit…"
+  getent group docker >/dev/null || groupadd docker
+  # Give the service account access to the socket (User=root already has it,
+  # but this future-proofs the unit if User= changes)
+  if ! grep -q "SupplementaryGroups=docker" /etc/systemd/system/netlifecash-server.service 2>/dev/null; then
+    sed -i '/^\[Service\]/a SupplementaryGroups=docker' /etc/systemd/system/netlifecash-server.service
+  fi
+  # Ensure the socket is readable by the docker group
+  chgrp docker /var/run/docker.sock 2>/dev/null || true
+  chmod 660     /var/run/docker.sock 2>/dev/null || true
+  systemctl daemon-reload
+  systemctl restart netlifecash-server || true
+  ok "Docker socket mounted for build-server (/var/run/docker.sock, group=docker)"
+else
+  warn "/var/run/docker.sock not found — install Docker first"
+fi
+
+# =============================================================================
 # STEP 14 — Optional SSL with Certbot
 # =============================================================================
 if [[ -n "${DOMAIN_NAME:-}" && -n "${SSL_EMAIL:-}" ]]; then
