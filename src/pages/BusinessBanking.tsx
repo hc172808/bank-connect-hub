@@ -235,7 +235,7 @@ const BusinessBanking = () => {
                     <div className="grid grid-cols-2 gap-2 mt-1">
                       {(["corporate", "payroll", "treasury", "vendor"] as const).map(t => (
                         <button key={t}
-                          onClick={() => setWalletForm({ ...walletForm, type: t })}
+                          onClick={() => setWalletForm({ ...walletForm, type: t as typeof walletForm.type })}
                           className={`p-2 rounded-lg border text-sm capitalize transition-all ${walletForm.type === t ? "border-primary bg-primary/10 font-medium" : "border-border"}`}>
                           {t}
                         </button>

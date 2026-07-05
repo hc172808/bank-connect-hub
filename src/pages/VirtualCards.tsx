@@ -67,7 +67,16 @@ function generateCardFromSeed(seed: string, index: number): Omit<VCard, "frozen"
   ];
   const color = colors[index % colors.length];
 
-  return { id: `vc-${index}`, label: index === 0 ? "Primary Card" : `Virtual Card ${index + 1}`, number, expiry, cvv, color, created_at: new Date().toISOString() };
+  return {
+    id: `vc-${index}`,
+    label: index === 0 ? "Primary Card" : `Virtual Card ${index + 1}`,
+    number, expiry, cvv, color,
+    created_at: new Date().toISOString(),
+    contactless_enabled: true,
+    daily_limit: 1000,
+    monthly_limit: 10000,
+    pin: String(1000 + (hashCode(seed + index + "pin") % 9000)),
+  };
 }
 
 const STORAGE_KEY = "vbank_vcards_v1";
