@@ -161,7 +161,7 @@ export default function AIFinancialAssistant() {
       const prevMonthStart = startOfMonth(subMonths(new Date(), 1)).toISOString();
 
       const [walletRes, txRes, prevTxRes] = await Promise.all([
-        supabase.from("wallets").select("balance").eq("user_id", user.id).eq("wallet_type", "main").single(),
+        (supabase.from("wallets") as any).select("balance").eq("user_id", user.id).eq("wallet_type", "main").single(),
         supabase.from("transactions").select("amount, transaction_type, description, created_at")
           .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
           .gte("created_at", monthStart).eq("status", "completed").limit(500),

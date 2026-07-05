@@ -333,12 +333,13 @@ const SendMoney = () => {
         setAnimState("success");
 
         // Fire-and-forget SMS + email alerts (non-blocking — never delays the UI)
-        supabase.from("profiles").select("phone_number, email").eq("id", user.id).single().then(({ data: sp }) => {
-          if (sp?.phone_number) {
-            sendTransactionSms({ to: sp.phone_number, type: "sent", amount: parseFloat(amount), to_name: receiverName });
+        supabase.from("profiles").select("phone_number").eq("id", user.id).single().then(({ data: sp }) => {
+          const p: any = sp;
+          if (p?.phone_number) {
+            sendTransactionSms({ to: p.phone_number, type: "sent", amount: parseFloat(amount), to_name: receiverName });
           }
-          if (sp?.email) {
-            sendTransactionEmail({ to: sp.email, type: "sent", amount: parseFloat(amount), to_name: receiverName });
+          if (p?.email) {
+            sendTransactionEmail({ to: p.email, type: "sent", amount: parseFloat(amount), to_name: receiverName });
           }
         });
         if (receiverId) {

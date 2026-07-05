@@ -25,11 +25,11 @@ export function AppLockScreen({ onUnlock }: Props) {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("transaction_pin")
+        .select("pin_hash")
         .eq("id", user.id)
         .single();
 
-      if (!profile?.transaction_pin) {
+      if (!profile?.pin_hash) {
         // No PIN set — just unlock (PIN was never configured)
         onUnlock();
         return;
@@ -40,7 +40,7 @@ export function AppLockScreen({ onUnlock }: Props) {
       const buf = await crypto.subtle.digest("SHA-256", encoder.encode(pin));
       const hashed = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 
-      if (hashed === profile.transaction_pin) {
+      if (hashed === profile.pin_hash) {
         setPin("");
         onUnlock();
       } else {

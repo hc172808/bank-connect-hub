@@ -59,7 +59,7 @@ export async function subscribeToPush(): Promise<PushSubscription | null> {
   try {
     return await sw.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
+      applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
     });
   } catch {
     return null;

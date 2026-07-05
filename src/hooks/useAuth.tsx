@@ -10,7 +10,7 @@ async function logSessionEvent(
   metadata: Record<string, unknown> = {}
 ) {
   try {
-    await supabase.from('audit_logs' as never).insert({
+    await (supabase.from('audit_logs') as any).insert({
       action,
       actor_id: userId,
       entity_type: 'session',

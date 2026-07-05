@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Trophy, Star, Zap, Target, Award, Lock,
   CheckCircle, Gift, Flame, Shield, TrendingUp,
-  Users, CreditCard, PiggyBank, Coins, Crown,
+  Users, CreditCard, PiggyBank, Coins, Crown, DollarSign,
 } from "lucide-react";
 
 interface Badge {

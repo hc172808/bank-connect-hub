@@ -748,7 +748,7 @@ export default function AdminApkBuilder() {
 
           <div className="flex gap-2 pt-2">
             {!building ? (
-              <Button onClick={startBuild} className="gap-2">
+              <Button onClick={() => startBuild()} className="gap-2">
                 <Play className="h-4 w-4" /> Start Build
               </Button>
             ) : (
