@@ -156,7 +156,7 @@ else
 fi
 
 # Defaults
-APP_PORT="${APP_PORT:-3000}"
+APP_PORT="${APP_PORT:-80}"
 BUILD_SERVER_PORT="${BUILD_SERVER_PORT:-3001}"
 UPSTREAM_RPC="${UPSTREAM_RPC:-https://bsc-dataseed.binance.org}"
 DOMAIN_NAME="${DOMAIN_NAME:-}"
