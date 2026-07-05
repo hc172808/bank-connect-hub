@@ -49,8 +49,8 @@ export default function NFCTapPayment() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
-        .from("wallets").select("balance")
+      const { data } = await (supabase
+        .from("wallets") as any).select("balance")
         .eq("user_id", user.id).eq("wallet_type", "main").single();
       setBalance((data as { balance: number } | null)?.balance || 0);
     } catch {}

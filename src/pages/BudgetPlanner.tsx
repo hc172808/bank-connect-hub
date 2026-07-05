@@ -73,8 +73,8 @@ const BudgetPlanner = () => {
 
       // Pull actual spending per category from transactions
       const startOfMonth = `${month}-01`;
-      const { data: txns } = await supabase
-        .from("transactions")
+      const { data: txns } = await (supabase
+        .from("transactions") as any)
         .select("amount, description, transaction_type, created_at")
         .eq("user_id", user.id)
         .gte("created_at", startOfMonth)

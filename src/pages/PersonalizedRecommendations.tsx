@@ -206,7 +206,7 @@ export default function PersonalizedRecommendations() {
 
       const monthStart = startOfMonth(new Date()).toISOString();
       const [walletRes, txRes] = await Promise.all([
-        supabase.from("wallets").select("balance").eq("user_id", user.id).eq("wallet_type", "main").single(),
+        (supabase.from("wallets") as any).select("balance").eq("user_id", user.id).eq("wallet_type", "main").single(),
         supabase.from("transactions").select("amount, transaction_type, description")
           .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
           .gte("created_at", monthStart).eq("status", "completed").limit(300),
