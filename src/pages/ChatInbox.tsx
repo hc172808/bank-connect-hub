@@ -142,7 +142,7 @@ const ChatInbox = () => {
         }
       }
     } else if (myRole === "agent") {
-      const { data: clients } = await supabase
+      const { data: clients } = await (supabase as any)
         .from("profiles")
         .select("id, full_name, store_name")
         .eq("agent_id", uid)
