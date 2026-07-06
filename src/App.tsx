@@ -141,21 +141,53 @@ const queryClient = new QueryClient({
   },
 });
 
-const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => (
-  <div
-    className="min-h-screen bg-background flex flex-col items-center justify-center gap-4"
-    data-testid="loader-fullscreen"
-  >
-    <div className="flex flex-col items-center gap-3">
-      <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg">
-        <span className="text-primary-foreground font-black text-2xl">N</span>
+const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
+  const [slow, setSlow] = useState(false);
+  const [stuck, setStuck] = useState(false);
+
+  useEffect(() => {
+    const slowT = setTimeout(() => setSlow(true), 5000);
+    const stuckT = setTimeout(() => setStuck(true), 15000);
+    return () => { clearTimeout(slowT); clearTimeout(stuckT); };
+  }, []);
+
+  const message = stuck
+    ? (navigator.onLine
+        ? "Taking longer than usual. Check your connection and try again."
+        : "You're offline. Reconnect and reload the app.")
+    : slow
+      ? "Still loading — hang tight…"
+      : label;
+
+  return (
+    <div
+      className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-6 text-center"
+      data-testid="loader-fullscreen"
+    >
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg">
+          <span className="text-primary-foreground font-black text-2xl">N</span>
+        </div>
+        <p className="text-lg font-bold text-foreground">NETLIFE CASH</p>
       </div>
-      <p className="text-lg font-bold text-foreground">NETLIFE CASH</p>
+      {!stuck && (
+        <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      )}
+      <p className={`text-sm ${stuck ? "text-destructive" : "text-muted-foreground"} max-w-xs`}>
+        {message}
+      </p>
+      {stuck && (
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm shadow hover:opacity-90"
+        >
+          Reload app
+        </button>
+      )}
     </div>
-    <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-    <p className="text-sm text-muted-foreground">{label}</p>
-  </div>
-);
+  );
+};
 
 const ProtectedRoute = ({
   children,
