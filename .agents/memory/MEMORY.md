@@ -4,3 +4,4 @@
 - [i18n system](i18n.md) — LanguageProvider in main.tsx wraps ThemeProvider; useT()/useLanguage() hooks; 5 locales (en/es/fr/pt/ar); RTL for Arabic; localStorage key vbank_language
 - [App Lock](applock.md) — useAppLock() in AppRoutes (App.tsx); AppLockScreen component; settings via useAppLockSettings(); localStorage vbank_applock_v1; PIN validated against profiles.transaction_pin SHA-256
 - [In-app chat system](chat.md) — uses notifications table (type=chat_message/chat_outbox); no schema changes; thread_id=[id1,id2].sort().join("_"); Supabase Realtime subscription per thread; routes /chat + /chat/:peerId
+- [Replit migration](replit-migration.md) — Supabase kept (too deep to replace); lucide-react + date-fns had corrupted dist on import; secrets in Replit Secret store
