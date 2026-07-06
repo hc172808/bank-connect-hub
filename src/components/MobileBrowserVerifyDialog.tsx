@@ -23,6 +23,21 @@ function isRunningAsStandalone(): boolean {
   );
 }
 
+function isNativeApp(): boolean {
+  // Capacitor injects window.Capacitor when running inside the native APK/iOS shell.
+  const w = window as unknown as {
+    Capacitor?: { isNativePlatform?: () => boolean; platform?: string };
+  };
+  if (w.Capacitor) {
+    if (typeof w.Capacitor.isNativePlatform === "function") {
+      return w.Capacitor.isNativePlatform();
+    }
+    if (w.Capacitor.platform && w.Capacitor.platform !== "web") return true;
+  }
+  // Fallback: Capacitor's Android WebView UA contains this token.
+  return /VirtualBank|Capacitor/i.test(navigator.userAgent);
+}
+
 interface Props {
   isLoggedIn: boolean;
 }
@@ -36,6 +51,7 @@ export function MobileBrowserVerifyDialog({ isLoggedIn }: Props) {
     const shouldShow =
       isMobileDevice() &&
       !isRunningAsStandalone() &&
+      !isNativeApp() &&
       !sessionStorage.getItem(SESSION_KEY);
 
     if (shouldShow) {
