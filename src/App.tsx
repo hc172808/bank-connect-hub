@@ -450,9 +450,31 @@ const AppRoutes = () => {
     );
   }
 
+  // Logged in but role couldn't be determined — show a friendly waiting screen
+  // rather than a 404. This happens when user_roles table is empty or missing.
   return (
     <Routes>
-      <Route path="*" element={<NotFound />} />
+      <Route path="*" element={
+        <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-6 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg">
+            <span className="text-primary-foreground font-black text-2xl">N</span>
+          </div>
+          <p className="text-lg font-bold text-foreground">NETLIFE CASH</p>
+          <p className="text-sm text-muted-foreground max-w-xs">
+            Your account is being set up. Please wait a moment or sign out and back in.
+          </p>
+          <button
+            type="button"
+            onClick={async () => {
+              const { supabase } = await import("@/integrations/supabase/client");
+              await supabase.auth.signOut();
+            }}
+            className="mt-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm shadow hover:opacity-90"
+          >
+            Sign Out
+          </button>
+        </div>
+      } />
     </Routes>
   );
 };

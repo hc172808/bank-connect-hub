@@ -50,17 +50,22 @@ export const useAuth = () => {
   const hasSessionRef = useRef(false);
   const currentUserIdRef = useRef<string | null>(null);
 
-  const fetchUserRole = async (userId: string): Promise<UserRole | null> => {
+  const fetchUserRole = async (userId: string, metaFallback?: string): Promise<UserRole | null> => {
     const { data, error } = await supabase
       .from('user_roles')
       .select('role')
       .eq('user_id', userId)
       .single();
-    if (error) {
-      console.error('Error fetching user role:', error);
-      return null;
+    if (!error && data?.role) {
+      return data.role as UserRole;
     }
-    return data?.role as UserRole;
+    // Fall back to user_metadata.account_type when the user_roles table is
+    // unavailable or the row hasn't been created yet (e.g. during initial setup).
+    const validRoles: UserRole[] = ['admin', 'agent', 'client', 'vendor'];
+    if (metaFallback && validRoles.includes(metaFallback as UserRole)) {
+      return metaFallback as UserRole;
+    }
+    return null;
   };
 
   const stopDeviceCheck = useCallback(() => {
@@ -144,7 +149,8 @@ export const useAuth = () => {
 
           if (session?.user) {
             setTimeout(async () => {
-              const role = await fetchUserRole(session.user.id);
+              const meta = session.user.user_metadata?.account_type as string | undefined;
+              const role = await fetchUserRole(session.user.id, meta);
               setAuthState(prev => ({ ...prev, role, loading: false }));
             }, 0);
           } else {
@@ -163,7 +169,8 @@ export const useAuth = () => {
 
         if (session?.user) {
           hasSessionRef.current = true;
-          fetchUserRole(session.user.id).then(role => {
+          const meta = session.user.user_metadata?.account_type as string | undefined;
+          fetchUserRole(session.user.id, meta).then(role => {
             setAuthState(prev => ({ ...prev, role, loading: false }));
           });
           // Start device check for existing session (don't re-claim)
