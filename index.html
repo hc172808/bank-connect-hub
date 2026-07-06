@@ -27,10 +27,108 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Virtual Bank" />
     <meta name="mobile-web-app-capable" content="yes" />
+
+    <style>
+      #app-splash {
+        position: fixed; inset: 0; z-index: 2147483647;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 18px; background: #0B1B3F; color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        transition: opacity .35s ease; opacity: 1;
+      }
+      #app-splash.hide { opacity: 0; pointer-events: none; }
+      #app-splash .logo {
+        width: 72px; height: 72px; border-radius: 18px;
+        background: #F5C518; color: #0B1B3F;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 900; font-size: 34px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      }
+      #app-splash .brand { font-weight: 800; letter-spacing: .12em; font-size: 15px; }
+      #app-splash .spinner {
+        width: 34px; height: 34px; border-radius: 50%;
+        border: 3px solid rgba(255,255,255,.2); border-top-color: #F5C518;
+        animation: appsplash-spin .9s linear infinite;
+      }
+      #app-splash .status { font-size: 13px; opacity: .75; }
+      #app-splash .retry {
+        display: none; margin-top: 8px; padding: 10px 18px;
+        background: #F5C518; color: #0B1B3F; border: 0; border-radius: 10px;
+        font-weight: 700; font-size: 14px; cursor: pointer;
+      }
+      #app-splash.stuck .spinner { display: none; }
+      #app-splash.stuck .retry { display: inline-block; }
+      #app-splash.stuck .status { color: #ffd8d8; }
+      @keyframes appsplash-spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
 
   <body>
     <div id="root"></div>
+    <div id="app-splash" role="status" aria-live="polite">
+      <div class="logo">N</div>
+      <div class="brand">NETLIFE CASH</div>
+      <div class="spinner"></div>
+      <div class="status" id="app-splash-status">Starting secure session…</div>
+      <button class="retry" id="app-splash-retry" type="button">Reload app</button>
+    </div>
+    <script>
+      (function () {
+        var splash = document.getElementById('app-splash');
+        var status = document.getElementById('app-splash-status');
+        var retry = document.getElementById('app-splash-retry');
+        if (!splash) return;
+
+        retry.addEventListener('click', function () {
+          try { location.reload(); } catch (_) { location.href = location.href; }
+        });
+
+        // Stuck detector — if React hasn't rendered in 15s, show retry.
+        var stuckTimer = setTimeout(function () {
+          if (!splash.classList.contains('hide')) {
+            splash.classList.add('stuck');
+            status.textContent = navigator.onLine
+              ? "Taking longer than usual. Check your connection and try again."
+              : "You're offline. Reconnect and reload the app.";
+          }
+        }, 15000);
+
+        // Update copy at 5s to reassure the user something's happening.
+        var slowTimer = setTimeout(function () {
+          if (!splash.classList.contains('hide')) {
+            status.textContent = "Still loading — hang tight…";
+          }
+        }, 5000);
+
+        // Watch for React to mount content into #root.
+        var root = document.getElementById('root');
+        function hide() {
+          clearTimeout(stuckTimer); clearTimeout(slowTimer);
+          splash.classList.add('hide');
+          setTimeout(function () { splash.remove(); }, 400);
+        }
+        window.__hideAppSplash = hide;
+
+        if (root && 'MutationObserver' in window) {
+          var obs = new MutationObserver(function () {
+            if (root.childElementCount > 0) { obs.disconnect(); hide(); }
+          });
+          obs.observe(root, { childList: true });
+        } else {
+          // Fallback poll
+          var poll = setInterval(function () {
+            if (root && root.childElementCount > 0) { clearInterval(poll); hide(); }
+          }, 200);
+        }
+
+        // If the JS bundle fails to load at all, surface it early.
+        window.addEventListener('error', function (e) {
+          if (e && e.target && e.target.tagName === 'SCRIPT') {
+            splash.classList.add('stuck');
+            status.textContent = "Couldn't load the app. Please reload.";
+          }
+        }, true);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
     <script>
       if ("serviceWorker" in navigator && location.protocol === "https:") {
