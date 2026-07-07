@@ -944,6 +944,12 @@ app.post("/api/litenode/docker/start", async (_req, res) => {
   try {
     const hasDocker = await dockerAvailable();
     if (!hasDocker) return res.status(503).json({ error: "Docker not available" });
+    const current = await getContainerStatus(LITENODE_CONTAINER);
+    if (current === "not_found") {
+      return res.status(404).json({
+        error: `Container "${LITENODE_CONTAINER}" does not exist. Create it first on the server:\n  docker compose up litenode -d\nOr set LITENODE_CONTAINER_NAME to the correct container name.`,
+      });
+    }
     await execAsync(`docker start ${LITENODE_CONTAINER}`, { timeout: 15000 });
     const status = await getContainerStatus(LITENODE_CONTAINER);
     console.log(`[litenode] started container ${LITENODE_CONTAINER} → ${status}`);
@@ -1042,6 +1048,12 @@ app.get("/api/rpcnode/docker/status", async (_req, res) => {
 app.post("/api/rpcnode/docker/start", async (_req, res) => {
   try {
     if (!await dockerAvailable()) return res.status(503).json({ error: "Docker not available" });
+    const current = await getContainerStatus(RPCNODE_CONTAINER);
+    if (current === "not_found") {
+      return res.status(404).json({
+        error: `Container "${RPCNODE_CONTAINER}" does not exist. Create it first on the server:\n  docker compose up litenode -d\nOr set RPCNODE_CONTAINER_NAME to the correct container name.`,
+      });
+    }
     await execAsync(`docker start ${RPCNODE_CONTAINER}`, { timeout: 15000 });
     const status = await getContainerStatus(RPCNODE_CONTAINER);
     console.log(`[rpcnode] started ${RPCNODE_CONTAINER} → ${status}`);

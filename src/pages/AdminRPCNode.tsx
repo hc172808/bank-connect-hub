@@ -208,7 +208,7 @@ const AdminRPCNode = () => {
 
             {/* Buttons */}
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => action("start")} disabled={!dockerAvail || isRunning || loading} className="gap-2 bg-green-600 hover:bg-green-700 text-white">
+              <Button onClick={() => action("start")} disabled={!dockerAvail || isRunning || status === "not_found" || loading} className="gap-2 bg-green-600 hover:bg-green-700 text-white">
                 <Play size={16} /> Start
               </Button>
               <Button onClick={() => action("stop")} disabled={!dockerAvail || !isRunning || loading} variant="destructive" className="gap-2">
