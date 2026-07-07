@@ -976,42 +976,81 @@ export default function Profile() {
             )}
 
             {biometricSupport.ok ? (
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => startBiometricEnroll('fingerprint')}
-                  disabled={enrollingBiometric}
-                  data-testid="button-add-fingerprint"
-                >
-                  <Fingerprint className="w-4 h-4 mr-2" />
-                  Add Fingerprint
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => startBiometricEnroll('face')}
-                  disabled={enrollingBiometric}
-                  data-testid="button-add-faceid"
-                >
-                  <ScanFace className="w-4 h-4 mr-2" />
-                  Add Face ID
-                </Button>
+              <div className="space-y-3">
+                {/* Iframe / frame warning — informational only, does NOT block enrollment */}
+                {(biometricSupport as any).warning && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg border border-yellow-400/40 bg-yellow-500/10 text-xs text-yellow-700 dark:text-yellow-300">
+                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span>{(biometricSupport as any).warning}</span>
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-12 rounded-xl gap-2"
+                    onClick={() => startBiometricEnroll('fingerprint')}
+                    disabled={enrollingBiometric}
+                    data-testid="button-add-fingerprint"
+                  >
+                    <Fingerprint className="w-5 h-5" />
+                    Fingerprint
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-12 rounded-xl gap-2"
+                    onClick={() => startBiometricEnroll('face')}
+                    disabled={enrollingBiometric}
+                    data-testid="button-add-faceid"
+                  >
+                    <ScanFace className="w-5 h-5" />
+                    Face ID
+                  </Button>
+                </div>
+                {enrollingBiometric && (
+                  <p className="text-xs text-center text-muted-foreground animate-pulse">
+                    Waiting for your device biometric prompt…
+                  </p>
+                )}
               </div>
             ) : (
-              <div className="p-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10 space-y-2">
-                <p className="text-sm font-medium text-foreground flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-                  <span>{biometricSupport.reason || "Biometric authentication is not available on this device/browser."}</span>
-                </p>
-                {biometricSupport.hint && (
-                  <p className="text-xs text-muted-foreground pl-6">{biometricSupport.hint}</p>
-                )}
+              <div className="space-y-3">
+                <div className="p-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10 space-y-2">
+                  <p className="text-sm font-medium text-foreground flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                    <span>{biometricSupport.reason || "Biometric authentication is not available on this device/browser."}</span>
+                  </p>
+                  {biometricSupport.hint && (
+                    <p className="text-xs text-muted-foreground pl-6">{biometricSupport.hint}</p>
+                  )}
+                </div>
+                {/* Still show the buttons — let the OS attempt it and fail gracefully */}
+                <div className="flex gap-3 opacity-60">
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-12 rounded-xl gap-2"
+                    onClick={() => startBiometricEnroll('fingerprint')}
+                    disabled={enrollingBiometric}
+                    data-testid="button-add-fingerprint"
+                  >
+                    <Fingerprint className="w-5 h-5" />
+                    Try Fingerprint
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-12 rounded-xl gap-2"
+                    onClick={() => startBiometricEnroll('face')}
+                    disabled={enrollingBiometric}
+                    data-testid="button-add-faceid"
+                  >
+                    <ScanFace className="w-5 h-5" />
+                    Try Face ID
+                  </Button>
+                </div>
                 {isInIframe() && (
                   <Button
                     variant="outline"
                     size="sm"
-                    className="w-full mt-2"
+                    className="w-full"
                     onClick={() => window.open(window.location.href, '_blank', 'noopener')}
                     data-testid="button-open-newtab"
                   >
