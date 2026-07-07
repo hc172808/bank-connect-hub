@@ -37,14 +37,17 @@ import { ethers } from "ethers";
  
          // Fetch on-chain balance if RPC and address available
          if (blockchainData.rpc_url && blockchainData.fee_wallet_address) {
+            let provider = null;
             try {
-              const provider = await getSafeProvider(blockchainData.rpc_url);
+              provider = await getSafeProvider(blockchainData.rpc_url);
               if (provider) {
                 const balance = await provider.getBalance(blockchainData.fee_wallet_address);
                 setWalletBalance(ethers.formatEther(balance));
               }
            } catch (error) {
              console.error("Error fetching fee wallet balance:", error);
+           } finally {
+             provider?.destroy();
            }
          }
        }

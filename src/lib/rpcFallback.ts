@@ -58,19 +58,25 @@ export async function testRpc(url: string): Promise<RpcTestResult> {
 
     // Fallback – use ethers for network detection
     const provider = new ethers.JsonRpcProvider(url);
-    const network = await Promise.race([
-      provider.getNetwork(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("RPC timeout")), RPC_TIMEOUT_MS)
-      ),
-    ]);
-    return {
-      url,
-      reachable: true,
-      chainId: network.chainId.toString(),
-      latencyMs: Date.now() - start,
-      httpStatus: httpRes.status,
-    };
+    try {
+      const network = await Promise.race([
+        provider.getNetwork(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("RPC timeout")), RPC_TIMEOUT_MS)
+        ),
+      ]);
+      provider.destroy();
+      return {
+        url,
+        reachable: true,
+        chainId: network.chainId.toString(),
+        latencyMs: Date.now() - start,
+        httpStatus: httpRes.status,
+      };
+    } catch {
+      provider.destroy();
+      throw new Error("RPC timeout");
+    }
   } catch (err: any) {
     const msg: string = err?.message || String(err);
     const isTimeout = msg.toLowerCase().includes("timeout");
@@ -123,8 +129,9 @@ export async function getProviderWithFallback(
       continue;
     }
 
+    let provider: ethers.JsonRpcProvider | null = null;
     try {
-      const provider = new ethers.JsonRpcProvider(url);
+      provider = new ethers.JsonRpcProvider(url);
       await Promise.race([
         provider.getBlockNumber(),
         new Promise((_, reject) =>
@@ -134,6 +141,7 @@ export async function getProviderWithFallback(
       rpcStatusCache.set(url, { url, reachable: true, checkedAt: Date.now() });
       return provider;
     } catch {
+      provider?.destroy();
       rpcStatusCache.set(url, { url, reachable: false, checkedAt: Date.now() });
     }
   }
