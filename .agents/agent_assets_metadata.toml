@@ -24,3 +24,9 @@ id = "ANzVPoA0a8i5nH9MfBdr0"
 uri = "file://all_migrations.zip"
 type = "unspecified"
 title = "Database Schema — all_migrations.zip"
+
+[[outputs]]
+id = "cDzrgAHW2S6KTQpIOlBY6"
+uri = "file://supabase-selfhost.zip"
+type = "unspecified"
+title = "NETLIFE CASH — Self-hosted Supabase Package"
