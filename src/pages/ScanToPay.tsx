@@ -11,7 +11,7 @@ import { PinInput } from "@/components/PinInput";
 import { TransactionReceipt } from "@/components/TransactionReceipt";
 import { SetPinDialog } from "@/components/SetPinDialog";
 import { useDashboardHome } from "@/hooks/useDashboardHome";
-import { awardPoints } from "@/lib/rewards";
+import { awardPoints, processReferralReward } from "@/lib/rewards";
 
 type ActionType = "pay" | "check_balance" | "receive" | null;
 type Step = "scan" | "options" | "pin" | "amount" | "receipt";
@@ -193,6 +193,7 @@ const ScanToPay = () => {
       });
     } else {
       awardPoints(user.id, parseFloat(amount), "qr_payment");
+      processReferralReward(user.id);
       setReceiptData({
         success: true,
         type: "payment",
@@ -248,6 +249,7 @@ const ScanToPay = () => {
       });
     } else {
       awardPoints(user.id, parseFloat(amount), "qr_receive");
+      processReferralReward(user.id);
       setReceiptData({
         success: true,
         type: "receive",

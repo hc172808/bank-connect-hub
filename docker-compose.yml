@@ -113,17 +113,16 @@ services:
         reservations:
           memory: 32M
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8545/health | grep -q '\"status\":\"ok\"'"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+      disable: true
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-    # Do not expose port externally — nginx proxies /rpc → litenode:8545
+    # Port 8545 exposed to host so build-server can reach litenode directly.
+    # In full production (nginx), remove the host binding and keep only expose.
+    ports:
+      - "127.0.0.1:8545:8545"
     expose:
       - "8545"
 

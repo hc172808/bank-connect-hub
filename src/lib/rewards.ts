@@ -1,6 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 
 export const REWARDS_KEY = "vbank_rewards_v1";
+export const REFERRAL_CODE_KEY = "vbank_pending_referral";
+export const REFERRAL_REWARDED_KEY = "vbank_referral_rewarded";
 export const REWARDS_CONFIG_KEY = "vbank_rewards_config_v1";
 
 export interface RewardsConfig {
@@ -99,6 +101,81 @@ export function awardPoints(
 
   saveRewardsData(userId, updated);
   return updated;
+}
+
+// ── Referral Rewards ──────────────────────────────────────────────────────────
+
+/** Store the referral code a new user entered during sign-up (before their account exists) */
+export function storeUsedReferralCode(code: string) {
+  try { localStorage.setItem(REFERRAL_CODE_KEY, code.trim().toUpperCase()); } catch {}
+}
+
+export function getUsedReferralCode(): string | null {
+  try { return localStorage.getItem(REFERRAL_CODE_KEY); } catch { return null; }
+}
+
+export function clearUsedReferralCode() {
+  try { localStorage.removeItem(REFERRAL_CODE_KEY); } catch {}
+}
+
+/**
+ * Call this after the new user's FIRST successful transaction.
+ * Finds the referrer by code, awards 200 pts to referrer + 100 pts to new user,
+ * and increments referrer's referral_count in Supabase profiles.
+ */
+export async function processReferralReward(newUserId: string): Promise<boolean> {
+  const code = getUsedReferralCode();
+  if (!code) return false;
+
+  const alreadyRewarded = localStorage.getItem(`${REFERRAL_REWARDED_KEY}_${newUserId}`);
+  if (alreadyRewarded) return false;
+
+  try {
+    // Find the referrer whose UUID starts with the code (case-insensitive)
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id")
+      .ilike("id", `${code.toLowerCase()}%`)
+      .single();
+
+    if (error || !data || data.id === newUserId) return false;
+
+    const referrerId = data.id;
+
+    // Award points to referrer
+    awardPoints(referrerId, 200, "Referral bonus 👥 — friend made first transaction", "bonus");
+
+    // Award points to new user
+    awardPoints(newUserId, 100, "Welcome referral bonus 🎁 — joined via referral", "bonus");
+
+    // Increment referral_count in profiles for referrer
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("referral_count")
+      .eq("id", referrerId)
+      .single();
+
+    await supabase
+      .from("profiles")
+      .update({ referral_count: ((profile as any)?.referral_count || 0) + 1 })
+      .eq("id", referrerId);
+
+    // Mark this user as having had their referral processed
+    localStorage.setItem(`${REFERRAL_REWARDED_KEY}_${newUserId}`, "1");
+    clearUsedReferralCode();
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Get how many points this user has earned purely from referral bonuses */
+export function getReferralPointsEarned(userId: string): number {
+  const data = getRewardsData(userId);
+  return data.activities
+    .filter(a => a.description.includes("Referral bonus") || a.description.includes("referral"))
+    .reduce((sum, a) => sum + a.points, 0);
 }
 
 /**

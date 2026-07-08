@@ -939,7 +939,21 @@ app.get("/api/litenode/docker/status", async (_req, res) => {
   }
 });
 
-// POST /api/litenode/docker/start
+// POST /api/litenode/docker/create — build image + create + start via docker compose
+app.post("/api/litenode/docker/create", async (_req, res) => {
+  try {
+    if (!await dockerAvailable()) return res.status(503).json({ error: "Docker not available" });
+    console.log(`[litenode] running docker compose up -d litenode ...`);
+    const { stdout, stderr } = await execAsync(`docker compose up -d litenode 2>&1`, { timeout: 180000, cwd: process.cwd() });
+    const status = await getContainerStatus(LITENODE_CONTAINER);
+    console.log(`[litenode] compose up → ${status}`);
+    res.json({ ok: true, status, output: (stdout + stderr).split("\n").filter(Boolean) });
+  } catch (err) {
+    console.error("[litenode] create error:", err.message);
+    res.status(500).json({ error: err.message, output: err.message.split("\n") });
+  }
+});
+
 app.post("/api/litenode/docker/start", async (_req, res) => {
   try {
     const hasDocker = await dockerAvailable();
@@ -1043,6 +1057,21 @@ app.get("/api/rpcnode/docker/status", async (_req, res) => {
     const status = await getContainerStatus(RPCNODE_CONTAINER);
     res.json({ docker: true, status, container: RPCNODE_CONTAINER });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/rpcnode/docker/create — build image + create + start via docker compose
+app.post("/api/rpcnode/docker/create", async (_req, res) => {
+  try {
+    if (!await dockerAvailable()) return res.status(503).json({ error: "Docker not available" });
+    console.log(`[rpcnode] running docker compose up -d litenode ...`);
+    const { stdout, stderr } = await execAsync(`docker compose up -d litenode 2>&1`, { timeout: 180000, cwd: process.cwd() });
+    const status = await getContainerStatus(RPCNODE_CONTAINER);
+    console.log(`[rpcnode] compose up → ${status}`);
+    res.json({ ok: true, status, output: (stdout + stderr).split("\n").filter(Boolean) });
+  } catch (err) {
+    console.error("[rpcnode] create error:", err.message);
+    res.status(500).json({ error: err.message, output: err.message.split("\n") });
+  }
 });
 
 app.post("/api/rpcnode/docker/start", async (_req, res) => {
