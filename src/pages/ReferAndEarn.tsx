@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, Gift, Copy, Share2, Users, CheckCircle2,
-  Clock, Sparkles, Trophy, TrendingUp,
+  Clock, Sparkles, Trophy, TrendingUp, ChevronRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -150,6 +150,23 @@ const ReferAndEarn = () => {
                 {referralLink}
               </button>
             </p>
+          </CardContent>
+        </Card>
+
+        {/* Leaderboard teaser */}
+        <Card
+          className="mb-4 border-yellow-500/30 bg-yellow-500/5 cursor-pointer hover:bg-yellow-500/10 transition-colors"
+          onClick={() => navigate("/leaderboard")}
+        >
+          <CardContent className="py-3 px-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Trophy size={20} className="text-yellow-500" />
+              <div>
+                <p className="text-sm font-medium">Referral Leaderboard</p>
+                <p className="text-xs text-muted-foreground">See who's earning the most from referrals</p>
+              </div>
+            </div>
+            <ChevronRight size={16} className="text-muted-foreground" />
           </CardContent>
         </Card>
 

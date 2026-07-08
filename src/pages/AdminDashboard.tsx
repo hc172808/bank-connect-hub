@@ -471,6 +471,15 @@ const AdminDashboard = () => {
                 <Cpu size={20} />
                 Litenode (Mock / Test RPC)
               </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/node-config")}
+                data-testid="button-node-config"
+              >
+                <Globe size={20} />
+                Node Configuration
+              </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
                 variant="secondary"
