@@ -2,6 +2,79 @@ import { ethers } from "ethers";
 
 const RPC_TIMEOUT_MS = 8000;
 
+// ── Public BSC fallbacks — always last in the chain ──────────────────────────
+const PUBLIC_BSC_RPCS = [
+  "https://bsc-dataseed.binance.org",
+  "https://bsc-dataseed1.binance.org",
+  "https://bsc-dataseed2.binance.org",
+];
+
+// ── Node config cache — fetched from build-server, refreshed every 60 s ──────
+interface NodeConfig {
+  FULLNODE_RPC_1: string;
+  FULLNODE_RPC_2: string;
+  FULLNODE_RPC_3: string;
+  UPSTREAM_RPC: string;
+}
+let _nodeConfigCache: NodeConfig | null = null;
+let _nodeConfigFetchedAt = 0;
+const NODE_CONFIG_CACHE_MS = 60_000;
+
+async function fetchNodeConfig(): Promise<NodeConfig | null> {
+  if (_nodeConfigCache && Date.now() - _nodeConfigFetchedAt < NODE_CONFIG_CACHE_MS) {
+    return _nodeConfigCache;
+  }
+  try {
+    const res = await fetch("/api/nodes/config", { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return _nodeConfigCache;
+    const data = await res.json();
+    _nodeConfigCache = data as NodeConfig;
+    _nodeConfigFetchedAt = Date.now();
+    return _nodeConfigCache;
+  } catch {
+    return _nodeConfigCache; // serve stale on error
+  }
+}
+
+/**
+ * Build the full RPC chain for a given primary URL:
+ *   FULLNODE_RPC_1 → FULLNODE_RPC_2 → FULLNODE_RPC_3 → primaryUrl → public BSC RPCs
+ *
+ * Empty / duplicate entries are filtered out automatically.
+ */
+export async function getNodeRpcChain(primaryUrl?: string): Promise<string[]> {
+  const config = await fetchNodeConfig();
+  const ordered: string[] = [];
+
+  if (config) {
+    for (const key of ["FULLNODE_RPC_1", "FULLNODE_RPC_2", "FULLNODE_RPC_3"] as const) {
+      const url = config[key]?.trim();
+      if (url) ordered.push(url);
+    }
+  }
+
+  if (primaryUrl?.trim() && !ordered.includes(primaryUrl.trim())) {
+    ordered.push(primaryUrl.trim());
+  }
+
+  for (const pub of PUBLIC_BSC_RPCS) {
+    if (!ordered.includes(pub)) ordered.push(pub);
+  }
+
+  return ordered;
+}
+
+/**
+ * Get a working provider using the full node fallback chain.
+ * Tries custom fullnodes first, then the app's configured RPC, then public BSC RPCs.
+ */
+export async function getChainedProvider(
+  primaryUrl?: string
+): Promise<ethers.JsonRpcProvider | null> {
+  const chain = await getNodeRpcChain(primaryUrl);
+  return getProviderWithFallback(chain);
+}
+
 export interface RpcStatus {
   url: string;
   reachable: boolean | null;
