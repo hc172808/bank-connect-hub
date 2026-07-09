@@ -30,3 +30,9 @@ id = "cDzrgAHW2S6KTQpIOlBY6"
 uri = "file://supabase-selfhost.zip"
 type = "unspecified"
 title = "NETLIFE CASH — Self-hosted Supabase Package"
+
+[[outputs]]
+id = "gx13niRVCT06lQiK61VbJ"
+uri = "file://db-server.zip"
+type = "unspecified"
+title = "NETLIFE CASH — Database Server Setup (Postgres + pgAdmin)"
