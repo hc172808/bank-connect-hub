@@ -755,6 +755,61 @@ app.post("/api/auth/verify-reset", async (req, res) => {
   }
 });
 
+// GET /api/auth/pending-resets — list pending OTP reset requests (in-memory)
+app.get("/api/auth/pending-resets", (_req, res) => {
+  const now = Date.now();
+  const list = [];
+  for (const [email, entry] of resetOtpStore.entries()) {
+    list.push({
+      email,
+      phone: entry.e164 || null,
+      expiresAt: entry.expiresAt,
+      expired: now > entry.expiresAt,
+      attempts: entry.attempts || 0,
+      verified: entry.verified || false,
+    });
+  }
+  res.json({ requests: list });
+});
+
+// DELETE /api/auth/pending-resets/:email — remove a pending request
+app.delete("/api/auth/pending-resets/:email", (req, res) => {
+  const email = decodeURIComponent(req.params.email);
+  resetOtpStore.delete(email);
+  res.json({ ok: true });
+});
+
+// GET /api/auth/all-users — list all Supabase users with profile info (admin only)
+app.get("/api/auth/all-users", async (_req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured" });
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data: { users }, error } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
+    if (error) throw new Error(error.message);
+
+    // Fetch profiles for display names
+    const supaAdmin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY);
+    const { data: profiles } = await supaAdmin.from("profiles").select("id, full_name, phone_number");
+    const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
+
+    const list = users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      fullName: profileMap[u.id]?.full_name || null,
+      phone: profileMap[u.id]?.phone_number || null,
+      createdAt: u.created_at,
+      lastSignIn: u.last_sign_in_at,
+    }));
+    res.json({ users: list });
+  } catch (err) {
+    console.error("[reset] all-users error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/auth/admin-set-password  { userId, newPassword }  — admin only
 app.post("/api/auth/admin-set-password", async (req, res) => {
   const { userId, newPassword, notifyPhone } = req.body || {};
