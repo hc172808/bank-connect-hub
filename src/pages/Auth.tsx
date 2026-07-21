@@ -262,13 +262,15 @@ const Auth = () => {
               </div>
 
               {mode === "signin" && (
-                <button
-                  type="button"
-                  onClick={() => navigate("/forgot-password")}
-                  className="text-sm text-muted-foreground hover:text-foreground"
-                >
-                  Having trouble signing in?
-                </button>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => navigate("/forgot-password")}
+                    className="text-sm text-primary hover:text-primary/80 font-medium underline underline-offset-2"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
               )}
 
               <Button
