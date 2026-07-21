@@ -12,17 +12,20 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-s -w" -o /litenode .
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 2 — Run (distroless: no shell, no package manager, ~10 MB image)
+# Stage 2 — Run (alpine: minimal but has wget for healthchecks)
 # ─────────────────────────────────────────────────────────────────────────────
-FROM gcr.io/distroless/static-debian12:nonroot AS runner
+FROM alpine:3.19 AS runner
+
+RUN apk add --no-cache ca-certificates wget && \
+    addgroup -S litenode && adduser -S -G litenode litenode
 
 COPY --from=builder /litenode /litenode
 
-USER nonroot:nonroot
+USER litenode:litenode
 
 EXPOSE 8545
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["/litenode"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -qO- http://localhost:8545/health | grep -q '"status":"ok"' || exit 1
 
 ENTRYPOINT ["/litenode"]

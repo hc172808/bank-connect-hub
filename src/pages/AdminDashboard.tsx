@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil, Brain, Activity, AlertTriangle, Palette, ShieldAlert, Cpu, ShieldCheck, Megaphone, Globe, Terminal, Network, Scale, KeyRound } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil, Brain, Activity, AlertTriangle, Palette, ShieldAlert, Cpu, ShieldCheck, Megaphone, Globe, Terminal, Network, Scale, KeyRound, Star } from "lucide-react";
 import { loadAISettings, scoreTransactions, summarizeRisk } from "@/lib/aiSecurity";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -471,6 +471,15 @@ const AdminDashboard = () => {
                 <Cpu size={20} />
                 Litenode (Mock / Test RPC)
               </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/node-config")}
+                data-testid="button-node-config"
+              >
+                <Globe size={20} />
+                Node Configuration
+              </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"
                 variant="secondary"
@@ -662,6 +671,14 @@ const AdminDashboard = () => {
               >
                 <Scale size={20} />
                 Legal & Compliance
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/rewards")}
+              >
+                <Star size={20} />
+                Loyalty &amp; Rewards
               </Button>
             </CardContent>
           </Card>

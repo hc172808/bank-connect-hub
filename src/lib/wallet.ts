@@ -102,8 +102,9 @@ export const getSafeProvider = async (
     return null;
   }
 
+  let provider: ethers.JsonRpcProvider | null = null;
   try {
-    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    provider = new ethers.JsonRpcProvider(rpcUrl);
     // Quick connectivity probe with timeout
     await Promise.race([
       provider.getBlockNumber(),
@@ -115,6 +116,7 @@ export const getSafeProvider = async (
     _rpcCheckedAt = Date.now();
     return provider;
   } catch {
+    provider?.destroy();
     _rpcReachable = false;
     _rpcCheckedAt = Date.now();
     return null;

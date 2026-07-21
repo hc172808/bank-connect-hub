@@ -1,14 +1,15 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Mail, Phone, User, Store, Users } from 'lucide-react';
+import { Eye, EyeOff, Mail, Phone, User, Store, Users, Gift } from 'lucide-react';
 import { CountryPhoneInput } from '@/components/CountryPhoneInput';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { storeUsedReferralCode } from '@/lib/rewards';
 
 type AccountType = 'client' | 'vendor';
 
@@ -18,11 +19,18 @@ export default function Register() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [accountType, setAccountType] = useState<AccountType>('client');
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const ref = searchParams.get('ref');
+    if (ref) setReferralCode(ref.toUpperCase());
+  }, [searchParams]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +72,9 @@ export default function Register() {
       if (error) throw error;
 
       if (data.user) {
+        if (referralCode.trim()) {
+          storeUsedReferralCode(referralCode.trim());
+        }
         toast({
           title: "Account created!",
           description: "You can create or import a blockchain wallet from your Profile settings.",
@@ -174,6 +185,22 @@ export default function Register() {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Gift className="w-4 h-4 text-primary" />
+                Referral Code{" "}
+                <span className="text-xs text-muted-foreground font-normal">(Optional — earn 100 bonus points!)</span>
+              </label>
+              <Input
+                type="text"
+                value={referralCode}
+                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                placeholder="e.g. A1B2C3D4"
+                maxLength={8}
+                className="font-mono tracking-widest uppercase"
+              />
             </div>
 
             <div className="space-y-2">

@@ -18,3 +18,21 @@ id = "JCh7dvTJw5Tx-Otd4pNPC"
 uri = "file://VirtualBank-debug.zip"
 type = "unspecified"
 title = "VirtualBank-debug.apk (zipped)"
+
+[[outputs]]
+id = "ANzVPoA0a8i5nH9MfBdr0"
+uri = "file://all_migrations.zip"
+type = "unspecified"
+title = "Database Schema — all_migrations.zip"
+
+[[outputs]]
+id = "cDzrgAHW2S6KTQpIOlBY6"
+uri = "file://supabase-selfhost.zip"
+type = "unspecified"
+title = "NETLIFE CASH — Self-hosted Supabase Package"
+
+[[outputs]]
+id = "gx13niRVCT06lQiK61VbJ"
+uri = "file://db-server.zip"
+type = "unspecified"
+title = "NETLIFE CASH — Database Server Setup (Postgres + pgAdmin)"

@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft, Play, Square, RefreshCw, Server, RotateCcw,
   Terminal, AlertTriangle, HelpCircle, Network, Activity,
-  Zap, CheckCircle2, XCircle, Clock, Globe, ShieldCheck,
+  Zap, CheckCircle2, XCircle, Clock, Globe, ShieldCheck, PackagePlus,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -147,6 +147,7 @@ const AdminRPCNode = () => {
 
   const isRunning = status === "running";
   const isStopped = status === "exited";
+  const isNotFound = status === "not_found";
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -208,16 +209,25 @@ const AdminRPCNode = () => {
 
             {/* Buttons */}
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => action("start")} disabled={!dockerAvail || isRunning || loading} className="gap-2 bg-green-600 hover:bg-green-700 text-white">
+              {isNotFound && (
+                <Button
+                  onClick={() => action("create")}
+                  disabled={!dockerAvail || loading}
+                  className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <PackagePlus size={16} /> Create & Start
+                </Button>
+              )}
+              <Button onClick={() => action("start")} disabled={!dockerAvail || isRunning || isNotFound || loading} className="gap-2 bg-green-600 hover:bg-green-700 text-white">
                 <Play size={16} /> Start
               </Button>
               <Button onClick={() => action("stop")} disabled={!dockerAvail || !isRunning || loading} variant="destructive" className="gap-2">
                 <Square size={16} /> Stop
               </Button>
-              <Button onClick={() => action("restart")} disabled={!dockerAvail || status === "not_found" || loading} variant="outline" className="gap-2">
+              <Button onClick={() => action("restart")} disabled={!dockerAvail || isNotFound || loading} variant="outline" className="gap-2">
                 <RotateCcw size={16} /> Restart
               </Button>
-              <Button onClick={logsOpen ? () => setLogsOpen(false) : loadLogs} disabled={!dockerAvail || status === "not_found"} variant="outline" className="gap-2">
+              <Button onClick={logsOpen ? () => setLogsOpen(false) : loadLogs} disabled={!dockerAvail || isNotFound} variant="outline" className="gap-2">
                 <Terminal size={16} /> {logsOpen ? "Hide Logs" : "View Logs"}
               </Button>
               {logsOpen && <Button variant="ghost" size="icon" onClick={loadLogs}><RefreshCw size={14} /></Button>}

@@ -994,11 +994,31 @@ app.get("/api/litenode/docker/status", async (_req, res) => {
   }
 });
 
-// POST /api/litenode/docker/start
+// POST /api/litenode/docker/create — build image + create + start via docker compose
+app.post("/api/litenode/docker/create", async (_req, res) => {
+  try {
+    if (!await dockerAvailable()) return res.status(503).json({ error: "Docker not available" });
+    console.log(`[litenode] running docker compose up -d litenode ...`);
+    const { stdout, stderr } = await execAsync(`docker compose up -d litenode 2>&1`, { timeout: 180000, cwd: process.cwd() });
+    const status = await getContainerStatus(LITENODE_CONTAINER);
+    console.log(`[litenode] compose up → ${status}`);
+    res.json({ ok: true, status, output: (stdout + stderr).split("\n").filter(Boolean) });
+  } catch (err) {
+    console.error("[litenode] create error:", err.message);
+    res.status(500).json({ error: err.message, output: err.message.split("\n") });
+  }
+});
+
 app.post("/api/litenode/docker/start", async (_req, res) => {
   try {
     const hasDocker = await dockerAvailable();
     if (!hasDocker) return res.status(503).json({ error: "Docker not available" });
+    const current = await getContainerStatus(LITENODE_CONTAINER);
+    if (current === "not_found") {
+      return res.status(404).json({
+        error: `Container "${LITENODE_CONTAINER}" does not exist. Create it first on the server:\n  docker compose up litenode -d\nOr set LITENODE_CONTAINER_NAME to the correct container name.`,
+      });
+    }
     await execAsync(`docker start ${LITENODE_CONTAINER}`, { timeout: 15000 });
     const status = await getContainerStatus(LITENODE_CONTAINER);
     console.log(`[litenode] started container ${LITENODE_CONTAINER} → ${status}`);
@@ -1094,9 +1114,30 @@ app.get("/api/rpcnode/docker/status", async (_req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/rpcnode/docker/create — build image + create + start via docker compose
+app.post("/api/rpcnode/docker/create", async (_req, res) => {
+  try {
+    if (!await dockerAvailable()) return res.status(503).json({ error: "Docker not available" });
+    console.log(`[rpcnode] running docker compose up -d litenode ...`);
+    const { stdout, stderr } = await execAsync(`docker compose up -d litenode 2>&1`, { timeout: 180000, cwd: process.cwd() });
+    const status = await getContainerStatus(RPCNODE_CONTAINER);
+    console.log(`[rpcnode] compose up → ${status}`);
+    res.json({ ok: true, status, output: (stdout + stderr).split("\n").filter(Boolean) });
+  } catch (err) {
+    console.error("[rpcnode] create error:", err.message);
+    res.status(500).json({ error: err.message, output: err.message.split("\n") });
+  }
+});
+
 app.post("/api/rpcnode/docker/start", async (_req, res) => {
   try {
     if (!await dockerAvailable()) return res.status(503).json({ error: "Docker not available" });
+    const current = await getContainerStatus(RPCNODE_CONTAINER);
+    if (current === "not_found") {
+      return res.status(404).json({
+        error: `Container "${RPCNODE_CONTAINER}" does not exist. Create it first on the server:\n  docker compose up litenode -d\nOr set RPCNODE_CONTAINER_NAME to the correct container name.`,
+      });
+    }
     await execAsync(`docker start ${RPCNODE_CONTAINER}`, { timeout: 15000 });
     const status = await getContainerStatus(RPCNODE_CONTAINER);
     console.log(`[rpcnode] started ${RPCNODE_CONTAINER} → ${status}`);
@@ -1145,6 +1186,95 @@ app.get("/api/rpcnode/docker/stats", async (_req, res) => {
     const [cpu, mem, net] = stdout.trim().split("|");
     res.json({ docker: true, status, stats: { cpu, mem, net } });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Node Config (.env read/write) ─────────────────────────────────────────────
+
+const ENV_PATH = path.join(process.cwd(), ".env");
+
+const NODE_CONFIG_KEYS = [
+  "UPSTREAM_RPC",
+  "BOOTNODE_URL",
+  "FULLNODE_RPC_1",
+  "FULLNODE_RPC_2",
+  "FULLNODE_RPC_3",
+  "LITENODE_RATE_PER_MIN",
+];
+
+function readEnvFile() {
+  try { return fs.readFileSync(ENV_PATH, "utf-8"); } catch { return ""; }
+}
+
+function writeEnvVars(vars) {
+  let content = readEnvFile();
+  let lines = content.split("\n");
+  for (const [key, value] of Object.entries(vars)) {
+    if (value === undefined || value === null) continue;
+    const idx = lines.findIndex(l => l.split("=")[0].replace(/^#\s*/, "").trim() === key);
+    const newLine = value !== "" ? `${key}=${value}` : `# ${key}=`;
+    if (idx >= 0) { lines[idx] = newLine; }
+    else { lines.push(newLine); }
+  }
+  fs.writeFileSync(ENV_PATH, lines.join("\n"));
+}
+
+// GET /api/nodes/config — returns current node configuration
+app.get("/api/nodes/config", (_req, res) => {
+  res.json({
+    UPSTREAM_RPC:         process.env.UPSTREAM_RPC         || "https://bsc-dataseed.binance.org",
+    BOOTNODE_URL:         process.env.BOOTNODE_URL          || "",
+    FULLNODE_RPC_1:       process.env.FULLNODE_RPC_1        || "",
+    FULLNODE_RPC_2:       process.env.FULLNODE_RPC_2        || "",
+    FULLNODE_RPC_3:       process.env.FULLNODE_RPC_3        || "",
+    LITENODE_RATE_PER_MIN: process.env.LITENODE_RATE_PER_MIN || "120",
+  });
+});
+
+// POST /api/nodes/config — write vars to .env, optionally restart litenode
+app.post("/api/nodes/config", async (req, res) => {
+  try {
+    const vars = {};
+    for (const key of NODE_CONFIG_KEYS) {
+      if (req.body[key] !== undefined) vars[key] = req.body[key];
+    }
+    writeEnvVars(vars);
+    for (const [k, v] of Object.entries(vars)) process.env[k] = v;
+
+    let restarted = false;
+    if (req.body.restartLitenode && await dockerAvailable()) {
+      try {
+        await execAsync(`docker compose up -d litenode 2>&1`, { timeout: 60000, cwd: process.cwd() });
+        restarted = true;
+        console.log("[nodes] litenode restarted with new config");
+      } catch (e) { console.warn("[nodes] litenode restart failed:", e.message); }
+    }
+
+    res.json({ ok: true, written: Object.keys(vars), restarted });
+  } catch (err) {
+    console.error("[nodes] config write error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/nodes/test — test reachability of a given RPC/HTTP URL
+app.post("/api/nodes/test", async (req, res) => {
+  const { url } = req.body;
+  if (!url || typeof url !== "string") return res.status(400).json({ error: "url required" });
+  try {
+    const { default: fetch } = await import("node-fetch").catch(() => ({ default: globalThis.fetch }));
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch(url.startsWith("enode://") ? `https://httpbin.org/get` : url, {
+      method: url.startsWith("enode://") ? "GET" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: url.startsWith("enode://") ? undefined : JSON.stringify({ jsonrpc: "2.0", id: 1, method: "net_version", params: [] }),
+      signal: ctrl.signal,
+    }).finally(() => clearTimeout(timer));
+    const json = await r.json().catch(() => ({}));
+    res.json({ ok: r.ok, status: r.status, result: json.result || null });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
 });
 
 app.listen(PORT, "0.0.0.0", () => {

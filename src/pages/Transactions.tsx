@@ -117,8 +117,9 @@ const Transactions = () => {
     if (!walletAddress || !blockchainSettings?.rpc_url) return;
 
     setLoadingBlockchain(true);
+    let provider = null;
     try {
-      const provider = await getSafeProvider(blockchainSettings.rpc_url);
+      provider = await getSafeProvider(blockchainSettings.rpc_url);
       if (!provider) {
         setLoadingBlockchain(false);
         return;
@@ -156,8 +157,10 @@ const Transactions = () => {
       setBlockchainTxs(txs);
     } catch (error) {
       console.error("Error fetching blockchain transactions:", error);
+    } finally {
+      provider?.destroy();
+      setLoadingBlockchain(false);
     }
-    setLoadingBlockchain(false);
   };
 
   const filteredTransactions = useMemo(() => {

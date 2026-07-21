@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { awardPoints, processReferralReward } from "@/lib/rewards";
 import {
   ArrowLeft, Zap, Wifi, Tv, Droplets, Phone, CreditCard,
   GraduationCap, BookOpen, Building, Landmark, ShieldCheck,
@@ -96,6 +97,8 @@ const PayBills = () => {
       } as never);
 
       setReference(ref);
+      awardPoints(user.id, amt, "bill_payment");
+      processReferralReward(user.id);
       setPaid(true);
     } catch (err: any) {
       toast({ variant: "destructive", title: "Payment failed", description: err.message });

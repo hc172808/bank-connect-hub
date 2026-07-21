@@ -95,6 +95,7 @@ const AdminDownloadPoster = lazy(() => import("./pages/AdminDownloadPoster"));
 const AdminSendUpdate = lazy(() => import("./pages/AdminSendUpdate"));
 const AdminPasswordResets = lazy(() => import("./pages/AdminPasswordResets"));
 const LegalCompliance = lazy(() => import("./pages/LegalCompliance"));
+const AdminRewards    = lazy(() => import("./pages/AdminRewards"));
 const BudgetPlanner       = lazy(() => import("./pages/BudgetPlanner"));
 const SavingsGoals        = lazy(() => import("./pages/SavingsGoals"));
 const SavingsAccounts       = lazy(() => import("./pages/SavingsAccounts"));
@@ -122,6 +123,8 @@ const FinancialInsights   = lazy(() => import("./pages/FinancialInsights"));
 const ScheduledPayments   = lazy(() => import("./pages/ScheduledPayments"));
 const SplitBills          = lazy(() => import("./pages/SplitBills"));
 const AdminRPCNode        = lazy(() => import("./pages/AdminRPCNode"));
+const AdminNodeConfig     = lazy(() => import("./pages/AdminNodeConfig"));
+const Leaderboard         = lazy(() => import("./pages/Leaderboard"));
 const CurrencyConverter             = lazy(() => import("./pages/CurrencyConverter"));
 const AdminAIDefense               = lazy(() => import("./pages/AdminAIDefense"));
 const AIFinancialAssistant         = lazy(() => import("./pages/AIFinancialAssistant"));
@@ -280,6 +283,7 @@ const AppRoutes = () => {
         <Route path="/top-up" element={<TopUp />} />
         <Route path="/pay-merchant" element={<PayMerchant />} />
         <Route path="/refer" element={<ReferAndEarn />} />
+        <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/menu" element={<Menu />} />
@@ -421,6 +425,7 @@ const AppRoutes = () => {
         <Route path="/admin/firewall" element={<ProtectedRoute allowedRoles={["admin"]}><AdminFirewall /></ProtectedRoute>} />
         <Route path="/admin/litenode" element={<ProtectedRoute allowedRoles={["admin"]}><AdminLitenode /></ProtectedRoute>} />
         <Route path="/admin/rpc-node" element={<ProtectedRoute allowedRoles={["admin"]}><AdminRPCNode /></ProtectedRoute>} />
+        <Route path="/admin/node-config" element={<ProtectedRoute allowedRoles={["admin"]}><AdminNodeConfig /></ProtectedRoute>} />
         <Route path="/admin/app-releases" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppReleases /></ProtectedRoute>} />
         <Route path="/admin/themes" element={<ProtectedRoute allowedRoles={["admin"]}><AdminThemes /></ProtectedRoute>} />
         <Route path="/admin/app-manager" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppManager /></ProtectedRoute>} />
@@ -435,6 +440,7 @@ const AppRoutes = () => {
         <Route path="/admin/send-update" element={<ProtectedRoute allowedRoles={["admin"]}><AdminSendUpdate /></ProtectedRoute>} />
         <Route path="/admin/password-resets" element={<ProtectedRoute allowedRoles={["admin"]}><AdminPasswordResets /></ProtectedRoute>} />
         <Route path="/admin/legal" element={<ProtectedRoute allowedRoles={["admin"]}><LegalCompliance /></ProtectedRoute>} />
+        <Route path="/admin/rewards" element={<ProtectedRoute allowedRoles={["admin"]}><AdminRewards /></ProtectedRoute>} />
         <Route path="/security" element={<SecuritySettings />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />

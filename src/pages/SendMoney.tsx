@@ -13,6 +13,7 @@ import { useDashboardHome } from "@/hooks/useDashboardHome";
 import { checkFirewall } from "@/lib/aiFirewall";
 import { sendTransactionSms } from "@/lib/smsAlerts";
 import { sendTransactionEmail } from "@/lib/emailAlerts";
+import { awardPoints } from "@/lib/rewards";
 import { TransferAnimation, TransferState } from "@/components/TransferAnimation";
 import {
   Dialog,
@@ -331,6 +332,9 @@ const SendMoney = () => {
 
       if (result.success) {
         setAnimState("success");
+
+        // Award loyalty points for this transfer (fire-and-forget)
+        awardPoints(user.id, parseFloat(amount), `Transfer to ${receiverName}`, "earned");
 
         // Fire-and-forget SMS + email alerts (non-blocking — never delays the UI)
         supabase.from("profiles").select("phone_number").eq("id", user.id).single().then(({ data: sp }) => {

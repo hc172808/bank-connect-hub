@@ -2,14 +2,18 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Star, Gift, TrendingUp, Award, Tag, Zap, Crown,
-  CheckCircle, Lock, ShoppingBag, Coins, Sparkles,
+  CheckCircle, Lock, Coins, Sparkles, RefreshCw, Loader2,
 } from "lucide-react";
+import {
+  getRewardsData, awardPoints, redeemCashback,
+  RewardsData,
+} from "@/lib/rewards";
 
 interface RewardTier {
   key: string;
@@ -50,41 +54,26 @@ const TIERS: RewardTier[] = [
 ];
 
 interface Offer {
-  id: string;
-  brand: string;
-  discount: string;
-  desc: string;
-  expiry: string;
-  category: string;
-  icon: string;
+  id: string; brand: string; discount: string;
+  desc: string; expiry: string; category: string; icon: string;
 }
-
 const OFFERS: Offer[] = [
-  { id: "1", brand: "FoodMart",       discount: "10% off",      desc: "On grocery purchases",         expiry: "Jul 31", category: "food",      icon: "🛒" },
-  { id: "2", brand: "TechStore",      discount: "5% off",       desc: "Electronics & accessories",    expiry: "Jul 15", category: "tech",      icon: "💻" },
-  { id: "3", brand: "FuelPlus",       discount: "$2 off/fill",  desc: "Per fuel fill-up",             expiry: "Jun 30", category: "fuel",      icon: "⛽" },
-  { id: "4", brand: "CafeBlend",      discount: "Free coffee",  desc: "With any purchase over $15",   expiry: "Jul 20", category: "food",      icon: "☕" },
-  { id: "5", brand: "PharmaCare",     discount: "8% off",       desc: "Pharmacy & health products",   expiry: "Aug 1",  category: "health",    icon: "💊" },
-  { id: "6", brand: "TravelEasy",     discount: "3% off",       desc: "Flight & hotel bookings",      expiry: "Sep 1",  category: "travel",    icon: "✈️" },
+  { id: "1", brand: "FoodMart",   discount: "10% off",     desc: "On grocery purchases",       expiry: "Jul 31", category: "food",   icon: "🛒" },
+  { id: "2", brand: "TechStore",  discount: "5% off",      desc: "Electronics & accessories",  expiry: "Jul 15", category: "tech",   icon: "💻" },
+  { id: "3", brand: "FuelPlus",   discount: "$2 off/fill", desc: "Per fuel fill-up",           expiry: "Jun 30", category: "fuel",   icon: "⛽" },
+  { id: "4", brand: "CafeBlend",  discount: "Free coffee", desc: "With any purchase over $15", expiry: "Jul 20", category: "food",   icon: "☕" },
+  { id: "5", brand: "PharmaCare", discount: "8% off",      desc: "Pharmacy & health products", expiry: "Aug 1",  category: "health", icon: "💊" },
+  { id: "6", brand: "TravelEasy", discount: "3% off",      desc: "Flight & hotel bookings",    expiry: "Sep 1",  category: "travel", icon: "✈️" },
 ];
-
-interface PointActivity {
-  date: string;
-  description: string;
-  points: number;
-  type: "earned" | "redeemed" | "bonus";
-}
-
-const STORAGE_KEY = "vbank_rewards_v1";
 
 const Rewards = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [points, setPoints] = useState(0);
-  const [cashback, setCashback] = useState(0);
-  const [activities, setActivities] = useState<PointActivity[]>([]);
+  const [data, setData] = useState<RewardsData>({ points: 0, cashback: 0, totalEarned: 0, totalRedeemed: 0, activities: [] });
   const [userId, setUserId] = useState("");
   const [activeTab, setActiveTab] = useState<"overview" | "offers" | "history">("overview");
+  const [redeeming, setRedeeming] = useState(false);
+  const [seeded, setSeeded] = useState(false);
 
   useEffect(() => { init(); }, []);
 
@@ -92,58 +81,66 @@ const Rewards = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserId(user.id);
-    const raw = localStorage.getItem(`${STORAGE_KEY}_${user.id}`);
-    if (raw) {
-      const saved = JSON.parse(raw);
-      setPoints(saved.points || 0);
-      setCashback(saved.cashback || 0);
-      setActivities(saved.activities || []);
-    } else {
-      // Seed from transactions
+
+    let saved = getRewardsData(user.id);
+
+    // Seed from existing transactions once if never seeded
+    if (saved.totalEarned === 0 && !seeded) {
+      setSeeded(true);
       const { data: txs } = await supabase
         .from("transactions")
         .select("amount, status, transaction_type, created_at, description")
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
         .eq("status", "completed")
-        .limit(20);
-      let pts = 0;
-      let cb = 0;
-      const acts: PointActivity[] = [];
-      (txs || []).forEach((tx: any) => {
-        const txPts = Math.floor(tx.amount * 2);
-        const txCb = parseFloat((tx.amount * 0.005).toFixed(2));
-        pts += txPts;
-        cb += txCb;
-        acts.push({ date: tx.created_at, description: tx.description || "Transaction", points: txPts, type: "earned" });
-      });
-      // Welcome bonus
-      pts += 100;
-      acts.unshift({ date: new Date().toISOString(), description: "Welcome bonus", points: 100, type: "bonus" });
-      const data = { points: pts, cashback: cb, activities: acts };
-      localStorage.setItem(`${STORAGE_KEY}_${user.id}`, JSON.stringify(data));
-      setPoints(pts);
-      setCashback(cb);
-      setActivities(acts);
+        .not("transaction_type", "eq", "cashback_redemption")
+        .limit(30);
+
+      if (txs && txs.length > 0) {
+        for (const tx of txs) {
+          awardPoints(user.id, tx.amount, tx.description || "Transaction", "earned");
+        }
+        // Welcome bonus
+        awardPoints(user.id, 100, "Welcome bonus 🎉", "bonus");
+        saved = getRewardsData(user.id);
+      } else {
+        // New user — give welcome bonus
+        awardPoints(user.id, 100, "Welcome bonus 🎉", "bonus");
+        saved = getRewardsData(user.id);
+      }
     }
+
+    setData(saved);
   };
 
-  const redeemCashback = () => {
-    if (cashback < 1) { toast({ title: "Minimum $1.00 to redeem", variant: "destructive" }); return; }
-    toast({ title: "Cashback Redeemed!", description: `$${cashback.toFixed(2)} added to your wallet.` });
-    const newData = { points, cashback: 0, activities: [
-      { date: new Date().toISOString(), description: `Cashback redeemed: $${cashback.toFixed(2)}`, points: 0, type: "redeemed" as const },
-      ...activities,
-    ]};
-    localStorage.setItem(`${STORAGE_KEY}_${userId}`, JSON.stringify(newData));
-    setCashback(0);
+  const refresh = async () => {
+    if (!userId) return;
+    setData(getRewardsData(userId));
   };
 
+  const handleRedeem = async () => {
+    if (!userId) return;
+    setRedeeming(true);
+    const result = await redeemCashback(userId);
+    if (result.success) {
+      toast({
+        title: "Cashback Redeemed! 🎉",
+        description: `$${result.amount?.toFixed(2)} has been added to your wallet balance.`,
+      });
+      setData(getRewardsData(userId));
+    } else {
+      toast({ variant: "destructive", title: "Redemption Failed", description: result.error });
+    }
+    setRedeeming(false);
+  };
+
+  const { points, cashback, totalEarned, totalRedeemed, activities } = data;
   const currentTier = [...TIERS].reverse().find(t => points >= t.minPoints) || TIERS[0];
   const nextTier = TIERS[TIERS.indexOf(currentTier) + 1];
   const progressToNext = nextTier ? Math.min((points / nextTier.minPoints) * 100, 100) : 100;
 
   return (
     <div className="min-h-screen bg-background pb-20">
+      {/* Header */}
       <header className="bg-gradient-to-br from-yellow-500 to-orange-500 text-white p-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -155,11 +152,17 @@ const Rewards = () => {
               <p className="text-xs text-white/70">Earn points on every transaction</p>
             </div>
           </div>
-          <div className="text-right">
-            <p className="text-3xl font-bold">{points.toLocaleString()}</p>
-            <p className="text-xs text-white/70">Total Points</p>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={refresh} className="text-white">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <div className="text-right">
+              <p className="text-3xl font-bold">{points.toLocaleString()}</p>
+              <p className="text-xs text-white/70">Total Points</p>
+            </div>
           </div>
         </div>
+
         {/* Tier badge */}
         <div className="bg-white/20 rounded-2xl p-3 flex items-center gap-3">
           <div className={`w-12 h-12 bg-gradient-to-br ${currentTier.gradient} rounded-2xl flex items-center justify-center`}>
@@ -193,19 +196,46 @@ const Rewards = () => {
           ))}
         </div>
 
+        {/* ── Overview ── */}
         {activeTab === "overview" && (
           <div className="space-y-4">
-            {/* Cashback card */}
-            <Card className="border-green-200 bg-green-50">
+
+            {/* Stats row */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Points", value: points.toLocaleString(), color: "text-yellow-600" },
+                { label: "All-time earned", value: totalEarned.toLocaleString(), color: "text-blue-600" },
+                { label: "Total redeemed", value: `$${totalRedeemed.toFixed(2)}`, color: "text-green-600" },
+              ].map(s => (
+                <Card key={s.label} className="p-3 text-center">
+                  <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
+                  <p className="text-[10px] text-muted-foreground leading-tight">{s.label}</p>
+                </Card>
+              ))}
+            </div>
+
+            {/* Cashback redemption card */}
+            <Card className={`border-2 ${cashback >= 1 ? "border-green-400 bg-green-50 dark:bg-green-950/30" : "border-border"}`}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">Cashback Balance</p>
-                    <p className="text-3xl font-bold text-green-700">${cashback.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground">Minimum $1.00 to redeem</p>
+                    <p className={`text-3xl font-bold ${cashback >= 1 ? "text-green-700 dark:text-green-400" : "text-foreground"}`}>
+                      ${cashback.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {cashback >= 1
+                        ? "Ready to redeem → credited to your wallet instantly"
+                        : "Earn more points to unlock cashback (min $1.00)"}
+                    </p>
                   </div>
-                  <Button onClick={redeemCashback} disabled={cashback < 1} className="bg-green-600 hover:bg-green-700">
-                    <Coins className="h-4 w-4 mr-2" /> Redeem
+                  <Button
+                    onClick={handleRedeem}
+                    disabled={cashback < 1 || redeeming}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {redeeming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4 mr-2" />}
+                    {redeeming ? "Redeeming…" : "Redeem"}
                   </Button>
                 </div>
               </CardContent>
@@ -214,13 +244,14 @@ const Rewards = () => {
             {/* Tiers */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2"><Crown className="h-4 w-4 text-yellow-500" /> Membership Tiers</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Crown className="h-4 w-4 text-yellow-500" /> Membership Tiers
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {TIERS.map((tier, i) => {
+                {TIERS.map(tier => {
                   const isActive = tier.key === currentTier.key;
                   const isAchieved = points >= tier.minPoints;
-                  const isLocked = !isAchieved;
                   return (
                     <div key={tier.key} className={`p-3 rounded-xl border-2 ${isActive ? "border-primary bg-primary/5" : "border-border"}`}>
                       <div className="flex items-center gap-3">
@@ -231,7 +262,7 @@ const Rewards = () => {
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-sm">{tier.label}</span>
                             {isActive && <Badge className="text-xs">Current</Badge>}
-                            {isLocked && <Lock className="h-3 w-3 text-muted-foreground" />}
+                            {!isAchieved && <Lock className="h-3 w-3 text-muted-foreground" />}
                           </div>
                           <p className="text-xs text-muted-foreground">{tier.minPoints.toLocaleString()} pts · {tier.cashbackPct}% cashback</p>
                         </div>
@@ -255,15 +286,17 @@ const Rewards = () => {
             {/* How to earn */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2"><Sparkles className="h-4 w-4" /> How to Earn Points</CardTitle>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" /> How to Earn Points
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 {[
-                  { label: "Every $1 spent",      pts: "2 pts", icon: "💸" },
-                  { label: "Bill payments",        pts: "5 pts", icon: "📄" },
-                  { label: "Referral bonus",       pts: "200 pts", icon: "👥" },
-                  { label: "Birthday reward",      pts: "50 pts", icon: "🎂" },
-                  { label: "Monthly challenge",    pts: "Up to 100 pts", icon: "🏆" },
+                  { label: "Every $1 transferred", pts: "2 pts", icon: "💸" },
+                  { label: "Bill payments",         pts: "5 pts", icon: "📄" },
+                  { label: "QR payments",           pts: "3 pts", icon: "📱" },
+                  { label: "Referral bonus",        pts: "200 pts", icon: "👥" },
+                  { label: "Birthday reward",       pts: "50 pts", icon: "🎂" },
                 ].map(item => (
                   <div key={item.label} className="flex items-center justify-between p-2 bg-muted rounded-lg">
                     <span>{item.icon} {item.label}</span>
@@ -275,6 +308,7 @@ const Rewards = () => {
           </div>
         )}
 
+        {/* ── Offers ── */}
         {activeTab === "offers" && (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">Exclusive deals for {currentTier.label} members</p>
@@ -301,27 +335,36 @@ const Rewards = () => {
           </div>
         )}
 
+        {/* ── History ── */}
         {activeTab === "history" && (
           <div className="space-y-2">
             {activities.length === 0 ? (
-              <p className="text-center text-muted-foreground py-10">No activity yet</p>
+              <div className="text-center py-12">
+                <Gift className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-40" />
+                <p className="text-muted-foreground">No activity yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Points appear here after your first transaction</p>
+              </div>
             ) : (
-              activities.map((a, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+              activities.map((a) => (
+                <div key={a.id} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    a.type === "earned" ? "bg-green-100" : a.type === "bonus" ? "bg-yellow-100" : "bg-blue-100"
+                    a.type === "earned" ? "bg-green-100 dark:bg-green-900/40"
+                    : a.type === "bonus" ? "bg-yellow-100 dark:bg-yellow-900/40"
+                    : "bg-blue-100 dark:bg-blue-900/40"
                   }`}>
                     {a.type === "earned" ? <TrendingUp className="h-4 w-4 text-green-600" />
                       : a.type === "bonus" ? <Gift className="h-4 w-4 text-yellow-600" />
                       : <Coins className="h-4 w-4 text-blue-600" />}
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{a.description}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(a.date).toLocaleDateString()}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(a.date).toLocaleString()}</p>
                   </div>
-                  {a.points > 0 && (
-                    <span className="text-sm font-bold text-green-600">+{a.points} pts</span>
-                  )}
+                  <div className="text-right shrink-0">
+                    {a.points > 0 && <p className="text-sm font-bold text-green-600">+{a.points} pts</p>}
+                    {a.cashback > 0 && <p className="text-xs text-green-500">+${a.cashback.toFixed(4)}</p>}
+                    {a.type === "redeemed" && <p className="text-sm font-bold text-blue-600">${Math.abs(a.cashback).toFixed(2)} redeemed</p>}
+                  </div>
                 </div>
               ))
             )}
