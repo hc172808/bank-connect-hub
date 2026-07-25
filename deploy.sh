@@ -16,7 +16,7 @@
 #
 #  WHAT THIS INSTALLS (source mode — default):
 #    ✓ System packages (curl, git, openssl, jq, ufw, nginx)
-#    ✓ Node.js 20 LTS  (frontend build + build-server.mjs)
+#    ✓ Node.js 22 LTS  (frontend build + build-server.mjs)
 #    ✓ Java 17 + Gradle (APK builder / Capacitor)
 #    ✓ Android SDK command-line tools (optional, for APK builds)
 #    ✓ npm install + Vite production build
@@ -315,11 +315,11 @@ esac
 ok "System prerequisites installed"
 
 # =============================================================================
-# STEP 3 — Install Node.js 20 LTS
+# STEP 3 — Install Node.js 22 LTS
 # =============================================================================
-section "STEP 3 — Node.js 20 LTS"
+section "STEP 3 — Node.js 22 LTS"
 
-NODE_REQUIRED_MAJOR=20
+NODE_REQUIRED_MAJOR=22
 
 install_node() {
   log "Installing Node.js ${NODE_REQUIRED_MAJOR} LTS via NodeSource…"
