@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -56,31 +55,36 @@ export default function Register() {
       const digits = phoneNumber.replace(/\D+/g, "");
       const emailToUse = email || `${digits}@virtualbank.app`;
 
-      const { data, error } = await supabase.auth.signUp({
-        email: emailToUse,
-        password,
-        options: {
-          data: {
+      // Route through the build-server so the service role key can auto-confirm
+      // the account — avoids the email confirmation loop with fake addresses.
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: emailToUse,
+          password,
+          metadata: {
             full_name: fullName,
             phone_number: phoneNumber,
             account_type: accountType,
           },
-          emailRedirectTo: `${window.location.origin}/`,
-        }
+        }),
       });
 
-      if (error) throw error;
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Registration failed');
 
-      if (data.user) {
-        if (referralCode.trim()) {
-          storeUsedReferralCode(referralCode.trim());
-        }
-        toast({
-          title: "Account created!",
-          description: "You can create or import a blockchain wallet from your Profile settings.",
-        });
-        navigate('/auth');
+      if (referralCode.trim()) {
+        storeUsedReferralCode(referralCode.trim());
       }
+
+      toast({
+        title: "Account created!",
+        description: result.confirmed
+          ? "You can now sign in with your phone number and password."
+          : "Check your email to confirm your account, then sign in.",
+      });
+      navigate('/auth');
     } catch (error: any) {
       toast({ variant: "destructive", title: "Registration failed", description: error.message });
     } finally {

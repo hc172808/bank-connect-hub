@@ -989,6 +989,76 @@ try {
 </script></body></html>`);
 });
 
+// POST /api/auth/register — public registration endpoint (email confirmation bypass)
+// Uses service role key if available so users can log in immediately without email confirmation.
+app.post("/api/auth/register", async (req, res) => {
+  const { email, password, metadata = {} } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: "email and password required" });
+  if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+  let supabaseUrl = process.env.VITE_SUPABASE_URL;
+  let anonKey    = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  let serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  // Fallback: parse .env file if env vars not set
+  if (!supabaseUrl || !anonKey) {
+    try {
+      const dotenv = fs.readFileSync(path.join(__dirname, ".env"), "utf8");
+      const parse = (key) => {
+        const m = dotenv.match(new RegExp(`^${key}="?([^"\\n]+)"?`, "m"));
+        return m?.[1] || "";
+      };
+      supabaseUrl = supabaseUrl || parse("VITE_SUPABASE_URL");
+      anonKey     = anonKey    || parse("VITE_SUPABASE_PUBLISHABLE_KEY");
+      serviceKey  = serviceKey || parse("SUPABASE_SERVICE_ROLE_KEY");
+    } catch {}
+  }
+
+  if (!supabaseUrl || !anonKey) return res.status(503).json({ error: "Supabase not configured" });
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+
+    // Prefer admin client (service role) — creates user with email already confirmed
+    if (serviceKey) {
+      const adminClient = createClient(supabaseUrl, serviceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data, error } = await adminClient.auth.admin.createUser({
+        email,
+        password,
+        user_metadata: metadata,
+        email_confirm: true,
+      });
+      if (error) throw new Error(error.message);
+      // Ensure user_roles row exists (trigger may already handle this)
+      await adminClient.from("user_roles")
+        .upsert({ user_id: data.user.id, role: metadata.account_type || "client" })
+        .catch(() => {});
+      return res.json({ ok: true, userId: data.user.id, confirmed: true });
+    }
+
+    // Fallback: anon signUp (user will need email confirmation if Supabase requires it)
+    const client = createClient(supabaseUrl, anonKey);
+    const { data, error } = await client.auth.signUp({
+      email,
+      password,
+      options: { data: metadata },
+    });
+    if (error) throw new Error(error.message);
+    const userId = data.user?.id;
+    if (userId) {
+      await client.from("user_roles")
+        .upsert({ user_id: userId, role: metadata.account_type || "client" })
+        .catch(() => {});
+    }
+    return res.json({ ok: true, userId, confirmed: !!data.session, needsConfirmation: !data.session });
+  } catch (err) {
+    console.error("[register]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/auth/create-user — create a new user (localhost only, temp utility)
 app.post("/api/auth/create-user", async (req, res) => {
   const forwarded = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "";
