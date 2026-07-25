@@ -13,6 +13,9 @@
     "preview": "vite preview",
     "db:push": "drizzle-kit push"
   },
+  "overrides": {
+    "tar": "^7.5.22"
+  },
   "dependencies": {
     "@capacitor/android": "^8.3.1",
     "@capacitor/cli": "^7.6.2",
