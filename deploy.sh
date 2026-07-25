@@ -610,28 +610,56 @@ section "STEP 8 — Firewall"
 if command -v ufw &>/dev/null; then
   log "Configuring UFW…"
   ufw --force reset     &>/dev/null
-  ufw default deny incoming
-  ufw default allow outgoing
+  ufw default deny incoming  &>/dev/null
+  ufw default allow outgoing &>/dev/null
+
   SSH_PORT=$(ss -tlnp 2>/dev/null | grep sshd | awk '{print $4}' | cut -d: -f2 | head -1)
-  ufw allow "${SSH_PORT:-22}/tcp"          comment "SSH"
-  ufw allow "${APP_PORT}/tcp"              comment "NETLIFECASH app"
-  ufw allow "${BUILD_SERVER_PORT}/tcp"     comment "Build server"
-  ufw allow 9000/tcp                       comment "Deploy webhook"
-  ufw allow 9443/tcp                       comment "Portainer"
-  [[ -n "${DOMAIN_NAME:-}" ]] && ufw allow 80/tcp && ufw allow 443/tcp
+  SSH_PORT="${SSH_PORT:-22}"
+
+  ufw allow "${SSH_PORT}/tcp"              comment "SSH"             &>/dev/null
+  ufw allow "${APP_PORT}/tcp"              comment "NETLIFECASH app" &>/dev/null
+  ufw allow "${BUILD_SERVER_PORT}/tcp"     comment "Build server"    &>/dev/null
+  ufw allow 9000/tcp                       comment "Deploy webhook"  &>/dev/null
+  ufw allow 9443/tcp                       comment "Portainer"       &>/dev/null
+  if [[ -n "${DOMAIN_NAME:-}" ]]; then
+    ufw allow 80/tcp  comment "HTTP"  &>/dev/null
+    ufw allow 443/tcp comment "HTTPS" &>/dev/null
+  fi
   ufw --force enable &>/dev/null
-  ok "UFW configured"
+
+  ok "UFW enabled — ports open:"
+  printf "     %-8s  %s\n"  "${SSH_PORT}/tcp"             "SSH"
+  printf "     %-8s  %s\n"  "${APP_PORT}/tcp"             "NETLIFECASH frontend"
+  printf "     %-8s  %s\n"  "${BUILD_SERVER_PORT}/tcp"    "Build server (APK / push / SMS)"
+  printf "     %-8s  %s\n"  "9000/tcp"                    "Deploy webhook"
+  printf "     %-8s  %s\n"  "9443/tcp"                    "Portainer dashboard"
+  if [[ -n "${DOMAIN_NAME:-}" ]]; then
+    printf "     %-8s  %s\n"  "80/tcp"   "HTTP  (→ redirects to HTTPS)"
+    printf "     %-8s  %s\n"  "443/tcp"  "HTTPS (SSL termination)"
+  fi
+
 elif command -v firewall-cmd &>/dev/null; then
   log "Configuring firewalld…"
   systemctl enable --now firewalld
-  firewall-cmd --permanent --add-port="${APP_PORT}/tcp"
-  firewall-cmd --permanent --add-port="${BUILD_SERVER_PORT}/tcp"
-  firewall-cmd --permanent --add-port="9443/tcp"
-  firewall-cmd --permanent --add-port="9000/tcp"
-  [[ -n "${DOMAIN_NAME:-}" ]] && firewall-cmd --permanent --add-service=http \
-    && firewall-cmd --permanent --add-service=https
-  firewall-cmd --reload
-  ok "firewalld configured"
+  firewall-cmd --permanent --add-port="${APP_PORT}/tcp"           &>/dev/null
+  firewall-cmd --permanent --add-port="${BUILD_SERVER_PORT}/tcp"  &>/dev/null
+  firewall-cmd --permanent --add-port="9443/tcp"                  &>/dev/null
+  firewall-cmd --permanent --add-port="9000/tcp"                  &>/dev/null
+  if [[ -n "${DOMAIN_NAME:-}" ]]; then
+    firewall-cmd --permanent --add-service=http  &>/dev/null
+    firewall-cmd --permanent --add-service=https &>/dev/null
+  fi
+  firewall-cmd --reload &>/dev/null
+
+  ok "firewalld enabled — ports open:"
+  printf "     %-8s  %s\n"  "${APP_PORT}/tcp"             "NETLIFECASH frontend"
+  printf "     %-8s  %s\n"  "${BUILD_SERVER_PORT}/tcp"    "Build server (APK / push / SMS)"
+  printf "     %-8s  %s\n"  "9000/tcp"                    "Deploy webhook"
+  printf "     %-8s  %s\n"  "9443/tcp"                    "Portainer dashboard"
+  if [[ -n "${DOMAIN_NAME:-}" ]]; then
+    printf "     %-8s  %s\n"  "80/tcp"   "HTTP"
+    printf "     %-8s  %s\n"  "443/tcp"  "HTTPS"
+  fi
 fi
 
 # =============================================================================
