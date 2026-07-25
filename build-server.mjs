@@ -437,6 +437,135 @@ app.post("/api/git-pull", (req, res) => {
   }
 });
 
+// ── App Update (git pull + npm install + optional restart) ───────────────────
+// Tracks the in-progress update so only one runs at a time
+let updateJob = null; // { logs[], status: "running"|"done"|"failed", listeners[] }
+
+function updateSseSend(data) {
+  if (!updateJob) return;
+  const line = `data: ${JSON.stringify(data)}\n\n`;
+  for (const write of updateJob.listeners) {
+    try { write(line); } catch {}
+  }
+  updateJob.logs.push(data);
+}
+
+// GET /api/update/stream — SSE stream of update progress
+app.get("/api/update/stream", (req, res) => {
+  sseInit(res);
+
+  if (!updateJob) {
+    sseSend(res, { type: "idle" });
+    res.end();
+    return;
+  }
+
+  // Replay buffered events
+  for (const ev of updateJob.logs) {
+    sseSend(res, ev);
+  }
+
+  if (updateJob.status !== "running") {
+    sseSend(res, { type: "done", status: updateJob.status });
+    res.end();
+    return;
+  }
+
+  // Live stream
+  const write = (chunk) => res.write(chunk);
+  updateJob.listeners.push(write);
+
+  req.on("close", () => {
+    if (updateJob) updateJob.listeners = updateJob.listeners.filter((l) => l !== write);
+  });
+});
+
+// POST /api/update — pull latest code, install deps, optionally restart
+app.post("/api/update", (req, res) => {
+  if (updateJob && updateJob.status === "running") {
+    return res.status(409).json({ error: "An update is already in progress" });
+  }
+
+  const { branch = "main", remote, restart = false } = req.body || {};
+
+  updateJob = { logs: [], status: "running", listeners: [] };
+  res.json({ ok: true, message: "Update started — connect to /api/update/stream for progress" });
+
+  // Run steps sequentially in background
+  (async () => {
+    const log = (text) => updateSseSend({ type: "log", text });
+    const step = (text) => updateSseSend({ type: "step", text });
+    const fail = (text) => { updateSseSend({ type: "error", text }); updateJob.status = "failed"; updateSseSend({ type: "done", status: "failed" }); };
+
+    try {
+      // ── Step 1: optionally update remote ───────────────────────────────────
+      if (remote) {
+        step("Configuring git remote…");
+        try {
+          const existing = execSync("git remote get-url origin", { cwd: __dirname }).toString().trim();
+          if (existing !== remote) {
+            execSync(`git remote set-url origin "${remote}"`, { cwd: __dirname });
+            log(`Remote updated to: ${remote}`);
+          }
+        } catch {
+          execSync(`git remote add origin "${remote}"`, { cwd: __dirname });
+          log(`Remote added: ${remote}`);
+        }
+      }
+
+      // ── Step 2: git pull ───────────────────────────────────────────────────
+      step(`Pulling from origin/${branch}…`);
+      await new Promise((resolve, reject) => {
+        const proc = spawn("git", ["pull", "origin", branch], {
+          cwd: __dirname,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        });
+        proc.stdout.on("data", (d) => d.toString().split("\n").filter(Boolean).forEach(log));
+        proc.stderr.on("data", (d) => d.toString().split("\n").filter(Boolean).forEach(log));
+        proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`git pull exited ${code}`)));
+      });
+
+      // ── Step 3: npm install ────────────────────────────────────────────────
+      step("Installing dependencies (npm install)…");
+      await new Promise((resolve, reject) => {
+        const proc = spawn("npm", ["install", "--no-audit", "--no-fund"], {
+          cwd: __dirname,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env, CI: "true" },
+        });
+        proc.stdout.on("data", (d) => d.toString().split("\n").filter(Boolean).forEach(log));
+        proc.stderr.on("data", (d) => {
+          const text = d.toString();
+          text.split("\n").filter(Boolean)
+            .filter((l) => !l.startsWith("npm warn") && !l.startsWith("npm notice"))
+            .forEach(log);
+        });
+        proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`npm install exited ${code}`)));
+      });
+
+      step("Update complete ✓");
+      updateJob.status = "done";
+      updateSseSend({ type: "done", status: "done" });
+
+      // ── Step 4 (optional): restart server ─────────────────────────────────
+      if (restart) {
+        log("Restarting server in 2 s…");
+        setTimeout(() => process.exit(0), 2000);
+      }
+    } catch (err) {
+      console.error("[build-server] update error:", err.message);
+      fail(err.message);
+    }
+  })();
+});
+
+// GET /api/update/status — quick status poll
+app.get("/api/update/status", (_req, res) => {
+  if (!updateJob) return res.json({ status: "idle" });
+  res.json({ status: updateJob.status });
+});
+
 // GET /api/download/:filename — download an APK or zip
 app.get("/api/download/:filename", (req, res) => {
   const { filename } = req.params;
