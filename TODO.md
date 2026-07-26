@@ -10,7 +10,7 @@
 |---|---------|--------|
 | I-01 | Dockerfile (multi-stage, nginx) | ✅ |
 | I-02 | docker-compose.yml (app + litenode + watchtower + webhook) | ✅ |
-| I-03 | portainer-stack.yml (Portainer-ready one-click stack) | ✅ |
+| I-03 | ~~portainer-stack.yml~~ (removed — Portainer dependency dropped) | ✅ |
 | I-04 | deploy.sh — Quick deploy for Ubuntu 22.04+ | ✅ |
 | I-05 | setup-ubuntu.sh — Full production hardening (nginx, UFW, fail2ban, SSL) | ✅ |
 | I-06 | .env.example with all required fields | ✅ |

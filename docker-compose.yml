@@ -7,10 +7,6 @@
 #   watchtower   — Auto-pulls new images from GHCR on push
 #   webhook      — Instant redeploy trigger from GitHub Actions
 #
-# Usage (Portainer):
-#   Stacks → Add Stack → Repository → point at your GitHub repo
-#   Set env vars in the "Environment variables" section
-#
 # Usage (CLI):
 #   cp .env.example .env && nano .env
 #   docker compose up -d

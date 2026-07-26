@@ -22,7 +22,7 @@
 #    ✓ npm install + Vite production build
 #    ✓ nginx  — serves the built SPA on APP_PORT
 #    ✓ build-server.mjs — runs as a systemd service on BUILD_SERVER_PORT
-#    ✓ Docker CE + Portainer CE  (optional management UI)
+#    ✓ Docker CE
 #    ✓ UFW firewall rules
 #    ✓ Let's Encrypt SSL (optional, requires DOMAIN_NAME + SSL_EMAIL)
 #
@@ -451,7 +451,7 @@ fi
 export ANDROID_HOME="${ANDROID_HOME_PATH}"
 
 # =============================================================================
-# STEP 7 — Install Docker CE (for Portainer management UI)
+# STEP 7 — Install Docker CE
 # =============================================================================
 section "STEP 7 — Docker CE"
 
@@ -620,7 +620,6 @@ if command -v ufw &>/dev/null; then
   ufw allow "${APP_PORT}/tcp"              comment "NETLIFECASH app" &>/dev/null
   ufw allow "${BUILD_SERVER_PORT}/tcp"     comment "Build server"    &>/dev/null
   ufw allow 9000/tcp                       comment "Deploy webhook"  &>/dev/null
-  ufw allow 9443/tcp                       comment "Portainer"       &>/dev/null
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     ufw allow 80/tcp  comment "HTTP"  &>/dev/null
     ufw allow 443/tcp comment "HTTPS" &>/dev/null
@@ -632,7 +631,6 @@ if command -v ufw &>/dev/null; then
   printf "     %-8s  %s\n"  "${APP_PORT}/tcp"             "NETLIFECASH frontend"
   printf "     %-8s  %s\n"  "${BUILD_SERVER_PORT}/tcp"    "Build server (APK / push / SMS)"
   printf "     %-8s  %s\n"  "9000/tcp"                    "Deploy webhook"
-  printf "     %-8s  %s\n"  "9443/tcp"                    "Portainer dashboard"
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     printf "     %-8s  %s\n"  "80/tcp"   "HTTP  (→ redirects to HTTPS)"
     printf "     %-8s  %s\n"  "443/tcp"  "HTTPS (SSL termination)"
@@ -643,7 +641,6 @@ elif command -v firewall-cmd &>/dev/null; then
   systemctl enable --now firewalld
   firewall-cmd --permanent --add-port="${APP_PORT}/tcp"           &>/dev/null
   firewall-cmd --permanent --add-port="${BUILD_SERVER_PORT}/tcp"  &>/dev/null
-  firewall-cmd --permanent --add-port="9443/tcp"                  &>/dev/null
   firewall-cmd --permanent --add-port="9000/tcp"                  &>/dev/null
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     firewall-cmd --permanent --add-service=http  &>/dev/null
@@ -655,7 +652,6 @@ elif command -v firewall-cmd &>/dev/null; then
   printf "     %-8s  %s\n"  "${APP_PORT}/tcp"             "NETLIFECASH frontend"
   printf "     %-8s  %s\n"  "${BUILD_SERVER_PORT}/tcp"    "Build server (APK / push / SMS)"
   printf "     %-8s  %s\n"  "9000/tcp"                    "Deploy webhook"
-  printf "     %-8s  %s\n"  "9443/tcp"                    "Portainer dashboard"
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     printf "     %-8s  %s\n"  "80/tcp"   "HTTP"
     printf "     %-8s  %s\n"  "443/tcp"  "HTTPS"
@@ -990,27 +986,7 @@ else
 fi
 
 # =============================================================================
-# STEP 13 — Portainer CE (management UI)
-# =============================================================================
-section "STEP 13 — Portainer CE"
-
-docker volume create portainer_data &>/dev/null || true
-if ! docker ps -a --format '{{.Names}}' | grep -q '^portainer$'; then
-  docker run -d \
-    --name portainer \
-    --restart=unless-stopped \
-    -p 9443:9443 \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    -v portainer_data:/data \
-    portainer/portainer-ce:latest &>/dev/null
-  ok "Portainer installed at https://${SERVER_IP}:9443"
-else
-  docker start portainer &>/dev/null || true
-  ok "Portainer already running at https://${SERVER_IP}:9443"
-fi
-
-# =============================================================================
-# STEP 13.5 — GYDS RPC Node (public/rpcnode) + Docker socket wiring
+# STEP 13 — GYDS RPC Node (public/rpcnode) + Docker socket wiring
 # =============================================================================
 section "STEP 13.5 — GYDS RPC Node"
 
@@ -1127,8 +1103,6 @@ cat > "$INFO_FILE" << INFO
 
 APP_URL=${APP_URL}
 BUILD_SERVER_URL=http://${SERVER_IP}:${BUILD_SERVER_PORT}
-PORTAINER_URL=https://${SERVER_IP}:9443
-
 # ── Auto-Generated Secrets (save these somewhere safe!) ───────────────────────
 WEBHOOK_SECRET=${WEBHOOK_SECRET}
 JWT_SECRET=${JWT_SECRET}
@@ -1191,7 +1165,6 @@ echo -e "${GRN}╠════════════════════�
 echo -e "${GRN}║                                                               ║${NC}"
 printf "${GRN}║  🌐 App URL:        %-42s║${NC}\n" "${APP_URL}"
 printf "${GRN}║  🔧 Build Server:   %-42s║${NC}\n" "http://${SERVER_IP}:${BUILD_SERVER_PORT}"
-printf "${GRN}║  🐳 Portainer:      %-42s║${NC}\n" "https://${SERVER_IP}:9443"
 printf "${GRN}║  ☕ Java Home:      %-42s║${NC}\n" "${JAVA_HOME}"
 if ! $SKIP_ANDROID; then
 printf "${GRN}║  🤖 Android SDK:    %-42s║${NC}\n" "${ANDROID_HOME}"

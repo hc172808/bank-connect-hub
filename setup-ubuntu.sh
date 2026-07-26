@@ -10,13 +10,12 @@
 #
 #  What this installs:
 #    ✓ Docker CE + Docker Compose v2 plugin
-#    ✓ Portainer CE (Docker web UI on port 9443)
 #    ✓ Virtual Bank app stack (app + litenode + watchtower + webhook)
 #    ✓ nginx reverse proxy with rate-limiting and WAF rules
 #    ✓ ModSecurity WAF for nginx (optional, Debian/Ubuntu)
 #    ✓ Let's Encrypt SSL via certbot
 #    ✓ UFW firewall (deny-all default, allow only needed ports)
-#    ✓ Fail2ban with custom jails for SSH, nginx, litenode, Portainer
+#    ✓ Fail2ban with custom jails for SSH, nginx, and litenode
 #    ✓ Sysctl kernel hardening (IP forwarding controls, SYN cookies, etc.)
 #    ✓ Unattended-upgrades (automatic security patches)
 #    ✓ Log rotation for app and nginx logs
@@ -304,9 +303,6 @@ if command -v ufw &>/dev/null; then
     ufw allow 443/tcp comment "HTTPS"
   fi
 
-  # Portainer
-  ufw allow 9443/tcp comment "Portainer"
-
   ufw --force enable
   log "UFW firewall enabled ✓"
 fi
@@ -324,7 +320,6 @@ if [[ -d "$SECURITY_DIR" ]]; then
   cp "$SECURITY_DIR/fail2ban-jail.local"                /etc/fail2ban/jail.local
   cp "$SECURITY_DIR/fail2ban-virtualbank-api.conf"      /etc/fail2ban/filter.d/virtualbank-api.conf
   cp "$SECURITY_DIR/fail2ban-virtualbank-litenode.conf" /etc/fail2ban/filter.d/virtualbank-litenode.conf
-  cp "$SECURITY_DIR/fail2ban-portainer.conf"            /etc/fail2ban/filter.d/portainer.conf
   cp "$SECURITY_DIR/fail2ban-nginx-req-limit.conf"      /etc/fail2ban/filter.d/nginx-req-limit.conf
 else
   # Write inline if security/ dir not present
@@ -751,24 +746,7 @@ for i in {1..30}; do
 done
 
 # =============================================================================
-# STEP 15 — Portainer CE
-# =============================================================================
-log "Installing Portainer CE…"
-docker volume create portainer_data &>/dev/null || true
-docker run -d \
-  --name portainer \
-  --restart=unless-stopped \
-  -p 9443:9443 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v portainer_data:/data \
-  portainer/portainer-ce:latest \
-  --sslcert /data/certs/cert.pem \
-  --sslkey  /data/certs/key.pem \
-  2>/dev/null || docker start portainer 2>/dev/null || true
-log "Portainer running on port 9443 ✓"
-
-# =============================================================================
-# STEP 16 — SSL with Let's Encrypt (if domain + email provided)
+# STEP 15 — SSL with Let's Encrypt (if domain + email provided)
 # =============================================================================
 if [[ -n "$DOMAIN_NAME" && -n "$SSL_EMAIL" ]]; then
   log "Installing Certbot and obtaining SSL certificate…"
@@ -891,8 +869,6 @@ if [[ -n "$DOMAIN_NAME" && -n "$SSL_EMAIL" ]]; then
 else
   echo -e "    ${CYN}http://${SERVER_IP}:${APP_PORT}${NC}"
 fi
-echo ""
-echo -e "${BLU}  Portainer:${NC}    ${CYN}https://${SERVER_IP}:9443${NC}"
 echo ""
 echo -e "${BLU}  Litenode RPC (via nginx proxy):${NC}"
 echo -e "    ${CYN}http://${SERVER_IP}:${APP_PORT}/rpc${NC}   (set as VITE_RPC_URL)"
