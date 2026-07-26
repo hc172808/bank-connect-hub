@@ -989,6 +989,92 @@ try {
 </script></body></html>`);
 });
 
+// POST /api/auth/ensure-admin — idempotent: create OR confirm+fix existing admin user
+// Accepts { email, password, metadata, legacyEmails? }
+// legacyEmails: older emails for the same account (e.g. without country code) that
+//               should be migrated to the canonical email automatically.
+app.post("/api/auth/ensure-admin", async (req, res) => {
+  const { email, password, metadata = {}, legacyEmails = [] } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: "email and password required" });
+
+  let supabaseUrl = process.env.VITE_SUPABASE_URL;
+  let serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    try {
+      const dotenv = fs.readFileSync(path.join(__dirname, ".env"), "utf8");
+      const parse  = (key) => { const m = dotenv.match(new RegExp(`^${key}="?([^"\\n]+)"?`, "m")); return m?.[1] || ""; };
+      supabaseUrl = supabaseUrl || parse("VITE_SUPABASE_URL");
+      serviceKey  = serviceKey  || parse("SUPABASE_SERVICE_ROLE_KEY");
+    } catch { /* ignore */ }
+  }
+  if (!supabaseUrl || !serviceKey) {
+    return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured on this server." });
+  }
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const admin = createClient(supabaseUrl, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    // Load all users once (used for lookup)
+    const { data: { users }, error: listErr } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    if (listErr) throw new Error(listErr.message);
+
+    let userId = null;
+    let action  = "";
+
+    // 1. Check if canonical email already exists
+    const canonical = users.find((u) => u.email === email);
+    if (canonical) {
+      userId = canonical.id;
+      // Ensure email is confirmed, password and metadata are current
+      const { error: updateErr } = await admin.auth.admin.updateUserById(userId, {
+        password, email_confirm: true, user_metadata: metadata,
+      });
+      if (updateErr) throw new Error(updateErr.message);
+      action = "confirmed+updated";
+      console.log("[ensure-admin] Canonical user found — confirmed:", email);
+
+    } else {
+      // 2. Check for legacy email (e.g. without country code)
+      const legacy = users.find((u) => legacyEmails.includes(u.email));
+      if (legacy) {
+        userId = legacy.id;
+        // Migrate: update email to canonical + confirm + fix password+metadata
+        const { error: migrateErr } = await admin.auth.admin.updateUserById(userId, {
+          email, password, email_confirm: true, user_metadata: metadata,
+        });
+        if (migrateErr) throw new Error(migrateErr.message);
+        action = "migrated+confirmed";
+        console.log("[ensure-admin] Legacy user migrated:", legacy.email, "→", email);
+
+      } else {
+        // 3. Create brand-new user (email pre-confirmed)
+        const { data: created, error: createErr } = await admin.auth.admin.createUser({
+          email, password, user_metadata: metadata, email_confirm: true,
+        });
+        if (createErr) throw new Error(createErr.message);
+        userId = created.user.id;
+        action = "created";
+        console.log("[ensure-admin] New user created:", email);
+      }
+    }
+
+    // 4. Upsert admin role in user_roles (best-effort)
+    if (userId) {
+      const role = metadata.account_type || "admin";
+      const { error: roleErr } = await admin.from("user_roles").upsert({ user_id: userId, role });
+      if (roleErr) console.warn("[ensure-admin] user_roles upsert:", roleErr.message);
+    }
+
+    res.json({ ok: true, userId, action, confirmed: true });
+  } catch (err) {
+    console.error("[ensure-admin]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/auth/create-user — create a new user (localhost only, temp utility)
 app.post("/api/auth/create-user", async (req, res) => {
   const forwarded = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "";

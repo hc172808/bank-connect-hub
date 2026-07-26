@@ -6,109 +6,80 @@ import { CheckCircle2, XCircle, Loader2, ShieldCheck } from "lucide-react";
 
 /**
  * TEMPORARY one-shot admin setup page.
- * Creates phone 6421651 / Zaq12wsx as admin.
+ * Creates phone 6421651 / Zaq12wsx as admin via the server-side endpoint
+ * so email confirmation is bypassed automatically.
  * Remove this file and route from App.tsx after use.
  */
 export default function SetupAdminUser() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<"running" | "done" | "error">("running");
   const [lines, setLines] = useState<{ text: string; ok?: boolean }[]>([]);
-  const [userId, setUserId] = useState("");
 
   const log = (text: string, ok?: boolean) =>
     setLines((l) => [...l, { text, ok }]);
 
   useEffect(() => {
     (async () => {
-      const EMAIL    = "6421651@vbank.com";
+      const PHONE    = "6421651";
+      // Canonical email matches what the login page generates for GY (+592) + 6421651
+      const EMAIL    = `592${PHONE}@vbank.com`;   // → 5926421651@vbank.com
       const PASSWORD = "Zaq12wsx";
-      const METADATA = { full_name: "Admin", phone_number: "6421651", account_type: "admin" };
+      const METADATA = { full_name: "Admin", phone_number: PHONE, account_type: "admin" };
+      // Legacy email (no country code) — migrate automatically if it exists
+      const LEGACY   = [`${PHONE}@vbank.com`, `${PHONE}@virtualbank.app`];
 
-      log("Initialising Supabase client…");
-      await initSupabase();
-      log("Attempting sign-up for " + EMAIL + " …");
+      try {
+        // ── Step 1: Create or confirm user via server (uses service role key) ──
+        log("Creating / confirming admin user via server…");
+        const res = await fetch("/api/auth/ensure-admin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: EMAIL, password: PASSWORD, metadata: METADATA, legacyEmails: LEGACY }),
+        });
+        const data = await res.json();
 
-      // ── Try sign-up ──────────────────────────────────────────────────────
-      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-        email: EMAIL,
-        password: PASSWORD,
-        options: { data: METADATA },
-      });
-
-      if (signUpErr) {
-        if (signUpErr.message?.toLowerCase().includes("already registered") ||
-            signUpErr.message?.toLowerCase().includes("already been registered")) {
-          log("User already exists — verifying credentials…");
-        } else {
-          log("Sign-up error: " + signUpErr.message, false);
+        if (!res.ok) {
+          log("Server error: " + (data.error || res.status), false);
           setStatus("error");
           return;
         }
-      } else if (signUpData?.user) {
-        const uid = signUpData.user.id;
-        setUserId(uid);
-        log("✅ User created! ID: " + uid, true);
-        log("Metadata account_type: " + (signUpData.user.user_metadata?.account_type || "not set"),
-            signUpData.user.user_metadata?.account_type === "admin");
-        if (!signUpData.session) {
-          log("⚠ No session — Supabase email confirmation may be enabled. Check Supabase Dashboard → Auth → Settings → 'Confirm email' and disable it.", false);
-        } else {
-          log("✅ Session active — user can sign in immediately.", true);
-        }
-      }
 
-      // ── If user already existed, sign in to confirm + update metadata ───
-      if (signUpErr) {
-        const { data: signinData, error: signinErr } = await supabase.auth.signInWithPassword({
+        log(`✅ User ready (ID: ${data.userId}) — email confirmed.`, true);
+
+        // ── Step 2: Verify sign-in works ──────────────────────────────────────
+        log("Verifying sign-in…");
+        await initSupabase();
+        const { data: signIn, error: signInErr } = await supabase.auth.signInWithPassword({
           email: EMAIL,
           password: PASSWORD,
         });
-        if (signinErr) {
-          log("Sign-in failed: " + signinErr.message, false);
+
+        if (signInErr) {
+          log("Sign-in failed: " + signInErr.message, false);
+          if (signInErr.message?.toLowerCase().includes("confirm")) {
+            log("→ Go to Supabase Dashboard → Auth → Settings and disable 'Confirm email'.", false);
+          }
           setStatus("error");
           return;
         }
-        const uid = signinData.user?.id || "";
-        setUserId(uid);
-        log("✅ Signed in successfully. User ID: " + uid, true);
 
-        const currentType = signinData.user?.user_metadata?.account_type;
-        if (currentType !== "admin") {
-          log("Updating metadata to account_type: admin…");
-          const { error: updateErr } = await supabase.auth.updateUser({ data: METADATA });
-          if (updateErr) {
-            log("Metadata update failed: " + updateErr.message, false);
-          } else {
-            log("✅ Metadata updated — account_type is now admin.", true);
-          }
-        } else {
-          log("✅ account_type is already admin.", true);
-        }
-        // Sign out so the state is clean
+        log(`✅ Sign-in successful! User ID: ${signIn.user?.id}`, true);
+        log(`✅ account_type: ${signIn.user?.user_metadata?.account_type || "not set"}`, true);
+
+        // Sign out so the state is clean for the actual login
         await supabase.auth.signOut();
-        log("Signed out — ready for admin sign-in.");
-      }
+        log("Signed out — ready for login.");
 
-      // ── Try inserting into user_roles table ──────────────────────────────
-      if (userId || signUpData?.user?.id) {
-        const uid = userId || signUpData?.user?.id || "";
-        if (uid) {
-          const { error: roleErr } = await (supabase as any)
-            .from("user_roles")
-            .upsert({ user_id: uid, role: "admin" });
-          if (roleErr) {
-            log("Note: user_roles insert failed (" + roleErr.message + ") — role will use metadata fallback instead.", undefined);
-          } else {
-            log("✅ Admin role inserted into user_roles table.", true);
-          }
-        }
-      }
+        log("─────────────────────────────────");
+        log("✅ Done! Sign in with:", true);
+        log("  Phone: 6421651", true);
+        log("  Password: Zaq12wsx", true);
+        setStatus("done");
 
-      log("─────────────────────────────────");
-      log("✅ Done! Sign in with:", true);
-      log("  Phone: 6421651", true);
-      log("  Password: Zaq12wsx", true);
-      setStatus("done");
+      } catch (err: any) {
+        log("Unexpected error: " + err.message, false);
+        setStatus("error");
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -134,12 +105,12 @@ export default function SetupAdminUser() {
           )}
           {lines.map((l, i) => (
             <div key={i} className={`flex items-start gap-2 ${
-              l.ok === true ? "text-green-600" :
-              l.ok === false ? "text-red-500" :
+              l.ok === true  ? "text-green-600" :
+              l.ok === false ? "text-red-500"   :
               "text-foreground/80"
             }`}>
-              {l.ok === true && <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
-              {l.ok === false && <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
+              {l.ok === true  && <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
+              {l.ok === false && <XCircle      className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
               {l.ok === undefined && <span className="w-3.5 shrink-0" />}
               <span>{l.text}</span>
             </div>
@@ -157,9 +128,9 @@ export default function SetupAdminUser() {
           </Button>
         )}
         {status === "error" && (
-          <p className="text-sm text-red-500 text-center">
-            Setup failed. Check the log above and try again, or create the user manually via the Supabase dashboard.
-          </p>
+          <Button variant="outline" className="w-full" onClick={() => window.location.reload()}>
+            Retry
+          </Button>
         )}
       </div>
     </div>
