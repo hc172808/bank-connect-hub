@@ -6,7 +6,7 @@ import { CheckCircle2, XCircle, Loader2, ShieldCheck } from "lucide-react";
 
 /**
  * TEMPORARY one-shot admin setup page.
- * Creates phone 5926421651 / Zaq12wsx as admin.
+ * Creates phone 6421651 / Zaq12wsx as admin.
  * Remove this file and route from App.tsx after use.
  */
 export default function SetupAdminUser() {
@@ -20,9 +20,9 @@ export default function SetupAdminUser() {
 
   useEffect(() => {
     (async () => {
-      const EMAIL    = "5926421651@vbank.com";
+      const EMAIL    = "6421651@vbank.com";
       const PASSWORD = "Zaq12wsx";
-      const METADATA = { full_name: "Admin", phone_number: "5926421651", account_type: "admin" };
+      const METADATA = { full_name: "Admin", phone_number: "6421651", account_type: "admin" };
 
       log("Initialising Supabase client…");
       await initSupabase();
@@ -106,7 +106,7 @@ export default function SetupAdminUser() {
 
       log("─────────────────────────────────");
       log("✅ Done! Sign in with:", true);
-      log("  Phone: 5926421651", true);
+      log("  Phone: 6421651", true);
       log("  Password: Zaq12wsx", true);
       setStatus("done");
     })();
