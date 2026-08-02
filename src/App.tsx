@@ -150,6 +150,7 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
   const [slow, setSlow] = useState(false);
   const [stuck, setStuck] = useState(false);
   const [online, setOnline] = useState(() => navigator.onLine);
+  const [diagnosis, setDiagnosis] = useState<string | null>(null);
 
   useEffect(() => {
     const slowT = setTimeout(() => setSlow(true), 5000);
@@ -174,6 +175,31 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
     const t = setTimeout(() => window.location.reload(), 1200);
     return () => clearTimeout(t);
   }, [stuck, online]);
+
+  // When stalled, work out WHY: network, backend config, backend reachability, or session.
+  useEffect(() => {
+    if (!stuck) return;
+    let cancelled = false;
+    (async () => {
+      const set = (s: string) => { if (!cancelled) setDiagnosis(s); };
+      if (!navigator.onLine) { set("Network: device is offline."); return; }
+      try {
+        const res = await fetch("/api/config", { cache: "no-store" });
+        if (!res.ok) { set(`Config: /api/config returned HTTP ${res.status}. Using build-time keys.`); }
+      } catch (e) {
+        set(`Config: could not reach /api/config (${e instanceof Error ? e.message : "network error"}). Falling back to build-time keys.`);
+      }
+      try {
+        const { error } = await supabase.auth.getSession();
+        if (error) { set(`Session: ${error.message}`); return; }
+      } catch (e) {
+        set(`Backend: auth request failed (${e instanceof Error ? e.message : "unknown error"}). Backend may be unreachable.`);
+        return;
+      }
+      set((d) => d ?? "App shell loaded but a screen never mounted. This is usually a slow bundle download.");
+    })();
+    return () => { cancelled = true; };
+  }, [stuck]);
 
   const message = stuck
     ? (online
@@ -200,6 +226,11 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
       <p className={`text-sm ${stuck ? "text-destructive" : "text-muted-foreground"} max-w-xs`}>
         {message}
       </p>
+      {stuck && (
+        <p className="text-xs text-muted-foreground max-w-sm font-mono break-words">
+          {diagnosis ?? "Checking network, backend and session…"}
+        </p>
+      )}
       {stuck && (
         <button
           type="button"
