@@ -44,6 +44,7 @@ export default function ResetPassword() {
   const [loading, setLoading]           = useState(false);
   const [isRecovery, setIsRecovery]     = useState(false);
   const [done, setDone]                 = useState(false);
+  const [failure, setFailure]           = useState<string | null>(null);
 
   useEffect(() => {
     // Supabase puts the access_token + type in the URL hash after email recovery
@@ -72,6 +73,7 @@ export default function ResetPassword() {
       return;
     }
     setLoading(true);
+    setFailure(null);
     try {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
@@ -79,15 +81,45 @@ export default function ResetPassword() {
       toast({ title: "Password updated!", description: "Sign in with your new password." });
       await supabase.auth.signOut();
     } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setFailure(msg);
       toast({
         variant: "destructive",
         title: "Reset failed",
-        description: err instanceof Error ? err.message : String(err),
+        description: msg,
       });
     } finally {
       setLoading(false);
     }
   };
+
+  // Explicit failure screen
+  if (failure) {
+    return (
+      <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md shadow-xl border-destructive/30">
+          <CardContent className="p-8 text-center space-y-5">
+            <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mx-auto">
+              <KeyRound className="w-8 h-8 text-destructive" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold">Password not updated</h2>
+              <p className="text-muted-foreground text-sm mt-1">
+                We couldn't change your password. Here's exactly what went wrong:
+              </p>
+            </div>
+            <p className="text-xs font-mono bg-muted rounded-lg p-3 break-words text-left">{failure}</p>
+            <div className="space-y-2">
+              <Button className="w-full" onClick={() => setFailure(null)}>Try Again</Button>
+              <Button variant="outline" className="w-full" onClick={() => navigate("/forgot-password")}>
+                Request a New Reset Link
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Invalid / expired link
   if (!isRecovery && !done) {
