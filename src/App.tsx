@@ -149,6 +149,7 @@ const queryClient = new QueryClient({
 const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
   const [slow, setSlow] = useState(false);
   const [stuck, setStuck] = useState(false);
+  const [online, setOnline] = useState(() => navigator.onLine);
 
   useEffect(() => {
     const slowT = setTimeout(() => setSlow(true), 5000);
@@ -156,10 +157,28 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
     return () => { clearTimeout(slowT); clearTimeout(stuckT); };
   }, []);
 
+  // Auto-retry when the device reconnects after a stall.
+  useEffect(() => {
+    const onOnline = () => setOnline(true);
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!stuck || !online) return;
+    const t = setTimeout(() => window.location.reload(), 1200);
+    return () => clearTimeout(t);
+  }, [stuck, online]);
+
   const message = stuck
-    ? (navigator.onLine
-        ? "Taking longer than usual. Check your connection and try again."
-        : "You're offline. Reconnect and reload the app.")
+    ? (online
+        ? "Connection detected — retrying automatically…"
+        : "You're offline. We'll retry automatically once you reconnect.")
     : slow
       ? "Still loading — hang tight…"
       : label;
