@@ -152,8 +152,16 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
   const [stuck, setStuck] = useState(false);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [diagnosis, setDiagnosis] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [attempts] = useState(() => {
+    try { return parseInt(localStorage.getItem("nlc_boot_attempts") || "0", 10) || 0; } catch { return 0; }
+  });
+  const [lastStep] = useState(() => {
+    try { return localStorage.getItem("nlc_boot_step"); } catch { return null; }
+  });
 
   useEffect(() => {
+    try { localStorage.setItem("nlc_boot_step", "react-auth-loading"); } catch { /* ignore */ }
     const slowT = setTimeout(() => setSlow(true), 5000);
     const stuckT = setTimeout(() => setStuck(true), 15000);
     return () => { clearTimeout(slowT); clearTimeout(stuckT); };
@@ -172,10 +180,25 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
   }, []);
 
   useEffect(() => {
-    if (!stuck || !online) return;
-    const t = setTimeout(() => window.location.reload(), 1200);
-    return () => clearTimeout(t);
-  }, [stuck, online]);
+    if (!stuck || !online) { setCountdown(null); return; }
+    // Exponential backoff: 2s, 4s, 8s … capped at 60s, based on persisted attempts.
+    const delay = Math.min(2000 * Math.pow(2, attempts), 60000);
+    let remaining = Math.ceil(delay / 1000);
+    setCountdown(remaining);
+    const iv = setInterval(() => {
+      remaining -= 1;
+      setCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(iv);
+        try {
+          localStorage.setItem("nlc_boot_attempts", String(attempts + 1));
+          localStorage.setItem("nlc_boot_last_attempt", String(Date.now()));
+        } catch { /* ignore */ }
+        window.location.reload();
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [stuck, online, attempts]);
 
   // When stalled, work out WHY: network, backend config, backend reachability, or session.
   useEffect(() => {
@@ -206,7 +229,9 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
 
   const message = stuck
     ? (online
-        ? "Connection detected — retrying automatically…"
+        ? countdown !== null
+          ? `Reconnecting automatically in ${Math.max(countdown, 0)}s… (attempt ${attempts + 1})`
+          : "Connection detected — retrying automatically…"
         : "You're offline. We'll retry automatically once you reconnect.")
     : slow
       ? "Still loading — hang tight…"
@@ -226,6 +251,19 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
       {!stuck && (
         <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       )}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span
+          className={`w-2.5 h-2.5 rounded-full ${online ? "bg-emerald-500" : "bg-destructive"} animate-pulse`}
+          aria-hidden
+        />
+        <span>{online ? "Online — connected" : "Offline — waiting for connectivity"}</span>
+      </div>
+      {attempts > 0 && (
+        <p className="text-[11px] text-muted-foreground font-mono">
+          Resumed after retry #{attempts}
+          {lastStep ? ` · last step: ${lastStep}` : ""}
+        </p>
+      )}
       <p className={`text-sm ${stuck ? "text-destructive" : "text-muted-foreground"} max-w-xs`}>
         {message}
       </p>
@@ -237,10 +275,16 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
       {stuck && (
         <button
           type="button"
-          onClick={() => window.location.reload()}
+          onClick={() => {
+            try {
+              localStorage.setItem("nlc_boot_attempts", String(attempts + 1));
+              localStorage.setItem("nlc_boot_last_attempt", String(Date.now()));
+            } catch { /* ignore */ }
+            window.location.reload();
+          }}
           className="mt-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm shadow hover:opacity-90"
         >
-          Reload app
+          Retry now
         </button>
       )}
     </div>
