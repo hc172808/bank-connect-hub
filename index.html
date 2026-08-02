@@ -88,9 +88,17 @@
             splash.classList.add('stuck');
             status.textContent = navigator.onLine
               ? "Taking longer than usual. Check your connection and try again."
-              : "You're offline. Reconnect and reload the app.";
+              : "You're offline. We'll retry automatically once you reconnect.";
           }
         }, 15000);
+
+        // Auto-retry as soon as the device reconnects after a stall.
+        window.addEventListener('online', function () {
+          if (splash.classList.contains('stuck') && !splash.classList.contains('hide')) {
+            status.textContent = "Connection restored — retrying…";
+            setTimeout(function () { location.reload(); }, 1200);
+          }
+        });
 
         // Update copy at 5s to reassure the user something's happening.
         var slowTimer = setTimeout(function () {
