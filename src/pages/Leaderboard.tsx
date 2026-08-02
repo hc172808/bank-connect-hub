@@ -36,7 +36,7 @@ const Leaderboard = () => {
       .order("referral_count", { ascending: false })
       .limit(50)
       .then(({ data }) => {
-        const rows = (data || []) as Leader[];
+        const rows = (data || []) as unknown as Leader[];
         setLeaders(rows);
         if (user?.id) {
           const idx = rows.findIndex(r => r.id === user.id);

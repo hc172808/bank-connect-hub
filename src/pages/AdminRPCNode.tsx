@@ -101,9 +101,9 @@ const AdminRPCNode = () => {
     if (logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
   }, [logs]);
 
-  const action = async (act: "start" | "stop" | "restart") => {
+  const action = async (act: "start" | "stop" | "restart" | "create") => {
     setLoading(true);
-    const labels = { start: "Starting", stop: "Stopping", restart: "Restarting" };
+    const labels = { start: "Starting", stop: "Stopping", restart: "Restarting", create: "Creating" };
     toast({ title: `${labels[act]} RPC node…` });
     try {
       const res = await apiFetch(act, "POST");
