@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
 import { useAppLock } from "./hooks/useAppLock";
 import { useNewReleaseAlert } from "./hooks/useNewReleaseAlert";
@@ -196,7 +197,9 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
         set(`Backend: auth request failed (${e instanceof Error ? e.message : "unknown error"}). Backend may be unreachable.`);
         return;
       }
-      set((d) => d ?? "App shell loaded but a screen never mounted. This is usually a slow bundle download.");
+      if (!cancelled) {
+        setDiagnosis((d) => d ?? "App shell loaded but a screen never mounted — usually a slow bundle download.");
+      }
     })();
     return () => { cancelled = true; };
   }, [stuck]);
