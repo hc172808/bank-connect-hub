@@ -16,6 +16,16 @@ import { DisplacedSessionDialog } from "./components/DisplacedSessionDialog";
 import { MobileBrowserVerifyDialog } from "./components/MobileBrowserVerifyDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ScrollToTop } from "./components/ScrollToTop";
+import { BootDiagnosticsPanel } from "./components/BootDiagnosticsPanel";
+import {
+  logBoot,
+  getAttempts,
+  getBackoffStep,
+  ensureRetryDeadline,
+  commitRetry,
+  reportBootFailure,
+  BOOT_KEYS,
+} from "@/lib/bootDiagnostics";
 
 // Lazy-loaded pages (route-based code splitting)
 const Auth = lazy(() => import("./pages/Auth"));
@@ -153,17 +163,17 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
   const [online, setOnline] = useState(() => navigator.onLine);
   const [diagnosis, setDiagnosis] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [attempts] = useState(() => {
-    try { return parseInt(localStorage.getItem("nlc_boot_attempts") || "0", 10) || 0; } catch { return 0; }
-  });
+  const [showDiag, setShowDiag] = useState(false);
+  const [logoTaps, setLogoTaps] = useState(0);
+  const [attempts] = useState(() => getAttempts());
   const [lastStep] = useState(() => {
-    try { return localStorage.getItem("nlc_boot_step"); } catch { return null; }
+    try { return localStorage.getItem(BOOT_KEYS.step); } catch { return null; }
   });
 
   useEffect(() => {
-    try { localStorage.setItem("nlc_boot_step", "react-auth-loading"); } catch { /* ignore */ }
+    logBoot("react-auth-loading");
     const slowT = setTimeout(() => setSlow(true), 5000);
-    const stuckT = setTimeout(() => setStuck(true), 15000);
+    const stuckT = setTimeout(() => { setStuck(true); logBoot("react-stuck"); }, 15000);
     return () => { clearTimeout(slowT); clearTimeout(stuckT); };
   }, []);
 
@@ -181,22 +191,20 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
 
   useEffect(() => {
     if (!stuck || !online) { setCountdown(null); return; }
-    // Exponential backoff: 2s, 4s, 8s … capped at 60s, based on persisted attempts.
-    const delay = Math.min(2000 * Math.pow(2, attempts), 60000);
-    let remaining = Math.ceil(delay / 1000);
-    setCountdown(remaining);
+    // Exponential backoff persisted in localStorage: resuming after a reload
+    // continues the *exact* remaining wait rather than restarting the timer.
+    const { retryAt } = ensureRetryDeadline();
+    const remainingNow = () => Math.ceil((retryAt - Date.now()) / 1000);
+    setCountdown(remainingNow());
     const iv = setInterval(() => {
-      remaining -= 1;
+      const remaining = remainingNow();
       setCountdown(remaining);
       if (remaining <= 0) {
         clearInterval(iv);
-        try {
-          localStorage.setItem("nlc_boot_attempts", String(attempts + 1));
-          localStorage.setItem("nlc_boot_last_attempt", String(Date.now()));
-        } catch { /* ignore */ }
+        commitRetry();
         window.location.reload();
       }
-    }, 1000);
+    }, 500);
     return () => clearInterval(iv);
   }, [stuck, online, attempts]);
 
@@ -205,23 +213,37 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
     if (!stuck) return;
     let cancelled = false;
     (async () => {
-      const set = (s: string) => { if (!cancelled) setDiagnosis(s); };
-      if (!navigator.onLine) { set("Network: device is offline."); return; }
+      const set = (s: string) => { if (!cancelled) setDiagnosis(s); logBoot("diagnosis", s); };
+      if (!navigator.onLine) {
+        set("Network: device is offline.");
+        void reportBootFailure({ stage: "network", reason: "device offline" });
+        return;
+      }
       try {
         const res = await fetch("/api/config", { cache: "no-store" });
-        if (!res.ok) { set(`Config: /api/config returned HTTP ${res.status}. Using build-time keys.`); }
+        if (!res.ok) {
+          set(`Config: /api/config returned HTTP ${res.status}. Using build-time keys.`);
+          void reportBootFailure({ stage: "initSupabase", reason: `config HTTP ${res.status}` });
+        }
       } catch (e) {
         set(`Config: could not reach /api/config (${e instanceof Error ? e.message : "network error"}). Falling back to build-time keys.`);
+        void reportBootFailure({ stage: "initSupabase", reason: "config unreachable", error: e });
       }
       try {
         const { error } = await supabase.auth.getSession();
-        if (error) { set(`Session: ${error.message}`); return; }
+        if (error) {
+          set(`Session: ${error.message}`);
+          void reportBootFailure({ stage: "auth", reason: error.message, error, force: true });
+          return;
+        }
       } catch (e) {
         set(`Backend: auth request failed (${e instanceof Error ? e.message : "unknown error"}). Backend may be unreachable.`);
+        void reportBootFailure({ stage: "auth", reason: "auth request failed", error: e, force: true });
         return;
       }
       if (!cancelled) {
         setDiagnosis((d) => d ?? "App shell loaded but a screen never mounted — usually a slow bundle download.");
+        void reportBootFailure({ stage: "bundle", reason: "app shell never mounted a screen" });
       }
     })();
     return () => { cancelled = true; };
@@ -242,8 +264,17 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
       className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-6 text-center"
       data-testid="loader-fullscreen"
     >
+      <BootDiagnosticsPanel open={showDiag} reason={diagnosis} onClose={() => setShowDiag(false)} />
       <div className="flex flex-col items-center gap-3">
-        <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg">
+        <div
+          role="presentation"
+          onClick={() => {
+            const n = logoTaps + 1;
+            setLogoTaps(n);
+            if (n >= 5) { setLogoTaps(0); setShowDiag(true); }
+          }}
+          className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg cursor-default select-none"
+        >
           <span className="text-primary-foreground font-black text-2xl">N</span>
         </div>
         <p className="text-lg font-bold text-foreground">NETLIFE CASH</p>
@@ -260,7 +291,7 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
       </div>
       {attempts > 0 && (
         <p className="text-[11px] text-muted-foreground font-mono">
-          Resumed after retry #{attempts}
+          Resumed after retry #{attempts} · backoff step {getBackoffStep()}
           {lastStep ? ` · last step: ${lastStep}` : ""}
         </p>
       )}
@@ -273,19 +304,22 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
         </p>
       )}
       {stuck && (
-        <button
-          type="button"
-          onClick={() => {
-            try {
-              localStorage.setItem("nlc_boot_attempts", String(attempts + 1));
-              localStorage.setItem("nlc_boot_last_attempt", String(Date.now()));
-            } catch { /* ignore */ }
-            window.location.reload();
-          }}
-          className="mt-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm shadow hover:opacity-90"
-        >
-          Retry now
-        </button>
+        <div className="flex flex-col items-center gap-2 mt-2">
+          <button
+            type="button"
+            onClick={() => { commitRetry(); window.location.reload(); }}
+            className="px-5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm shadow hover:opacity-90"
+          >
+            Retry now
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowDiag(true)}
+            className="text-[11px] underline text-muted-foreground"
+          >
+            Diagnostics
+          </button>
+        </div>
       )}
     </div>
   );
