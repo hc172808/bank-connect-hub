@@ -251,6 +251,51 @@ export type Database = {
         }
         Relationships: []
       }
+      boot_error_reports: {
+        Row: {
+          app_url: string | null
+          attempts: number
+          created_at: string
+          id: string
+          message: string | null
+          online: boolean | null
+          reason: string | null
+          stack: string | null
+          stage: string
+          timeline: Json
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          app_url?: string | null
+          attempts?: number
+          created_at?: string
+          id?: string
+          message?: string | null
+          online?: boolean | null
+          reason?: string | null
+          stack?: string | null
+          stage: string
+          timeline?: Json
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          app_url?: string | null
+          attempts?: number
+          created_at?: string
+          id?: string
+          message?: string | null
+          online?: boolean | null
+          reason?: string | null
+          stack?: string | null
+          stage?: string
+          timeline?: Json
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       changelog_entries: {
         Row: {
           created_at: string
