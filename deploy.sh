@@ -302,13 +302,15 @@ case "$PKG" in
     apt-get update -qq
     apt-get install -y -qq \
       curl wget git ca-certificates gnupg lsb-release \
-      ufw openssl jq net-tools unzip zip \
+      ufw openssl jq net-tools unzip zip rsync cron \
+      build-essential python3 python3-pip apt-transport-https \
       nginx software-properties-common
     ;;
   dnf|yum)
     $PKG update -y -q
     $PKG install -y -q \
-      curl wget git ca-certificates gnupg openssl jq net-tools unzip zip \
+      curl wget git ca-certificates gnupg openssl jq net-tools unzip zip rsync cronie \
+      gcc gcc-c++ make python3 python3-pip \
       nginx firewalld
     ;;
 esac
@@ -755,7 +757,7 @@ ok ".env written to ${APP_DIR}"
 # STEP 10 — Install npm dependencies + build frontend (source mode only)
 # =============================================================================
 if ! $DOCKER_MODE; then
-  section "STEP 10 — npm install + Vite build"
+  section "STEP 10 — npm install + push keys"
   cd "$APP_DIR"
 
   log "Installing npm dependencies…"
@@ -784,12 +786,7 @@ NODEEOF
   sed -i "s|^VAPID_PRIVATE_KEY=.*|VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}|" "${APP_DIR}/.env"
   ok "VAPID keys written to .env"
 
-  log "Building frontend (Vite production build)…"
-  # Export Vite env vars for the build
-  export VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY
-  export VITE_SUPABASE_PROJECT_ID VITE_WHATSAPP_SUPPORT_NUMBER
-  npm run build 2>&1 | tail -5
-  ok "Frontend built → ${APP_DIR}/dist"
+  ok "Dependencies ready — the app itself is built last (STEP 13.9)"
 else
   section "STEP 10 — Docker image pull (--docker mode)"
   log "Authenticating with GHCR…"
@@ -1052,6 +1049,34 @@ if [[ -S /var/run/docker.sock ]]; then
   ok "Docker socket mounted for build-server (/var/run/docker.sock, group=docker)"
 else
   warn "/var/run/docker.sock not found — install Docker first"
+fi
+
+# =============================================================================
+# STEP 13.9 — Build the application (runs LAST, after every service is set up)
+# =============================================================================
+if ! $DOCKER_MODE; then
+  section "STEP 13.9 — Build Application (final step)"
+  cd "$APP_DIR"
+
+  log "Refreshing source from git (if this is a git checkout)…"
+  if [[ -d "${APP_DIR}/.git" ]]; then
+    git pull --ff-only origin "${GITHUB_BRANCH:-main}" || warn "git pull skipped (local changes or offline)"
+  fi
+
+  log "Ensuring dependencies are up to date…"
+  npm ci --prefer-offline --no-fund --no-audit 2>&1 | tail -3 || npm install --no-fund --no-audit 2>&1 | tail -3
+
+  log "Building frontend (Vite production build)…"
+  export VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY
+  export VITE_SUPABASE_PROJECT_ID VITE_WHATSAPP_SUPPORT_NUMBER
+  npm run build 2>&1 | tail -5
+  [[ -f "${APP_DIR}/dist/index.html" ]] || err "Build failed — ${APP_DIR}/dist/index.html not found"
+  ok "Frontend built → ${APP_DIR}/dist"
+
+  log "Reloading web server + app services…"
+  nginx -t && systemctl reload nginx || warn "nginx reload failed — check 'nginx -t'"
+  systemctl restart netlifecash-server 2>/dev/null || warn "netlifecash-server not restarted"
+  ok "Application is live"
 fi
 
 # =============================================================================

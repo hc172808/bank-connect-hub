@@ -102,11 +102,26 @@
         var ATTEMPTS_KEY = 'nlc_boot_attempts';
         var STEP_KEY = 'nlc_boot_step';
         var TS_KEY = 'nlc_boot_last_attempt';
+        var LOG_KEY = 'nlc_boot_log';
+        var RETRY_AT_KEY = 'nlc_boot_retry_at';
+        var BACKOFF_KEY = 'nlc_boot_backoff_step';
+        var FIRST_KEY = 'nlc_boot_first_seen';
         function ls(fn, d) { try { return fn(); } catch (_) { return d; } }
         var attempts = ls(function () { return parseInt(localStorage.getItem(ATTEMPTS_KEY) || '0', 10) || 0; }, 0);
         var lastStep = ls(function () { return localStorage.getItem(STEP_KEY); }, null);
-        window.__bootStep = function (name) {
+        function bootLog(name, detail) {
+          try {
+            var arr = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+            if (!Array.isArray(arr)) arr = [];
+            arr.push({ t: Date.now(), step: name, detail: detail });
+            localStorage.setItem(LOG_KEY, JSON.stringify(arr.slice(-60)));
+            if (!localStorage.getItem(FIRST_KEY)) localStorage.setItem(FIRST_KEY, String(Date.now()));
+          } catch (_) {}
+        }
+        window.__bootLog = bootLog;
+        window.__bootStep = function (name, detail) {
           try { localStorage.setItem(STEP_KEY, name); } catch (_) {}
+          bootLog(name, detail);
           if (stepEl) stepEl.textContent = 'step: ' + name;
         };
         window.__bootStep('html-splash');
@@ -114,8 +129,18 @@
           if (stepEl) stepEl.textContent = 'resuming after retry #' + attempts + ' (last step: ' + lastStep + ')';
         }
 
+        function backoffStep() {
+          return ls(function () { return parseInt(localStorage.getItem(BACKOFF_KEY) || '0', 10) || 0; }, 0);
+        }
+        function backoffDelay(step) { return Math.min(2000 * Math.pow(2, step), 60000); }
         function reloadNow() {
-          try { localStorage.setItem(ATTEMPTS_KEY, String(attempts + 1)); localStorage.setItem(TS_KEY, String(Date.now())); } catch (_) {}
+          try {
+            localStorage.setItem(ATTEMPTS_KEY, String(attempts + 1));
+            localStorage.setItem(TS_KEY, String(Date.now()));
+            localStorage.setItem(BACKOFF_KEY, String(backoffStep() + 1));
+            localStorage.removeItem(RETRY_AT_KEY);
+          } catch (_) {}
+          bootLog('retry-reload');
           try { location.reload(); } catch (_) { location.href = location.href; }
         }
 
@@ -154,16 +179,21 @@
             status.textContent = "Offline — retry will start automatically once you reconnect.";
             return;
           }
-          var delay = Math.min(2000 * Math.pow(2, attempts), 60000); // 2s,4s,8s… capped 60s
-          var remaining = Math.ceil(delay / 1000);
+          // Persisted deadline: after an auto-retry reload we resume the exact
+          // remaining wait instead of restarting the countdown.
+          var retryAt = ls(function () { return parseInt(localStorage.getItem(RETRY_AT_KEY) || '0', 10) || 0; }, 0);
+          if (!retryAt || retryAt <= Date.now()) {
+            retryAt = Date.now() + backoffDelay(backoffStep());
+            try { localStorage.setItem(RETRY_AT_KEY, String(retryAt)); } catch (_) {}
+          }
           function tick() {
             if (!navigator.onLine) { cancelRetry(); scheduleRetry(); return; }
-            status.textContent = "Reconnecting automatically in " + remaining + "s… (attempt " + (attempts + 1) + ")";
+            var remaining = Math.ceil((retryAt - Date.now()) / 1000);
             if (remaining <= 0) { cancelRetry(); reloadNow(); return; }
-            remaining--;
+            status.textContent = "Reconnecting automatically in " + remaining + "s… (attempt " + (attempts + 1) + ")";
           }
           tick();
-          countdownTimer = setInterval(tick, 1000);
+          countdownTimer = setInterval(tick, 500);
         }
         window.addEventListener('online', function () { if (splash.classList.contains('stuck')) scheduleRetry(); });
         window.addEventListener('offline', function () { cancelRetry(); if (splash.classList.contains('stuck')) scheduleRetry(); });
@@ -179,7 +209,11 @@
         var root = document.getElementById('root');
         function hide() {
           clearTimeout(stuckTimer); clearTimeout(slowTimer); cancelRetry();
-          try { localStorage.removeItem(ATTEMPTS_KEY); localStorage.removeItem(STEP_KEY); } catch (_) {}
+          try {
+            localStorage.removeItem(ATTEMPTS_KEY); localStorage.removeItem(STEP_KEY);
+            localStorage.removeItem(RETRY_AT_KEY); localStorage.removeItem(BACKOFF_KEY);
+            localStorage.removeItem(LOG_KEY); localStorage.removeItem(FIRST_KEY);
+          } catch (_) {}
           splash.classList.add('hide');
           setTimeout(function () { splash.remove(); }, 400);
         }
