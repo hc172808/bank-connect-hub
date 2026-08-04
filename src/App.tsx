@@ -466,6 +466,8 @@ const AppRoutes = () => {
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/" element={<Navigate to="/client" replace />} />
+        <Route path="/index" element={<Navigate to="/client" replace />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
     );
@@ -498,6 +500,8 @@ const AppRoutes = () => {
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/" element={<Navigate to="/vendor" replace />} />
+        <Route path="/index" element={<Navigate to="/vendor" replace />} />
         <Route path="*" element={<Navigate to="/vendor" replace />} />
       </Routes>
     );
@@ -523,6 +527,8 @@ const AppRoutes = () => {
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/" element={<Navigate to="/agent" replace />} />
+        <Route path="/index" element={<Navigate to="/agent" replace />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
     );
@@ -586,6 +592,8 @@ const AppRoutes = () => {
         <Route path="/api-integrations" element={<APIIntegrations />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/" element={<Navigate to="/admin" replace />} />
+        <Route path="/index" element={<Navigate to="/admin" replace />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     );
