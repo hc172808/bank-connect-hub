@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { QRScanner } from "@/components/QRScanner";
 import { supabase } from "@/integrations/supabase/client";
 import { awardPoints } from "@/lib/rewards";
+import { processPrivateLedgerTransfer } from "@/lib/privateLedger";
 
 const PayMerchant = () => {
   const navigate = useNavigate();
@@ -44,17 +45,16 @@ const PayMerchant = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const { data, error } = await supabase.rpc("process_transaction", {
-        _sender_id: user.id,
-        _receiver_id: merchantId,
-        _amount: amt,
-        _transaction_type: "transfer",
-        _description: `Merchant payment — ID: ${merchantId.slice(0, 8)}`,
+      const result = await processPrivateLedgerTransfer({
+        senderId: user.id,
+        receiverId: merchantId,
+        amount: amt,
+        transactionType: "transfer",
+        description: `Merchant payment — ID: ${merchantId.slice(0, 8)}`,
       });
 
-      const result = data as { success?: boolean; error?: string } | null;
-      if (error || !result?.success) {
-        throw new Error(result?.error || error?.message || "Payment failed");
+      if (!result.success) {
+        throw new Error(result.error || "Payment failed");
       }
 
       awardPoints(user.id, amt, "merchant_payment");

@@ -1605,7 +1605,8 @@ function writeEnvVars(vars) {
 // GET /api/nodes/config — returns current node configuration
 app.get("/api/nodes/config", (_req, res) => {
   res.json({
-    UPSTREAM_RPC:         process.env.UPSTREAM_RPC         || "https://bsc-dataseed.binance.org",
+    // No public-network default: private ledger infrastructure must fail closed.
+    UPSTREAM_RPC:         process.env.UPSTREAM_RPC         || "",
     BOOTNODE_URL:         process.env.BOOTNODE_URL          || "",
     FULLNODE_RPC_1:       process.env.FULLNODE_RPC_1        || "",
     FULLNODE_RPC_2:       process.env.FULLNODE_RPC_2        || "",

@@ -231,9 +231,11 @@ export default function BlockchainSettings() {
               <div>
                 <CardTitle className="text-2xl flex items-center gap-2">
                   <Coins className="w-6 h-6 text-primary" />
-                  Blockchain Settings
+                  Private Ledger Settings
                 </CardTitle>
-                <CardDescription>Configure blockchain RPC nodes with automatic failover</CardDescription>
+                <CardDescription>
+                  Customer payments use the private ledger. RPC settings below are retained only for controlled legacy administration.
+                </CardDescription>
               </div>
               <Badge variant={settings.is_active ? "default" : "secondary"}>
                 {settings.is_active ? "Active" : "Inactive"}

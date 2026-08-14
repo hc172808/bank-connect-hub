@@ -105,7 +105,7 @@ const Auth = () => {
 
         toast({
           title: "Account created!",
-          description: "You can create or import a blockchain wallet later from Profile → Blockchain Wallet.",
+          description: "Your private ledger account is ready.",
         });
       } else {
         if (!phoneNumber) {

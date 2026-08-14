@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -6,7 +6,6 @@ import { AnnouncementCarousel } from "@/components/AnnouncementCarousel";
 import { ReversalHoldBanner } from "@/components/ReversalHoldBanner";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { getWalletBalance } from "@/lib/wallet";
 import {
   User,
   Eye,
@@ -51,12 +50,6 @@ interface ProfileData {
   wallet_address: string | null;
 }
 
-interface BlockchainSettings {
-  rpc_url: string | null;
-  native_coin_symbol: string;
-  is_active: boolean;
-}
-
 interface FeatureToggle {
   feature_key: string;
   is_enabled: boolean;
@@ -68,8 +61,6 @@ const ClientDashboard = () => {
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [showBalance, setShowBalance] = useState(true);
-  const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
-  const [blockchainBalance, setBlockchainBalance] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [featureToggles, setFeatureToggles] = useState<FeatureToggle[]>([]);
   const [monthIn, setMonthIn] = useState(0);
@@ -85,30 +76,9 @@ const ClientDashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const fetchBlockchainBalance = useCallback(async () => {
-    if (!blockchainSettings?.rpc_url || !profile?.wallet_address) return;
-    
-    try {
-      const balance = await getWalletBalance(blockchainSettings.rpc_url, profile.wallet_address);
-      setBlockchainBalance(balance);
-    } catch (error) {
-      console.error('Error fetching blockchain balance:', error);
-    }
-  }, [blockchainSettings, profile]);
-
   useEffect(() => {
     fetchData();
   }, []);
-
-  useEffect(() => {
-    if (blockchainSettings?.is_active && blockchainSettings?.rpc_url && profile?.wallet_address) {
-      fetchBlockchainBalance();
-      
-      // Set up auto-refresh interval
-      const interval = setInterval(fetchBlockchainBalance, BALANCE_REFRESH_INTERVAL);
-      return () => clearInterval(interval);
-    }
-  }, [blockchainSettings, profile, fetchBlockchainBalance]);
 
   const fetchData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -140,16 +110,14 @@ const ClientDashboard = () => {
       }
     });
 
-    const [walletRes, profileRes, blockchainRes, featuresRes] = await Promise.all([
+    const [walletRes, profileRes, featuresRes] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", user.id).single(),
       supabase.from("profiles").select("full_name, wallet_address").eq("id", user.id).single(),
-      supabase.from("blockchain_settings").select("rpc_url, native_coin_symbol, is_active").single(),
       supabase.from("feature_toggles").select("feature_key, is_enabled"),
     ]);
 
     if (walletRes.data) setWallet(walletRes.data);
     if (profileRes.data) setProfile(profileRes.data);
-    if (blockchainRes.data) setBlockchainSettings(blockchainRes.data);
     if (featuresRes.data) setFeatureToggles(featuresRes.data);
 
     // This-month income/spending + recent + top payees
@@ -219,7 +187,7 @@ const ClientDashboard = () => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchData(), fetchBlockchainBalance()]);
+    await fetchData();
     setRefreshing(false);
     toast({ title: "Balance refreshed" });
   };
@@ -230,22 +198,11 @@ const ClientDashboard = () => {
     navigate("/auth");
   };
 
-  const copyAddress = async () => {
-    if (profile?.wallet_address) {
-      await navigator.clipboard.writeText(profile.wallet_address);
-      toast({ title: "Wallet address copied" });
-    }
-  };
-
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good Morning";
     if (hour < 18) return "Good Afternoon";
     return "Good Evening";
-  };
-
-  const truncateAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
   const isFeatureEnabled = (featureKey: string) => {
@@ -325,73 +282,31 @@ const ClientDashboard = () => {
                 </button>
               </div>
             </div>
-            {/* Primary Balance - On-Chain GYD (Source of Truth) */}
-            {blockchainSettings?.is_active && profile?.wallet_address ? (
-              <div className="mt-4">
-                <h2 className="text-5xl font-bold text-foreground">
-                  {showBalance
-                    ? `${blockchainBalance || '0'} ${blockchainSettings.native_coin_symbol}`
-                    : "****"}
-                </h2>
-                <p className="text-sm text-foreground/70 mt-1">On-Chain Balance</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <code className="text-xs text-foreground/60 bg-foreground/10 px-2 py-1 rounded">
-                    {truncateAddress(profile.wallet_address)}
-                  </code>
-                  <button onClick={copyAddress} className="text-foreground/60 hover:text-foreground">
-                    <Copy size={14} />
-                  </button>
+            {/* Private ledger balance — the only source of truth */}
+            <div className="mt-4">
+              <h2 className="text-5xl font-bold text-foreground">
+                {showBalance
+                  ? `$${wallet?.balance?.toFixed(2) || "0.00"}`
+                  : "****"}
+              </h2>
+              <p className="text-sm text-foreground/70 mt-1">Private Ledger Balance</p>
+              {(pendingOut > 0 || pendingIn > 0) && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {pendingOut > 0 && (
+                    <div className="flex items-center gap-1 bg-foreground/10 rounded-lg px-2 py-1">
+                      <ArrowUpRight size={12} className="text-orange-300" />
+                      <span className="text-xs text-foreground/70">-${pendingOut.toFixed(2)} pending</span>
+                    </div>
+                  )}
+                  {pendingIn > 0 && (
+                    <div className="flex items-center gap-1 bg-foreground/10 rounded-lg px-2 py-1">
+                      <ArrowDownLeft size={12} className="text-green-300" />
+                      <span className="text-xs text-foreground/70">+${pendingIn.toFixed(2)} incoming</span>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ) : (
-              <div className="mt-4">
-                <h2 className="text-5xl font-bold text-foreground">
-                  {showBalance
-                    ? `$${wallet?.balance?.toFixed(2) || "0.00"}`
-                    : "****"}
-                </h2>
-                <p className="text-sm text-foreground/70 mt-1">Main Wallet</p>
-                {/* D-02: Pending balance indicators */}
-                {(pendingOut > 0 || pendingIn > 0) && (
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {pendingOut > 0 && (
-                      <div className="flex items-center gap-1 bg-foreground/10 rounded-lg px-2 py-1">
-                        <ArrowUpRight size={12} className="text-orange-300" />
-                        <span className="text-xs text-foreground/70">-${pendingOut.toFixed(2)} pending</span>
-                      </div>
-                    )}
-                    {pendingIn > 0 && (
-                      <div className="flex items-center gap-1 bg-foreground/10 rounded-lg px-2 py-1">
-                        <ArrowDownLeft size={12} className="text-green-300" />
-                        <span className="text-xs text-foreground/70">+${pendingIn.toFixed(2)} incoming</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Secondary: Internal Ledger Balance (for reference only) */}
-            {blockchainSettings?.is_active && wallet && (
-              <div className="mt-4 pt-4 border-t border-foreground/20">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Coins size={16} className="text-foreground/70" />
-                    <span className="text-sm text-foreground/70">
-                      Internal Ledger
-                    </span>
-                  </div>
-                  <span className="text-lg font-semibold text-foreground">
-                    {showBalance
-                      ? `$${wallet?.balance?.toFixed(2) || "0.00"}`
-                      : "****"}
-                  </span>
-                </div>
-                <p className="text-xs text-foreground/50 mt-1">
-                  Reference only - On-chain balance is your actual balance
-                </p>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 

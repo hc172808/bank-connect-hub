@@ -11,7 +11,6 @@ import {
   Store,
   ShoppingCart,
   Wallet,
-  Coins,
   Package,
   Percent,
 } from "lucide-react";
@@ -23,14 +22,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { decryptPrivateKey, sendTransaction, isValidAddress } from "@/lib/wallet";
+import { processPrivateLedgerTransfer } from "@/lib/privateLedger";
 
 interface Product {
   id: string;
@@ -41,14 +33,6 @@ interface Product {
   price: number;
   discount_price: number | null;
   category: string | null;
-}
-
-interface BlockchainSettings {
-  rpc_url: string | null;
-  chain_id: string | null;
-  native_coin_symbol: string;
-  is_active: boolean;
-  fee_wallet_address: string | null;
 }
 
 interface WalletData {
@@ -65,11 +49,8 @@ const VendorStore = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [wallet, setWallet] = useState<WalletData | null>(null);
-  const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<"internal" | "blockchain">("internal");
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
-  const [password, setPassword] = useState("");
   const [processing, setProcessing] = useState(false);
   const [vendorProfile, setVendorProfile] = useState<VendorProfile | null>(null);
 
@@ -86,13 +67,13 @@ const VendorStore = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [walletRes, blockchainRes] = await Promise.all([
-      supabase.from("wallets").select("balance").eq("user_id", user.id).single(),
-      supabase.from("blockchain_settings").select("rpc_url, chain_id, native_coin_symbol, is_active, fee_wallet_address").single(),
-    ]);
+    const walletRes = await supabase
+      .from("wallets")
+      .select("balance")
+      .eq("user_id", user.id)
+      .single();
 
     if (walletRes.data) setWallet(walletRes.data);
-    if (blockchainRes.data) setBlockchainSettings(blockchainRes.data);
 
     if (vendorId) {
       const [productsRes, vendorRes] = await Promise.all([
@@ -112,7 +93,6 @@ const VendorStore = () => {
   const handleBuy = (product: Product) => {
     setSelectedProduct(product);
     setShowPaymentDialog(true);
-    setPassword("");
   };
 
   const getEffectivePrice = (product: Product) => {
@@ -129,93 +109,26 @@ const VendorStore = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      if (paymentMethod === "internal") {
-        // Internal transfer
-        if (!wallet || wallet.balance < effectivePrice) {
-          throw new Error("Insufficient balance");
-        }
-
-        const { data, error } = await supabase.rpc("process_transaction", {
-          _sender_id: user.id,
-          _receiver_id: selectedProduct.vendor_id,
-          _amount: effectivePrice,
-          _transaction_type: "purchase",
-          _description: `Purchase: ${selectedProduct.name}`
-        });
-
-        if (error) throw error;
-
-        const result = data as { success: boolean; error?: string };
-        if (!result.success) {
-          throw new Error(result.error || "Transaction failed");
-        }
-
-        toast({
-          title: "Purchase Successful",
-          description: `Paid $${effectivePrice.toFixed(2)} for ${selectedProduct.name}`,
-        });
-      } else {
-        // Blockchain payment
-        if (!blockchainSettings?.rpc_url) {
-          throw new Error("Blockchain not configured");
-        }
-
-        // Get vendor wallet address
-        const { data: vendorData } = await supabase
-          .from("profiles")
-          .select("wallet_address")
-          .eq("id", selectedProduct.vendor_id)
-          .single();
-
-        if (!vendorData?.wallet_address) {
-          throw new Error("Vendor does not have a blockchain wallet");
-        }
-
-        // Get user's encrypted private key
-        const { data: walletData } = await supabase
-          .from("user_wallets")
-          .select("encrypted_private_key")
-          .eq("user_id", user.id)
-          .single();
-
-        if (!walletData) {
-          throw new Error("You need a blockchain wallet to pay with crypto");
-        }
-
-        const privateKey = await decryptPrivateKey(walletData.encrypted_private_key, password);
-
-        // Send payment to vendor
-        const result = await sendTransaction(
-          blockchainSettings.rpc_url,
-          privateKey,
-          vendorData.wallet_address,
-          effectivePrice.toString(),
-          blockchainSettings.chain_id || undefined
-        );
-
-        if (!result.success) {
-          throw new Error(result.error || "Blockchain transaction failed");
-        }
-
-        // Send fee to fee wallet if configured
-        if (blockchainSettings.fee_wallet_address && isValidAddress(blockchainSettings.fee_wallet_address)) {
-          const feeAmount = effectivePrice * 0.01; // 1% fee
-          if (feeAmount > 0) {
-            await sendTransaction(
-              blockchainSettings.rpc_url,
-              privateKey,
-              blockchainSettings.fee_wallet_address,
-              feeAmount.toString(),
-              blockchainSettings.chain_id || undefined
-            );
-          }
-        }
-
-        toast({
-          title: "Blockchain Purchase Successful",
-          description: `Paid ${effectivePrice} ${blockchainSettings.native_coin_symbol} for ${selectedProduct.name}`,
-        });
+      if (!wallet || wallet.balance < effectivePrice) {
+        throw new Error("Insufficient balance");
       }
+
+      const result = await processPrivateLedgerTransfer({
+        senderId: user.id,
+        receiverId: selectedProduct.vendor_id,
+        amount: effectivePrice,
+        transactionType: "purchase",
+        description: `Purchase: ${selectedProduct.name}`,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || "Transaction failed");
+      }
+
+      toast({
+        title: "Purchase Successful",
+        description: `Paid $${effectivePrice.toFixed(2)} for ${selectedProduct.name}`,
+      });
 
       setShowPaymentDialog(false);
       setSelectedProduct(null);
@@ -337,42 +250,12 @@ const VendorStore = () => {
                 </div>
               </div>
 
-              <div>
-                <Label>Payment Method</Label>
-                <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as "internal" | "blockchain")}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="internal">
-                      <div className="flex items-center gap-2">
-                        <Wallet size={16} />
-                        Internal Balance (${wallet?.balance?.toFixed(2) || "0.00"})
-                      </div>
-                    </SelectItem>
-                    {blockchainSettings?.is_active && (
-                      <SelectItem value="blockchain">
-                        <div className="flex items-center gap-2">
-                          <Coins size={16} />
-                          Blockchain ({blockchainSettings.native_coin_symbol})
-                        </div>
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
+              <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                <p className="font-medium">Payment method</p>
+                <p className="text-muted-foreground">
+                  Paid from your private ledger balance.
+                </p>
               </div>
-
-              {paymentMethod === "blockchain" && (
-                <div>
-                  <Label>Wallet Password</Label>
-                  <Input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your wallet password"
-                  />
-                </div>
-              )}
             </div>
           )}
 
@@ -382,7 +265,7 @@ const VendorStore = () => {
             </Button>
             <Button 
               onClick={processPayment} 
-              disabled={processing || (paymentMethod === "blockchain" && !password)}
+              disabled={processing}
             >
               {processing ? "Processing..." : "Pay Now"}
             </Button>

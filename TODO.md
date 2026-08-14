@@ -214,6 +214,7 @@
 | SEC-15 | In-app mobile recovery (PWA/APK detection + guidance) | ✅ |
 | SEC-16 | Mobile browser verification popup (prompt to install PWA) | ✅ |
 | SEC-17 | In-app real-time chat (client ↔ agent, client ↔ vendor, realtime via Supabase) | ✅ |
+| SEC-18 | Private ledger-only payments with tamper-evident audit chain | ✅ |
 
 ---
 

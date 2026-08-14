@@ -288,14 +288,14 @@ const Transactions = () => {
         <h1 className="text-2xl font-bold mb-6">Transactions</h1>
 
         <Tabs defaultValue="internal" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-1">
             <TabsTrigger value="internal" className="flex items-center gap-2">
               <Clock size={16} />
-              Internal
+              Private Ledger
             </TabsTrigger>
             <TabsTrigger 
               value="blockchain" 
-              className="flex items-center gap-2"
+              className="hidden"
               disabled={!blockchainSettings?.is_active}
             >
               <Wallet size={16} />

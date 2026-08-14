@@ -558,8 +558,8 @@ export default function Profile() {
           </CardContent>
         </Card>
 
-        {/* Blockchain Wallet Card */}
-        <Card className="shadow-xl border-primary/20">
+        {/* Legacy wallet controls are intentionally hidden in private-ledger mode. */}
+        <Card className="hidden shadow-xl border-primary/20">
           <CardHeader>
             <CardTitle className="text-xl flex items-center gap-2">
               <Wallet className="w-5 h-5" />
