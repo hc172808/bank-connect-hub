@@ -32,7 +32,6 @@ const Auth = lazy(() => import("./pages/Auth"));
 const Register = lazy(() => import("./pages/Register"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
-const SetupAdminUser = lazy(() => import("./pages/SetupAdminUser"));
 const Profile = lazy(() => import("./pages/Profile"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
 const Feedback = lazy(() => import("./pages/Feedback"));
@@ -396,7 +395,6 @@ const AppRoutes = () => {
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/setup-admin-user" element={<SetupAdminUser />} />
         <Route path="*" element={<Navigate to="/auth" replace />} />
       </Routes>
     );

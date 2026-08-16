@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "bash", "go-1.21", "web", "python-base-3.13"]
+modules = ["nodejs-20", "bash", "go-1.21", "web", "python-base-3.13", "postgresql-16", "docker"]
 [agent]
 expertMode = true
 integrations = ["javascript_database:1.0.0"]

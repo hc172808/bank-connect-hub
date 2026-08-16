@@ -33,6 +33,30 @@ All secrets are stored in Replit Secrets or Env Vars:
 - `VITE_SUPABASE_PROJECT_ID` — Supabase project ID
 - `VITE_WHATSAPP_SUPPORT_NUMBER` — WhatsApp support number
 
+### PostgreSQL and pgAdmin
+
+The project now supports three database connection modes through `.env`:
+
+- `DATABASE_MODE=replit` — use Replit's provisioned PostgreSQL
+- `DATABASE_MODE=local` — use the local Docker PostgreSQL + pgAdmin stack
+- `DATABASE_MODE=remote` — use a remote PostgreSQL `DATABASE_URL`
+
+For local setup, run:
+
+```bash
+npm run db:setup -- --mode=local
+npm run db:check
+```
+
+This starts PostgreSQL on port `5432`, pgAdmin on port `5050`, loads
+`all_migrations.sql` with the local Supabase compatibility bootstrap, and
+generates the private connection details at
+`.local/database-connection.local.md`.
+
+Use `npm run db:down` to stop the local services. `npm run db:reset` removes
+the local Docker volumes and is destructive; use it only when intentionally
+recreating the local database.
+
 **Optional (set in Replit Secrets to enable features):**
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` — SMS alerts
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` — Email alerts

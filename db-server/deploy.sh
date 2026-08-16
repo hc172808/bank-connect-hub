@@ -94,7 +94,7 @@ EOF
     echo "Postgres user:      postgres"
     echo "Postgres password:  $DB_PASS"
     echo "Postgres port:      5432"
-    echo "pgAdmin URL:        http://$(hostname -I | awk '{print $1}'):5050"
+    echo "pgAdmin URL:        http://127.0.0.1:5050 (use an SSH tunnel)"
     echo "pgAdmin email:      admin@netlifecash.com"
     echo "pgAdmin password:   $PGADMIN_PASS"
   } > /root/netlife-db-credentials.txt
@@ -144,11 +144,10 @@ fi
 if command -v ufw &>/dev/null; then
   info "Configuring firewall (ufw)..."
   ufw allow 22/tcp   >/dev/null 2>&1 || true
-  ufw allow 5050/tcp >/dev/null 2>&1 || true   # pgAdmin
-  # Postgres port 5432 is NOT opened externally by default for security.
-  # Uncomment the next line only if you need remote DB tool access:
-  # ufw allow 5432/tcp >/dev/null 2>&1 || true
-  success "Firewall rules applied (pgAdmin exposed, Postgres kept internal)"
+  # pgAdmin and Postgres stay private. Use an SSH tunnel or VPN for admin access.
+  # Postgres port 5432 is NOT opened externally.
+  # pgAdmin port 5050 is NOT opened externally.
+  success "Firewall rules applied (pgAdmin and Postgres kept internal)"
 fi
 
 # ── 9. Systemd auto-start ────────────────────────────────────────────────────
@@ -180,12 +179,13 @@ echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║                ✅  DATABASE SERVER READY                 ║"
 echo "╠══════════════════════════════════════════════════════════╣"
-echo "║  pgAdmin       : http://$SERVER_IP:5050"
-echo "║  Postgres host : $SERVER_IP (internal port 5432)"
+echo "║  pgAdmin       : http://127.0.0.1:5050 (SSH tunnel required)"
+echo "║  Postgres host : 127.0.0.1 (internal port 5432)"
 echo "║  Credentials   : /root/netlife-db-credentials.txt         ║"
 echo "╠══════════════════════════════════════════════════════════╣"
 echo "║  Next steps:                                              ║"
-echo "║   1. Open pgAdmin in your browser and log in               ║"
+echo "║   1. Run: ssh -L 5050:127.0.0.1:5050 user@$SERVER_IP       ║"
+echo "║      Then open http://127.0.0.1:5050 in your browser       ║"
 echo "║   2. Add New Server → Host: netlife-db (or 'postgres')     ║"
 echo "║      Port: 5432, User/Pass from credentials file            ║"
 echo "║   3. When ready for full Supabase, run:                    ║"
