@@ -23,6 +23,7 @@
 #    ✓ nginx  — serves the built SPA on APP_PORT
 #    ✓ build-server.mjs — runs as a systemd service on BUILD_SERVER_PORT
 #    ✓ Docker CE
+#    ✓ Optional local PostgreSQL + pgAdmin stack (DB_MODE=local)
 #    ✓ UFW firewall rules
 #    ✓ Let's Encrypt SSL (optional, requires DOMAIN_NAME + SSL_EMAIL)
 #
@@ -124,7 +125,7 @@ fi
 section "STEP 1 — Configuration"
 
 # ── Database backend choice ───────────────────────────────────────────────────
-DB_MODE="${DB_MODE:-}"
+DB_MODE="${DB_MODE:-${DATABASE_MODE:-}}"
 if [[ -z "$DB_MODE" ]]; then
   echo ""
   echo -e "${CYN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -133,11 +134,13 @@ if [[ -z "$DB_MODE" ]]; then
   echo "  1) Supabase Cloud   — use your existing https://xxxx.supabase.co project"
   echo "  2) Self-hosted      — install the full Supabase stack on THIS server"
   echo "  3) Remote DSN       — connect to an existing PostgreSQL server (DSN/URL)"
+  echo "  4) Local PostgreSQL  — install PostgreSQL + pgAdmin on this server"
   echo ""
   ask "Choose database mode [1/2/3]:"; read -r _DB_CHOICE
   case "${_DB_CHOICE:-1}" in
     2) DB_MODE="self-hosted" ;;
     3) DB_MODE="remote-dsn"  ;;
+    4) DB_MODE="local"      ;;
     *) DB_MODE="cloud"       ;;
   esac
 fi
@@ -174,6 +177,35 @@ if [[ "$DB_MODE" == "self-hosted" ]]; then
   fi
   VITE_SUPABASE_URL="${VITE_SUPABASE_URL:-https://${SUPABASE_DOMAIN}}"
   VITE_SUPABASE_PUBLISHABLE_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-}"
+fi
+
+# ── Local PostgreSQL + pgAdmin credentials ────────────────────────────────────
+# These are generated once and written to the protected application .env.
+# PostgreSQL and pgAdmin are bound to localhost by the Compose stack.
+if [[ "$DB_MODE" == "local" ]]; then
+  LOCAL_DB_DIR="${LOCAL_DB_DIR:-/opt/netlifecash-db}"
+  # Reuse the database stack's credentials on subsequent deployments. Changing
+  # the app URL/password while the existing volume is running would disconnect
+  # the application from PostgreSQL.
+  if [[ -f "${LOCAL_DB_DIR}/.env" ]]; then
+    set +u
+    # shellcheck disable=SC1090
+    source "${LOCAL_DB_DIR}/.env"
+    set -u
+  fi
+  POSTGRES_USER="${POSTGRES_USER:-postgres}"
+  POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -hex 24)}"
+  POSTGRES_DB="${POSTGRES_DB:-netlifecash}"
+  POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+  PGADMIN_EMAIL="${PGADMIN_EMAIL:-admin@netlifecash.com}"
+  PGADMIN_PASSWORD="${PGADMIN_PASSWORD:-$(openssl rand -hex 20)}"
+  PGADMIN_PORT="${PGADMIN_PORT:-5050}"
+  DATABASE_URL="${DATABASE_URL:-postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}}"
+  LOCAL_DB_HOST="${LOCAL_DB_HOST:-127.0.0.1}"
+  LOCAL_DB_NAME="${LOCAL_DB_NAME:-$POSTGRES_DB}"
+  LOCAL_DB_USER="${LOCAL_DB_USER:-$POSTGRES_USER}"
+  LOCAL_DB_PASSWORD="${LOCAL_DB_PASSWORD:-$POSTGRES_PASSWORD}"
+  LOCAL_DB_PORT="${LOCAL_DB_PORT:-$POSTGRES_PORT}"
 fi
 
 # Required for all modes
@@ -620,7 +652,6 @@ if command -v ufw &>/dev/null; then
 
   ufw allow "${SSH_PORT}/tcp"              comment "SSH"             &>/dev/null
   ufw allow "${APP_PORT}/tcp"              comment "NETLIFECASH app" &>/dev/null
-  ufw allow "${BUILD_SERVER_PORT}/tcp"     comment "Build server"    &>/dev/null
   ufw allow 9000/tcp                       comment "Deploy webhook"  &>/dev/null
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     ufw allow 80/tcp  comment "HTTP"  &>/dev/null
@@ -631,7 +662,6 @@ if command -v ufw &>/dev/null; then
   ok "UFW enabled — ports open:"
   printf "     %-8s  %s\n"  "${SSH_PORT}/tcp"             "SSH"
   printf "     %-8s  %s\n"  "${APP_PORT}/tcp"             "NETLIFECASH frontend"
-  printf "     %-8s  %s\n"  "${BUILD_SERVER_PORT}/tcp"    "Build server (APK / push / SMS)"
   printf "     %-8s  %s\n"  "9000/tcp"                    "Deploy webhook"
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     printf "     %-8s  %s\n"  "80/tcp"   "HTTP  (→ redirects to HTTPS)"
@@ -642,7 +672,6 @@ elif command -v firewall-cmd &>/dev/null; then
   log "Configuring firewalld…"
   systemctl enable --now firewalld
   firewall-cmd --permanent --add-port="${APP_PORT}/tcp"           &>/dev/null
-  firewall-cmd --permanent --add-port="${BUILD_SERVER_PORT}/tcp"  &>/dev/null
   firewall-cmd --permanent --add-port="9000/tcp"                  &>/dev/null
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     firewall-cmd --permanent --add-service=http  &>/dev/null
@@ -694,6 +723,70 @@ else
 fi
 cd "$APP_DIR"
 
+# =============================================================================
+# STEP 9.5 — Local PostgreSQL + pgAdmin
+# =============================================================================
+# This runs after the application source is available so the same deployment
+# command works whether deploy.sh was run from a checkout or cloned the repo.
+if [[ "${DB_MODE:-cloud}" == "local" ]]; then
+  section "STEP 9.5 — Local PostgreSQL + pgAdmin"
+
+  [[ -f "${APP_DIR}/db-server/docker-compose.yml" ]] || \
+    err "Local database mode requires db-server/docker-compose.yml in the application source"
+  [[ -f "${APP_DIR}/database/local-bootstrap.sql" ]] || \
+    err "Local database mode requires database/local-bootstrap.sql in the application source"
+
+  mkdir -p "${LOCAL_DB_DIR}/database"
+  cp "${APP_DIR}/db-server/docker-compose.yml" "${LOCAL_DB_DIR}/docker-compose.yml"
+  cp "${APP_DIR}/database/local-bootstrap.sql" "${LOCAL_DB_DIR}/database/local-bootstrap.sql"
+  [[ -f "${APP_DIR}/all_migrations.sql" ]] && \
+    cp "${APP_DIR}/all_migrations.sql" "${LOCAL_DB_DIR}/all_migrations.sql"
+
+  # The checked-in Compose file uses a repo-relative bootstrap path. The
+  # server copy lives in /opt/netlifecash-db, so make that path local.
+  sed -i 's#\.\./database/local-bootstrap\.sql#\./database/local-bootstrap.sql#' \
+    "${LOCAL_DB_DIR}/docker-compose.yml"
+
+  cat > "${LOCAL_DB_DIR}/.env" << DBENV
+POSTGRES_USER=${POSTGRES_USER}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+POSTGRES_DB=${POSTGRES_DB}
+POSTGRES_PORT=${POSTGRES_PORT}
+PGADMIN_EMAIL=${PGADMIN_EMAIL}
+PGADMIN_PASSWORD=${PGADMIN_PASSWORD}
+PGADMIN_PORT=${PGADMIN_PORT}
+DBENV
+  chmod 600 "${LOCAL_DB_DIR}/.env"
+
+  DB_COMPOSE=(docker compose --project-name netlifecash-db \
+    --env-file "${LOCAL_DB_DIR}/.env" -f "${LOCAL_DB_DIR}/docker-compose.yml")
+  "${DB_COMPOSE[@]}" up -d
+
+  log "Waiting for PostgreSQL to become ready…"
+  for _ in $(seq 1 60); do
+    if "${DB_COMPOSE[@]}" exec -T postgres \
+      pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" &>/dev/null; then
+      break
+    fi
+    sleep 2
+  done
+  "${DB_COMPOSE[@]}" exec -T postgres \
+    pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" &>/dev/null || \
+    err "PostgreSQL did not become ready. Check: ${DB_COMPOSE[*]} logs postgres"
+  ok "PostgreSQL ready on 127.0.0.1:${POSTGRES_PORT}"
+
+  if [[ -s "${LOCAL_DB_DIR}/all_migrations.sql" ]]; then
+    log "Loading application database migrations…"
+    "${DB_COMPOSE[@]}" exec -T postgres \
+      psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
+      < "${LOCAL_DB_DIR}/all_migrations.sql" \
+      && ok "Application migrations loaded" \
+      || warn "Migration import reported errors; inspect PostgreSQL logs before production use"
+  fi
+
+  ok "pgAdmin available privately on 127.0.0.1:${PGADMIN_PORT}"
+fi
+
 # Write (or refresh) .env in the app directory
 # NOTE: VAPID keys are filled in after npm install (requires web-push package)
 cat > "${APP_DIR}/.env" << ENVFILE
@@ -708,7 +801,21 @@ VITE_WHATSAPP_SUPPORT_NUMBER=${VITE_WHATSAPP_SUPPORT_NUMBER:-}
 
 # ── Database ──────────────────────────────────────────────────────────────────
 DB_MODE=${DB_MODE:-cloud}
+DATABASE_MODE=${DB_MODE}
 DATABASE_URL=${DATABASE_URL:-}
+LOCAL_DB_HOST=${LOCAL_DB_HOST:-}
+LOCAL_DB_PORT=${LOCAL_DB_PORT:-}
+LOCAL_DB_NAME=${LOCAL_DB_NAME:-}
+LOCAL_DB_USER=${LOCAL_DB_USER:-}
+LOCAL_DB_PASSWORD=${LOCAL_DB_PASSWORD:-}
+POSTGRES_USER=${POSTGRES_USER:-}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+POSTGRES_DB=${POSTGRES_DB:-}
+POSTGRES_PORT=${POSTGRES_PORT:-}
+PGADMIN_EMAIL=${PGADMIN_EMAIL:-}
+PGADMIN_PASSWORD=${PGADMIN_PASSWORD:-}
+PGADMIN_PORT=${PGADMIN_PORT:-}
+LOCAL_DB_DIR=${LOCAL_DB_DIR:-}
 
 # ── Server ────────────────────────────────────────────────────────────────────
 APP_PORT=${APP_PORT}

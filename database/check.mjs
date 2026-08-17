@@ -26,9 +26,21 @@ const url = mode === "local"
 console.log(`Database mode: ${mode}`);
 if (mode === "local") {
   const { spawnSync } = await import("node:child_process");
-  const result = spawnSync("docker", ["compose", "--env-file", "db-server/.env", "-f", "db-server/docker-compose.yml", "ps"], { cwd: root, encoding: "utf8" });
-  process.stdout.write(result.stdout || "");
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  const localDbDir = env.LOCAL_DB_DIR || path.join(root, "db-server");
+  const composeFile = path.join(localDbDir, "docker-compose.yml");
+  const composeEnv = path.join(localDbDir, ".env");
+  if (fs.existsSync(composeFile) && fs.existsSync(composeEnv)) {
+    const composeArgs = [
+      "compose",
+      "--project-name", env.LOCAL_DB_PROJECT || "netlifecash-db",
+      "--env-file", composeEnv,
+      "-f", composeFile,
+      "ps",
+    ];
+    const result = spawnSync("docker", composeArgs, { cwd: root, encoding: "utf8" });
+    process.stdout.write(result.stdout || "");
+    if (result.status !== 0) process.exit(result.status ?? 1);
+  }
 }
 
 const config = url

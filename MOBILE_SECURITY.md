@@ -17,6 +17,26 @@ Supabase publishable key may be present in the client because it is protected
 by Supabase RLS and authorization policies. A publishable key is not a
 database password.
 
+## Which database mode connects the existing app?
+
+The existing app uses Supabase Auth, PostgREST queries, RPC functions,
+Realtime subscriptions, Storage, and Supabase-specific database types. A raw
+PostgreSQL `DATABASE_URL` alone is not an application data API and cannot
+replace those services.
+
+- `DB_MODE=local` starts plain PostgreSQL and pgAdmin for server-side tooling,
+  migrations, and future backend services. It does **not** replace the
+  application's current Supabase data plane.
+- Supabase Cloud keeps the existing app connected to the current project.
+- `DB_MODE=self-hosted` is the app-connected self-hosting path. It installs the
+  Supabase API/Auth/Realtime/Storage stack backed by PostgreSQL, and the
+  deployment writes the Supabase URL and publishable key used by the app.
+
+Using plain PostgreSQL as the app's primary database would require a separate
+backend API plus a deliberate migration of authentication, RLS, RPCs,
+Realtime, Storage, and all existing client queries. Do not point the mobile
+app at port 5432.
+
 For a production APK, use:
 
 ```bash
