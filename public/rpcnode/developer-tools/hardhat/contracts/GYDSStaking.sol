@@ -7,7 +7,7 @@ pragma solidity ^0.8.24;
  *         Validators lock GYDS to earn the right to propose blocks.
  *         Minimum stake: 32,000 GYDS.
  *
- * Deploy on GYDS Chain (Chain ID 13370).
+ * Deploy on GYDS Chain (Chain ID 198282).
  */
 contract GYDSStaking {
     uint256 public constant MIN_STAKE = 32_000 ether; // 32,000 GYDS

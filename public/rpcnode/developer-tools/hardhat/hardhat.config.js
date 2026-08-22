@@ -14,10 +14,10 @@ module.exports = {
   },
 
   networks: {
-    // GYDS Chain mainnet (Chain ID 13370)
+    // GYDS Chain mainnet (Chain ID 198282)
     gyds: {
       url:      GYDS_RPC,
-      chainId:  13370,
+      chainId:  198282,
       accounts: [PRIVATE_KEY],
       gasPrice: 1_000_000_000, // 1 Gwei
     },

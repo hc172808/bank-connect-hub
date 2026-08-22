@@ -51,7 +51,7 @@ const LITENODE_RPC_URL = "__replit_litenode__";
 export const DEFAULT_CONFIG: LitenodeConfig = {
   running: false,
   networkName: "GYDS Chain",
-  chainId: 13370,
+  chainId: 198282,
   blockTime: 3000,
   latencyMs: 200,
   failureRate: 0,

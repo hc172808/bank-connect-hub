@@ -65,7 +65,7 @@ export default function BlockchainSettings() {
     id: "",
     rpc_url: "https://rpc.netlifegy.com",
     rpc_urls: [],
-    chain_id: "13370",
+    chain_id: "198282",
     native_coin_symbol: "GYDS",
     native_coin_name: "GYDS Coin",
     explorer_url: "https://explorer.netlifegy.com",

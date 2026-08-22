@@ -27,7 +27,7 @@ scrape_configs:
           - 'YOUR_RPC_SERVER_IP_OR_DOMAIN:80'  # change to your server
         labels:
           node: rpcnode
-          chain_id: '13370'
+          chain_id: '198282'
           symbol: GYDS
     metrics_path: /metrics
     scrape_interval: 10s
