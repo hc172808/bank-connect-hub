@@ -8,6 +8,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import webpush from "web-push";
 import crypto from "crypto";
+import WebSocket from "ws";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -882,6 +883,7 @@ app.post("/api/auth/verify-reset", async (req, res) => {
     const { createClient } = await import("@supabase/supabase-js");
     const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
 
     // Look up user by the virtual email
@@ -935,6 +937,7 @@ app.post("/api/auth/ensure-admin", async (req, res) => {
     const { createClient } = await import("@supabase/supabase-js");
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
 
     // Load all users once (used for lookup)
@@ -1026,12 +1029,15 @@ app.get("/api/auth/all-users", async (_req, res) => {
     const { createClient } = await import("@supabase/supabase-js");
     const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
     const { data: { users }, error } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
     if (error) throw new Error(error.message);
 
     // Fetch profiles for display names
-    const supaAdmin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY);
+    const supaAdmin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      realtime: { transport: WebSocket },
+    });
     const { data: profiles } = await supaAdmin.from("profiles").select("id, full_name, phone_number");
     const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
 
@@ -1060,6 +1066,7 @@ app.post("/api/auth/admin-set-password", async (req, res) => {
     const { createClient } = await import("@supabase/supabase-js");
     const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
 
     const { error } = await adminClient.auth.admin.updateUserById(userId, { password: newPassword });
