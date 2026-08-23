@@ -51,6 +51,26 @@ app.use((req, res, next) => {
   next();
 });
 
+// Prefer the project reference when it is available. This keeps a stale
+// VITE_SUPABASE_URL from pointing the browser at an older Supabase project
+// after the project is switched in Replit Secrets.
+function getSupabaseUrl() {
+  const projectId = (process.env.VITE_SUPABASE_PROJECT_ID || "").trim();
+  const configuredUrl = (process.env.VITE_SUPABASE_URL || "").trim();
+  const requestedProjectUrl = "https://ocngdgwelxaiyzdywjld.supabase.co";
+  const legacyProjectRef = "pdsjwvcxolifgvwjvtwy";
+
+  // Migration guard for the previous project. Remove this branch after the
+  // Replit secret has been replaced with the new project URL/reference.
+  if (projectId === legacyProjectRef || configuredUrl.includes(`${legacyProjectRef}.supabase.co`)) {
+    return requestedProjectUrl;
+  }
+  if (/^[a-z0-9]{20}$/.test(projectId)) {
+    return `https://${projectId}.supabase.co`;
+  }
+  return configuredUrl;
+}
+
 // ── Persistence ──────────────────────────────────────────────────────────────
 function loadBuilds() {
   try {
@@ -96,7 +116,7 @@ app.get("/api/health", (_req, res) => {
 // GET /api/config — serve public client config (keeps secrets off the browser bundle)
 app.get("/api/config", (_req, res) => {
   res.json({
-    supabaseUrl: process.env.VITE_SUPABASE_URL || "",
+    supabaseUrl: getSupabaseUrl(),
     supabaseAnonKey: process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "",
     whatsappNumber: process.env.VITE_WHATSAPP_SUPPORT_NUMBER || "",
   });
@@ -800,7 +820,7 @@ app.post("/api/sms/broadcast", async (req, res) => {
 // Password Reset via OTP (Twilio SMS + Supabase Admin)
 // ══════════════════════════════════════════════════════════════════════════════
 
-const SUPABASE_URL      = process.env.VITE_SUPABASE_URL;
+const SUPABASE_URL      = getSupabaseUrl();
 const SUPABASE_ADMIN_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // optional
 
 /** In-memory OTP store: email -> { otpHash, expiresAt, attempts } */
