@@ -38,8 +38,15 @@ echo ""
 
 # ── 1. System packages ────────────────────────────────────────────────────────
 info "Updating system packages..."
-apt-get update -qq
-apt-get install -y -qq curl wget git unzip openssl ca-certificates gnupg lsb-release apt-transport-https
+export DEBIAN_FRONTEND=noninteractive
+apt-get -o DPkg::Lock::Timeout=120 update -qq \
+  || { warn "First apt metadata refresh failed; retrying…"; sleep 5; apt-get -o DPkg::Lock::Timeout=120 update -qq; }
+apt-get -o DPkg::Lock::Timeout=120 upgrade -y -qq
+apt-get -o DPkg::Lock::Timeout=120 dist-upgrade -y -qq
+apt-get -o DPkg::Lock::Timeout=120 install -y -qq \
+  curl wget git unzip openssl ca-certificates gnupg lsb-release apt-transport-https \
+  unattended-upgrades fail2ban ufw logrotate
+success "System and security packages updated"
 
 # ── 2. Docker ─────────────────────────────────────────────────────────────────
 if ! command -v docker &>/dev/null; then
@@ -206,10 +213,15 @@ docker compose up -d
 info "Waiting for database to be healthy..."
 MAX_WAIT=60
 COUNT=0
-until docker compose exec db pg_isready -U postgres -h localhost &>/dev/null; do
+until timeout 10s docker compose exec -T db pg_isready -U postgres -h localhost &>/dev/null; do
   sleep 2
   COUNT=$((COUNT+2))
-  [[ $COUNT -ge $MAX_WAIT ]] && error "Database failed to start in ${MAX_WAIT}s"
+  if [[ $COUNT -ge $MAX_WAIT ]]; then
+    warn "Database did not become ready within ${MAX_WAIT}s."
+    docker compose ps || true
+    docker compose logs --tail=80 db || true
+    error "Database failed to start in ${MAX_WAIT}s"
+  fi
   printf "."
 done
 echo ""

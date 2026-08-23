@@ -153,8 +153,12 @@ fi
 case "$PKG_MGR" in
   apt)
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get upgrade -y -qq
+    # Refresh package metadata and install all available normal/security
+    # updates.  A transient mirror or lock should not make setup fail.
+    apt-get -o DPkg::Lock::Timeout=120 update -qq \
+      || { warn "First apt metadata refresh failed; retrying…"; sleep 5; apt-get -o DPkg::Lock::Timeout=120 update -qq; }
+    apt-get -o DPkg::Lock::Timeout=120 upgrade -y -qq
+    apt-get -o DPkg::Lock::Timeout=120 dist-upgrade -y -qq
     apt-get install -y -qq \
       curl wget git unzip gnupg lsb-release ca-certificates \
       ufw fail2ban software-properties-common apt-transport-https \
@@ -184,7 +188,7 @@ if ! command -v docker &>/dev/null; then
         https://download.docker.com/linux/$(. /etc/os-release; echo "$ID") \
         $(lsb_release -cs) stable" \
         > /etc/apt/sources.list.d/docker.list
-      apt-get update -qq
+      apt-get -o DPkg::Lock::Timeout=120 update -qq
       apt-get install -y -qq \
         docker-ce docker-ce-cli containerd.io \
         docker-buildx-plugin docker-compose-plugin
@@ -400,8 +404,16 @@ F
 fi
 
 systemctl enable fail2ban
-systemctl restart fail2ban
-log "Fail2ban configured and running ✓"
+# A distro may not have every log file/jail used by the optional filters.
+# Validate first and do not abort the complete server setup if Fail2ban needs
+# a local adjustment.
+if fail2ban-client -t >/tmp/virtualbank-fail2ban-check.log 2>&1 &&
+   systemctl restart fail2ban; then
+  log "Fail2ban configured and running ✓"
+else
+  warn "Fail2ban could not start; setup will continue."
+  warn "Review /tmp/virtualbank-fail2ban-check.log and run: fail2ban-client -t"
+fi
 
 # =============================================================================
 # STEP 9 — Unattended security upgrades
@@ -841,7 +853,7 @@ if [[ -f "$SCRIPT_DIR/Dockerfile.build-server" ]]; then
     -f "$SCRIPT_DIR/Dockerfile.build-server" \
     -t virtualbank-build-server:local \
     "$SCRIPT_DIR/"
-  ok "Build-server image ready (virtualbank-build-server:local)"
+  log "Build-server image ready (virtualbank-build-server:local)"
 else
   warn "Dockerfile.build-server not found — APK/PWA builder will not be available"
   warn "Clone the full repo to $SCRIPT_DIR to enable builds"
