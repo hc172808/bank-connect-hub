@@ -72,3 +72,5 @@ externalPort = 3001
 [userenv.shared]
 PORT = "3000"
 NODE_ENV = "development"
+VITE_SUPABASE_PROJECT_ID = "rmwldjwkyhhaoqehdrbr"
+VITE_SUPABASE_URL = "https://rmwldjwkyhhaoqehdrbr.supabase.co"
