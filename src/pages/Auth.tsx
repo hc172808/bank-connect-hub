@@ -115,10 +115,19 @@ const Auth = () => {
         }
 
         const digits = phoneNumber.replace(/\D+/g, "");
+        // Guyana users commonly enter the seven-digit local number, while
+        // accounts created by the installer may use either the full E.164
+        // number or the local number as the synthetic auth email.
+        const localDigits =
+          digits.startsWith("592") && digits.length > 7
+            ? digits.slice(3)
+            : digits;
         const emailCandidates = [
           phoneToEmail(phoneNumber),
           `${digits}@vbank.com`,
+          `${localDigits}@vbank.com`,
           `${digits}@virtualbank.app`,
+          `${localDigits}@virtualbank.app`,
         ].filter((x, i, arr) => arr.indexOf(x) === i);
 
         let signedIn = false;
