@@ -59,6 +59,14 @@ section() { echo -e "\n${MAG}━━━━  $*  ━━━━${NC}"; }
 
 [[ $EUID -eq 0 ]] || err "Run as root:  sudo bash deploy.sh"
 
+# `set -e` otherwise exits with no useful context when a remote command fails.
+on_error() {
+  local exit_code=$?
+  echo -e "${RED}[error ]${NC} Command failed at deploy.sh line ${BASH_LINENO[0]}: ${BASH_COMMAND}" >&2
+  exit "$exit_code"
+}
+trap on_error ERR
+
 # ── Parse flags ────────────────────────────────────────────────────────────────
 DOCKER_MODE=false
 SKIP_ANDROID=false
@@ -643,25 +651,42 @@ section "STEP 8 — Firewall"
 
 if command -v ufw &>/dev/null; then
   log "Configuring UFW…"
-  ufw --force reset     &>/dev/null
-  ufw default deny incoming  &>/dev/null
-  ufw default allow outgoing &>/dev/null
+  # Do not reset UFW here: reset can drop an active SSH session before the
+  # replacement SSH rule is installed. These rules are safe to re-run.
+  ufw default deny incoming
+  ufw default allow outgoing
 
-  SSH_PORT=$(ss -tlnp 2>/dev/null | grep sshd | awk '{print $4}' | cut -d: -f2 | head -1)
-  SSH_PORT="${SSH_PORT:-22}"
-
-  ufw allow "${SSH_PORT}/tcp"              comment "SSH"             &>/dev/null
-  ufw allow "${APP_PORT}/tcp"              comment "NETLIFECASH app" &>/dev/null
-  ufw allow 9000/tcp                       comment "Deploy webhook"  &>/dev/null
-  if [[ -n "${DOMAIN_NAME:-}" ]]; then
-    ufw allow 80/tcp  comment "HTTP"  &>/dev/null
-    ufw allow 443/tcp comment "HTTPS" &>/dev/null
+  # Prefer an explicitly configured SSH_PORT. The old pipeline could return
+  # an IPv6 address fragment such as "[::]" instead of a numeric port.
+  SSH_PORT="${SSH_PORT:-}"
+  if [[ -z "$SSH_PORT" ]]; then
+    SSH_PORT="$(ss -H -ltnp 2>/dev/null | awk '
+      /sshd/ {
+        n = split($4, address, ":")
+        port = address[n]
+        gsub(/[^0-9].*/, "", port)
+        if (port != "") { print port; exit }
+      }')"
   fi
-  ufw --force enable &>/dev/null
+  SSH_PORT="${SSH_PORT:-22}"
+  [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || err "Invalid SSH_PORT: ${SSH_PORT}"
+  [[ "$APP_PORT" =~ ^[0-9]+$ ]] || err "Invalid APP_PORT: ${APP_PORT}"
+  [[ "$BUILD_SERVER_PORT" =~ ^[0-9]+$ ]] || err "Invalid BUILD_SERVER_PORT: ${BUILD_SERVER_PORT}"
+
+  ufw allow "${SSH_PORT}/tcp"              comment "SSH"
+  ufw allow "${APP_PORT}/tcp"              comment "NETLIFECASH app"
+  ufw allow "${BUILD_SERVER_PORT}/tcp"     comment "Build server"
+  ufw allow 9000/tcp                       comment "Deploy webhook"
+  if [[ -n "${DOMAIN_NAME:-}" ]]; then
+    ufw allow 80/tcp  comment "HTTP"
+    ufw allow 443/tcp comment "HTTPS"
+  fi
+  ufw --force enable
 
   ok "UFW enabled — ports open:"
   printf "     %-8s  %s\n"  "${SSH_PORT}/tcp"             "SSH"
   printf "     %-8s  %s\n"  "${APP_PORT}/tcp"             "NETLIFECASH frontend"
+  printf "     %-8s  %s\n"  "${BUILD_SERVER_PORT}/tcp"    "Build server (APK / push / SMS)"
   printf "     %-8s  %s\n"  "9000/tcp"                    "Deploy webhook"
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     printf "     %-8s  %s\n"  "80/tcp"   "HTTP  (→ redirects to HTTPS)"
@@ -671,7 +696,13 @@ if command -v ufw &>/dev/null; then
 elif command -v firewall-cmd &>/dev/null; then
   log "Configuring firewalld…"
   systemctl enable --now firewalld
+  SSH_PORT="${SSH_PORT:-22}"
+  [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || err "Invalid SSH_PORT: ${SSH_PORT}"
+  [[ "$APP_PORT" =~ ^[0-9]+$ ]] || err "Invalid APP_PORT: ${APP_PORT}"
+  [[ "$BUILD_SERVER_PORT" =~ ^[0-9]+$ ]] || err "Invalid BUILD_SERVER_PORT: ${BUILD_SERVER_PORT}"
+  firewall-cmd --permanent --add-port="${SSH_PORT}/tcp"
   firewall-cmd --permanent --add-port="${APP_PORT}/tcp"           &>/dev/null
+  firewall-cmd --permanent --add-port="${BUILD_SERVER_PORT}/tcp"  &>/dev/null
   firewall-cmd --permanent --add-port="9000/tcp"                  &>/dev/null
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     firewall-cmd --permanent --add-service=http  &>/dev/null
@@ -687,6 +718,8 @@ elif command -v firewall-cmd &>/dev/null; then
     printf "     %-8s  %s\n"  "80/tcp"   "HTTP"
     printf "     %-8s  %s\n"  "443/tcp"  "HTTPS"
   fi
+else
+  warn "No supported firewall service found (ufw or firewalld); skipping firewall configuration."
 fi
 
 # =============================================================================

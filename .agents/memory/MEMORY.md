@@ -7,3 +7,4 @@
 - [Replit migration](replit-migration.md) — Supabase kept (too deep to replace); lucide-react + date-fns had corrupted dist on import; secrets in Replit Secret store
 - [Private ledger](private-ledger.md) — customer payments use the authenticated database ledger; public RPC fallbacks are disabled; hash-chain migration must be applied to Supabase
 - [Local database stack](local-database-stack.md) — Replit Docker needs host-side PostgreSQL checks and IPv4-only pgAdmin binding
+- [Remote firewall deployment](deployment-firewall.md) — deploy scripts must preserve SSH access and surface firewall errors instead of resetting silently
