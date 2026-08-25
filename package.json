@@ -8,6 +8,7 @@
     "dev:vite": "vite",
     "dev:server": "node build-server.mjs",
     "build": "vite build",
+    "software:update": "bash ./update-software.sh --project",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",

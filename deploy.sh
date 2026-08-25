@@ -17,7 +17,7 @@
 #  WHAT THIS INSTALLS (source mode — default):
 #    ✓ System packages (curl, git, openssl, jq, ufw, nginx)
 #    ✓ Node.js 22 LTS  (frontend build + build-server.mjs)
-#    ✓ Java 17 + Gradle (APK builder / Capacitor)
+#    ✓ Java 21 + Gradle wrapper (APK builder / Capacitor)
 #    ✓ Android SDK command-line tools (optional, for APK builds)
 #    ✓ npm install + Vite production build
 #    ✓ nginx  — serves the built SPA on APP_PORT
@@ -37,7 +37,7 @@
 #    SMS alerts      : Twilio (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER)
 #    Email alerts    : SMTP (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS)
 #    Push notifs     : Web Push / VAPID (auto-generated if blank)
-#    APK builder     : Java 17 + Gradle + Android SDK
+#    APK builder     : Java 21 + Gradle + Android SDK
 #    Blockchain      : ethers.js (bundled in frontend)
 #    AI features     : rule-based, no external key needed
 #    NFC payments    : Web NFC API (browser-native, no server-side needed)
@@ -393,28 +393,28 @@ fi
 ok "Node.js $(node --version) / npm $(npm --version)"
 
 # =============================================================================
-# STEP 4 — Install Java 17 (required for APK builder / Capacitor / Gradle)
+# STEP 4 — Install Java 21 (required for APK builder / Capacitor / Gradle)
 # =============================================================================
-section "STEP 4 — Java 17 (APK Builder)"
+section "STEP 4 — Java 21 (APK Builder)"
 
 install_java() {
-  log "Installing OpenJDK 17…"
+  log "Installing OpenJDK 21…"
   case "$PKG" in
     apt)
-      apt-get install -y -qq openjdk-17-jdk
+      apt-get install -y -qq openjdk-21-jdk
       ;;
     dnf|yum)
-      $PKG install -y -q java-17-openjdk java-17-openjdk-devel
+      $PKG install -y -q java-21-openjdk java-21-openjdk-devel
       ;;
   esac
 }
 
 if command -v java &>/dev/null; then
   JAVA_VER=$(java -version 2>&1 | grep -oP '(?<=version ")[0-9]+' | head -1)
-  if [[ "${JAVA_VER:-0}" -ge 17 ]]; then
+  if [[ "${JAVA_VER:-0}" -ge 21 ]]; then
     ok "Java $(java -version 2>&1 | head -1) already installed"
   else
-    warn "Java ${JAVA_VER} is too old — installing Java 17…"
+    warn "Java ${JAVA_VER} is too old — installing Java 21…"
     install_java
   fi
 else
@@ -435,7 +435,7 @@ ok "JAVA_HOME=${JAVA_HOME}"
 # =============================================================================
 section "STEP 5 — Gradle (APK Builder)"
 
-GRADLE_VERSION="8.7"
+GRADLE_VERSION="8.11.1"
 if ! command -v gradle &>/dev/null; then
   log "Installing Gradle ${GRADLE_VERSION}…"
   GRADLE_TMP="/tmp/gradle-${GRADLE_VERSION}-bin.zip"
@@ -476,12 +476,12 @@ else
   SDKMANAGER="${ANDROID_HOME_PATH}/cmdline-tools/latest/bin/sdkmanager"
   yes | "$SDKMANAGER" --sdk_root="${ANDROID_HOME_PATH}" --licenses &>/dev/null || true
   "$SDKMANAGER" --sdk_root="${ANDROID_HOME_PATH}" \
-    "platforms;android-34" \
+    "platforms;android-35" \
     "build-tools;34.0.0" \
     "platform-tools" \
     "extras;android;m2repository" \
     "extras;google;m2repository" &>/dev/null
-  ok "Android SDK installed (platform 34, build-tools 34.0.0)"
+  ok "Android SDK installed (platform 35, build-tools 34.0.0)"
 fi
 
 # Set ANDROID_HOME system-wide
@@ -1095,9 +1095,9 @@ WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
 Environment=NODE_ENV=production
 Environment=PORT=${BUILD_SERVER_PORT}
-Environment=JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}
+Environment=JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}
 Environment=ANDROID_HOME=${ANDROID_HOME:-/opt/android-sdk}
-Environment=PATH=/usr/local/bin:/usr/bin:/bin:${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}/bin:${ANDROID_HOME:-/opt/android-sdk}/platform-tools
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}/bin:${ANDROID_HOME:-/opt/android-sdk}/platform-tools
 ExecStart=$(which node) ${APP_DIR}/build-server.mjs
 Restart=on-failure
 RestartSec=10
@@ -1294,7 +1294,7 @@ VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
 #   ✓ Currency Converter (44 currencies)
 #   ✓ Push Notifications / SMS / Email / WhatsApp
 #   ✓ PWA (installable, offline caching)
-#   ✓ APK Builder (Java ${JAVA_HOME:-17} + Gradle + Android SDK)
+#   ✓ APK Builder (Java ${JAVA_HOME:-21} + Gradle + Android SDK)
 #   ✓ App Lock (idle PIN timeout)
 #   ✓ Role System (18 roles)
 INFO

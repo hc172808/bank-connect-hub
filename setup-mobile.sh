@@ -24,7 +24,7 @@
 #
 # REQUIREMENTS
 #   * Node 18+ and npm  (already installed by the project)
-#   * Android: Java 17 (JDK) + Android Studio  (https://developer.android.com/studio)
+#   * Android: Java 21 (JDK) + Android Studio  (https://developer.android.com/studio)
 #   * iOS:    macOS + Xcode + CocoaPods
 #
 set -euo pipefail

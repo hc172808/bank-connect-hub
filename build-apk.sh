@@ -10,10 +10,10 @@ set -euo pipefail
 # sdkmanager itself requires Java, including when an SDK already exists.
 if [[ -z "${JAVA_HOME:-}" ]]; then
   for _candidate in \
-      /usr/lib/jvm/java-17-openjdk-amd64 \
-      /usr/lib/jvm/java-17-openjdk \
-      /usr/lib/jvm/temurin-17 \
-      /usr/local/lib/jvm/java-17; do
+      /usr/lib/jvm/java-21-openjdk-amd64 \
+      /usr/lib/jvm/java-21-openjdk \
+      /usr/lib/jvm/temurin-21 \
+      /usr/local/lib/jvm/java-21; do
     if [[ -d "$_candidate" ]]; then
       export JAVA_HOME="$_candidate"
       break
@@ -29,7 +29,7 @@ if [[ -z "${JAVA_HOME:-}" ]]; then
 fi
 
 if [[ -z "${JAVA_HOME:-}" ]]; then
-  echo "❌ Java 17 not found. Install it before building the APK."
+  echo "❌ Java 21 not found. Install it before building the APK."
   exit 1
 fi
 
@@ -88,10 +88,10 @@ echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 # ── Auto-detect JAVA_HOME ────────────────────────────────────────────────────
 if [[ -z "${JAVA_HOME:-}" ]]; then
   for _candidate in \
-      /usr/lib/jvm/java-17-openjdk-amd64 \
-      /usr/lib/jvm/java-17-openjdk \
-      /usr/lib/jvm/temurin-17 \
-      /usr/local/lib/jvm/java-17; do
+      /usr/lib/jvm/java-21-openjdk-amd64 \
+      /usr/lib/jvm/java-21-openjdk \
+      /usr/lib/jvm/temurin-21 \
+      /usr/local/lib/jvm/java-21; do
     if [[ -d "$_candidate" ]]; then
       export JAVA_HOME="$_candidate"
       break
@@ -108,7 +108,7 @@ if [[ -z "${JAVA_HOME:-}" ]]; then
 fi
 
 if [[ -z "${JAVA_HOME:-}" ]]; then
-  echo "❌ Java 17 not found. Install it: apt install openjdk-17-jdk"
+  echo "❌ Java 21 not found. Install it: apt install openjdk-21-jdk"
   exit 1
 fi
 

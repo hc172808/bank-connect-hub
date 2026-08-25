@@ -9,10 +9,10 @@
 #    sudo bash setup-android.sh
 #
 #  What this installs:
-#    ✓ OpenJDK 17 (if not already installed)
-#    ✓ Gradle 8.7 (if not already installed)
+#    ✓ OpenJDK 21 (if not already installed)
+#    ✓ Gradle wrapper / latest installed Gradle (if needed)
 #    ✓ Android SDK command-line tools
-#    ✓ Android platform SDK 34 + build-tools 34.0.0 + platform-tools
+#    ✓ Android platform SDK 35 + build-tools 34.0.0 + platform-tools
 #    ✓ Writes JAVA_HOME + ANDROID_HOME to /etc/environment
 #    ✓ Restarts netlifecash-server service so it picks up the new env
 # =============================================================================
@@ -29,7 +29,7 @@ ok()   { echo -e "${GRN}[  ✓         ]${NC} $*"; }
 [[ $EUID -eq 0 ]] || err "Run as root:  sudo bash setup-android.sh"
 
 ANDROID_HOME_PATH="/opt/android-sdk"
-GRADLE_VERSION="8.7"
+GRADLE_VERSION="8.11.1"
 CMDLINE_TOOLS_VERSION="11076708"
 
 echo ""
@@ -58,29 +58,29 @@ case "$PKG" in
 esac
 ok "System dependencies ready"
 
-# ── Java 17 ───────────────────────────────────────────────────────────────
+# ── Java 21 ───────────────────────────────────────────────────────────────
 log "Checking Java…"
 JAVA_OK=false
 if command -v java &>/dev/null; then
   JAVA_VER=$(java -version 2>&1 | grep -oP '(?<=version ")[0-9]+' | head -1)
-  if [[ "${JAVA_VER:-0}" -ge 17 ]]; then
+  if [[ "${JAVA_VER:-0}" -ge 21 ]]; then
     ok "Java ${JAVA_VER} already installed"
     JAVA_OK=true
   fi
 fi
 if ! $JAVA_OK; then
-  log "Installing OpenJDK 17…"
+  log "Installing OpenJDK 21…"
   case "$PKG" in
-    apt) apt-get install -y -qq openjdk-17-jdk ;;
-    dnf|yum) $PKG install -y -q java-17-openjdk java-17-openjdk-devel ;;
+    apt) apt-get install -y -qq openjdk-21-jdk ;;
+    dnf|yum) $PKG install -y -q java-21-openjdk java-21-openjdk-devel ;;
   esac
-  ok "OpenJDK 17 installed"
+  ok "OpenJDK 21 installed"
 fi
 JAVA_HOME_PATH=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
 export JAVA_HOME="$JAVA_HOME_PATH"
 ok "JAVA_HOME = $JAVA_HOME"
 
-# ── Gradle 8.7 ────────────────────────────────────────────────────────────
+# ── Gradle 8.11.1 ─────────────────────────────────────────────────────────
 if ! command -v gradle &>/dev/null; then
   log "Installing Gradle ${GRADLE_VERSION}…"
   GRADLE_ZIP="/tmp/gradle-${GRADLE_VERSION}-bin.zip"
@@ -120,12 +120,13 @@ ok "Licenses accepted"
 # ── Install SDK components ────────────────────────────────────────────────
 log "Installing SDK components — this may take a few minutes…"
 "$SDKMANAGER" --sdk_root="${ANDROID_HOME_PATH}" \
-  "platforms;android-34" \
+  "platforms;android-35" \
   "build-tools;34.0.0" \
   "platform-tools" \
   "extras;android;m2repository" \
   "extras;google;m2repository" 2>&1 | grep -v "^\[=" || true
-ok "SDK components installed (platform-34, build-tools 34.0.0, platform-tools)"
+"$SDKMANAGER" --sdk_root="${ANDROID_HOME_PATH}" --update >/dev/null || true
+ok "SDK components installed (platform-35, build-tools 34.0.0, platform-tools)"
 
 # ── Environment variables ─────────────────────────────────────────────────
 log "Writing environment variables…"
@@ -169,7 +170,7 @@ info "  java         : $(java -version 2>&1 | head -1)"
 info "  gradle       : $(gradle --version 2>/dev/null | grep Gradle || echo 'not found')"
 info "  sdkmanager   : $("$SDKMANAGER" --version 2>/dev/null || echo 'error')"
 info "  ANDROID_HOME : ${ANDROID_HOME_PATH}"
-info "  platform-34  : $([[ -d "${ANDROID_HOME_PATH}/platforms/android-34" ]] && echo 'installed ✓' || echo 'MISSING ✗')"
+info "  platform-35  : $([[ -d "${ANDROID_HOME_PATH}/platforms/android-35" ]] && echo 'installed ✓' || echo 'MISSING ✗')"
 info "  build-tools  : $([[ -d "${ANDROID_HOME_PATH}/build-tools/34.0.0" ]] && echo '34.0.0 installed ✓' || echo 'MISSING ✗')"
 
 echo ""
