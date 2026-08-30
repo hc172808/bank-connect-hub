@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil, Brain, Activity, AlertTriangle, Palette, ShieldAlert, Cpu, ShieldCheck, Megaphone, Globe, Terminal, Network, Scale, KeyRound, Star } from "lucide-react";
+import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wallet, CheckCircle, Database, Coins, ArrowRightLeft, ToggleLeft, Store, QrCode, Bell, RotateCcw, Smartphone, Info, Pencil, Brain, Activity, AlertTriangle, Palette, ShieldAlert, Cpu, ShieldCheck, Megaphone, Globe, Terminal, Network, Scale, KeyRound, Star, MessageCircle } from "lucide-react";
 import { loadAISettings, scoreTransactions, summarizeRisk } from "@/lib/aiSecurity";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -367,6 +367,15 @@ const AdminDashboard = () => {
               >
                 <Settings size={20} />
                 System Settings
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/admin/whatsapp-verification")}
+                data-testid="button-whatsapp-verification"
+              >
+                <MessageCircle size={20} />
+                WhatsApp Verification
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl"

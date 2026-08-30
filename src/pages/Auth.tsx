@@ -105,8 +105,17 @@ const Auth = () => {
 
         toast({
           title: "Account created!",
-          description: "Your private ledger account is ready.",
+          description: "Your account is ready. Complete WhatsApp verification next.",
         });
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          navigate("/verify-whatsapp?new=1");
+        } else {
+          toast({
+            title: "Sign in to continue",
+            description: "After confirming your account, sign in and open WhatsApp Verification from your Profile.",
+          });
+        }
       } else {
         if (!phoneNumber) {
           toast({ variant: "destructive", title: "Invalid phone", description: "Please enter a valid phone number." });

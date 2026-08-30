@@ -42,6 +42,7 @@ const FAQS: FAQ[] = [
   { q: "How do I send money?",                    a: "Go to your dashboard and tap 'Send Money'. Enter the recipient's phone number or name, enter the amount, and confirm with your PIN.", category: "transfers" },
   { q: "Why was my transaction declined?",        a: "Transactions can be declined due to insufficient balance, spending limits, or security flags. Check your balance and limits in Settings.", category: "transfers" },
   { q: "How do I complete KYC verification?",     a: "Go to Menu → Profile → KYC Verification. Upload a valid ID and a selfie. Approval takes 1–3 business days.", category: "kyc" },
+  { q: "How do I verify my account on WhatsApp?", a: "After registration, open WhatsApp Verification, tap Open WhatsApp, send the pre-filled code to the official support number, and wait for an administrator to approve it. Read the full guide in the WhatsApp Verification Guide.", category: "account" },
   { q: "How do I reset my PIN?",                  a: "Go to Menu → Security Settings → Change PIN. You'll need to verify your identity via OTP first.", category: "security" },
   { q: "What are the transfer fees?",             a: "Domestic transfers: 0.5% (min $0.50). International: varies by country (0.5–2.5%). View the full fee schedule in Settings → Fees.", category: "fees" },
   { q: "How do I deposit funds?",                 a: "Go to Dashboard → Deposit. You can deposit via bank transfer, agent cash deposit, or QR code payment.", category: "deposits" },

@@ -78,6 +78,8 @@ const VendorDashboard = lazy(() => import("./pages/VendorDashboard"));
 const VendorCharge = lazy(() => import("./pages/VendorCharge"));
 const VendorAnalytics = lazy(() => import("./pages/VendorAnalytics"));
 const VerifyWhatsApp = lazy(() => import("./pages/VerifyWhatsApp"));
+const WhatsAppGuide = lazy(() => import("./pages/WhatsAppGuide"));
+const AdminWhatsAppVerification = lazy(() => import("./pages/AdminWhatsAppVerification"));
 const AdminAISecurity = lazy(() => import("./pages/AdminAISecurity"));
 const AdminFirewall   = lazy(() => import("./pages/AdminFirewall"));
 const AdminLitenode   = lazy(() => import("./pages/AdminLitenode"));
@@ -464,6 +466,8 @@ const AppRoutes = () => {
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/verify-whatsapp" element={<VerifyWhatsApp />} />
+        <Route path="/whatsapp-guide" element={<WhatsAppGuide />} />
         <Route path="/" element={<Navigate to="/client" replace />} />
         <Route path="/index" element={<Navigate to="/client" replace />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
@@ -498,6 +502,7 @@ const AppRoutes = () => {
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/whatsapp-guide" element={<WhatsAppGuide />} />
         <Route path="/" element={<Navigate to="/vendor" replace />} />
         <Route path="/index" element={<Navigate to="/vendor" replace />} />
         <Route path="*" element={<Navigate to="/vendor" replace />} />
@@ -525,6 +530,7 @@ const AppRoutes = () => {
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/whatsapp-guide" element={<WhatsAppGuide />} />
         <Route path="/" element={<Navigate to="/agent" replace />} />
         <Route path="/index" element={<Navigate to="/agent" replace />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
@@ -540,6 +546,8 @@ const AppRoutes = () => {
         <Route path="/admin/agents" element={<ProtectedRoute allowedRoles={["admin"]}><ManageAgents /></ProtectedRoute>} />
         <Route path="/admin/vendors" element={<ProtectedRoute allowedRoles={["admin"]}><ManageVendors /></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={["admin"]}><SystemSettings /></ProtectedRoute>} />
+        <Route path="/admin/whatsapp-verification" element={<ProtectedRoute allowedRoles={["admin"]}><AdminWhatsAppVerification /></ProtectedRoute>} />
+        <Route path="/whatsapp-guide" element={<WhatsAppGuide />} />
         <Route path="/admin/database" element={<ProtectedRoute allowedRoles={["admin"]}><DatabaseManagement /></ProtectedRoute>} />
         <Route path="/admin/transactions" element={<ProtectedRoute allowedRoles={["admin"]}><TransactionReports /></ProtectedRoute>} />
         <Route path="/admin/financial" element={<ProtectedRoute allowedRoles={["admin"]}><FinancialReports /></ProtectedRoute>} />
