@@ -48,7 +48,7 @@ export async function processPrivateLedgerTransfer(
     return { success: false, error: error.message };
   }
 
-  const result = (data || {}) as PrivateLedgerTransferResult;
+  const result = (data || {}) as unknown as PrivateLedgerTransferResult;
   return result.success
     ? result
     : { ...result, error: result.error || "The ledger rejected this transfer." };
