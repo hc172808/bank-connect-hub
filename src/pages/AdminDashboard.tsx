@@ -628,6 +628,14 @@ const AdminDashboard = () => {
               <Button
                 className="w-full justify-start gap-3 h-14 rounded-xl"
                 variant="secondary"
+                onClick={() => navigate("/admin/boot-errors")}
+              >
+                <AlertTriangle size={20} />
+                Boot Error Reports
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
                 onClick={() => navigate("/admin/audit-logs")}
               >
                 <FileText size={20} />
