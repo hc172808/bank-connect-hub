@@ -255,6 +255,29 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
     return () => { cancelled = true; };
   }, [stuck]);
 
+  // User-friendly toast on bootstrap failure: copies a full report and offers
+  // a one-tap link into the hidden Diagnostics panel.
+  useEffect(() => {
+    if (!stuck || !diagnosis) return;
+    const report = snapshotToText(buildSnapshot(diagnosis));
+    const copy = async () => {
+      try { await navigator.clipboard.writeText(report); } catch {
+        const ta = document.createElement("textarea");
+        ta.value = report; document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); ta.remove();
+      }
+    };
+    sonnerToast.error("The app couldn't finish starting", {
+      id: "boot-failure",
+      description: diagnosis,
+      duration: 15000,
+      action: {
+        label: "Diagnostics",
+        onClick: () => { void copy(); setShowDiag(true); },
+      },
+    });
+  }, [stuck, diagnosis]);
+
   const message = stuck
     ? (online
         ? countdown !== null
