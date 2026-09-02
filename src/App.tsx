@@ -15,6 +15,10 @@ import { AppLockScreen } from "./components/AppLockScreen";
 import { DisplacedSessionDialog } from "./components/DisplacedSessionDialog";
 import { MobileBrowserVerifyDialog } from "./components/MobileBrowserVerifyDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { RoleGuard } from "./components/RoleGuard";
+import { IncidentBanner } from "./components/IncidentBanner";
+import { toast as sonnerToast } from "sonner";
+import { buildSnapshot, snapshotToText } from "@/lib/bootDiagnostics";
 import { ScrollToTop } from "./components/ScrollToTop";
 import { BootDiagnosticsPanel } from "./components/BootDiagnosticsPanel";
 import {
@@ -147,6 +151,7 @@ const NFCTapPayment                = lazy(() => import("./pages/NFCTapPayment"))
 const APIIntegrations              = lazy(() => import("./pages/APIIntegrations"));
 const OpenBanking                  = lazy(() => import("./pages/OpenBanking"));
 const DownloadApp                  = lazy(() => import("./pages/DownloadApp"));
+const AdminBootErrors              = lazy(() => import("./pages/AdminBootErrors"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -249,6 +254,29 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
     })();
     return () => { cancelled = true; };
   }, [stuck]);
+
+  // User-friendly toast on bootstrap failure: copies a full report and offers
+  // a one-tap link into the hidden Diagnostics panel.
+  useEffect(() => {
+    if (!stuck || !diagnosis) return;
+    const report = snapshotToText(buildSnapshot(diagnosis));
+    const copy = async () => {
+      try { await navigator.clipboard.writeText(report); } catch {
+        const ta = document.createElement("textarea");
+        ta.value = report; document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); ta.remove();
+      }
+    };
+    sonnerToast.error("The app couldn't finish starting", {
+      id: "boot-failure",
+      description: diagnosis,
+      duration: 15000,
+      action: {
+        label: "Diagnostics",
+        onClick: () => { void copy(); setShowDiag(true); },
+      },
+    });
+  }, [stuck, diagnosis]);
 
   const message = stuck
     ? (online
@@ -399,11 +427,13 @@ const AppRoutes = () => {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/auth" replace />} />
       </Routes>
+
     );
   }
 
   if (role === "client") {
     return (
+      <RoleGuard allow={["client"]}>
       <Routes>
         <Route path="/client" element={<ClientDashboard />} />
         <Route path="/send-money" element={<SendMoney />} />
@@ -472,11 +502,13 @@ const AppRoutes = () => {
         <Route path="/index" element={<Navigate to="/client" replace />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
+      </RoleGuard>
     );
   }
 
   if (role === "vendor") {
     return (
+      <RoleGuard allow={["vendor"]}>
       <Routes>
         <Route path="/vendor" element={<VendorDashboard />} />
         <Route path="/vendor/charge" element={<VendorCharge />} />
@@ -507,11 +539,13 @@ const AppRoutes = () => {
         <Route path="/index" element={<Navigate to="/vendor" replace />} />
         <Route path="*" element={<Navigate to="/vendor" replace />} />
       </Routes>
+      </RoleGuard>
     );
   }
 
   if (role === "agent") {
     return (
+      <RoleGuard allow={["agent"]}>
       <Routes>
         <Route path="/agent" element={<AgentDashboard />} />
         <Route path="/agent-deposit" element={<AgentDeposit />} />
@@ -535,11 +569,13 @@ const AppRoutes = () => {
         <Route path="/index" element={<Navigate to="/agent" replace />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
+      </RoleGuard>
     );
   }
 
   if (role === "admin") {
     return (
+      <RoleGuard allow={["admin"]}>
       <Routes>
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin"]}><ManageUsers /></ProtectedRoute>} />
@@ -574,6 +610,7 @@ const AppRoutes = () => {
         <Route path="/admin/app-releases" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppReleases /></ProtectedRoute>} />
         <Route path="/admin/themes" element={<ProtectedRoute allowedRoles={["admin"]}><AdminThemes /></ProtectedRoute>} />
         <Route path="/admin/app-manager" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppManager /></ProtectedRoute>} />
+        <Route path="/admin/boot-errors" element={<ProtectedRoute allowedRoles={["admin"]}><AdminBootErrors /></ProtectedRoute>} />
         <Route path="/admin/audit-logs" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAuditLogs /></ProtectedRoute>} />
         <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={["admin"]}><AdminKYCReview /></ProtectedRoute>} />
         <Route path="/admin/alerts" element={<ProtectedRoute allowedRoles={["admin"]}><AdminSuspiciousAlerts /></ProtectedRoute>} />
@@ -602,6 +639,7 @@ const AppRoutes = () => {
         <Route path="/index" element={<Navigate to="/admin" replace />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
+      </RoleGuard>
     );
   }
 
@@ -650,6 +688,7 @@ const App = () => (
               <AppRoutes />
             </Suspense>
             <UpdateBanner />
+            <IncidentBanner />
           </ForceUpdateGate>
         </BrowserRouter>
       </TooltipProvider>
