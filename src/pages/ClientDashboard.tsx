@@ -80,6 +80,34 @@ const ClientDashboard = () => {
     fetchData();
   }, []);
 
+  // Live sync: refresh whenever this user's ledger wallet or transactions change
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase
+      .channel(`ledger-sync-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "wallets", filter: `user_id=eq.${userId}` },
+        () => fetchData(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `sender_id=eq.${userId}` },
+        () => fetchData(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `receiver_id=eq.${userId}` },
+        () => fetchData(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+
+
   const fetchData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
