@@ -1297,6 +1297,15 @@ export type Database = {
         Returns: string
       }
       process_pending_reversals: { Args: never; Returns: Json }
+      process_private_ledger_transfer: {
+        Args: {
+          _amount: number
+          _description?: string
+          _receiver_id: string
+          _transaction_type: string
+        }
+        Returns: Json
+      }
       process_transaction: {
         Args: {
           _amount: number
