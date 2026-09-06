@@ -154,7 +154,7 @@ if [[ -f "$ENV_FILE" ]]; then
 
       printf -v "$key" '%s' "$value"
       export "$key"
-    done < "$ENV_FILE"
+    done < "${1:-$ENV_FILE}"
   }
 
   load_dotenv
@@ -280,10 +280,7 @@ if [[ "$DB_MODE" == "local" ]]; then
   # the app URL/password while the existing volume is running would disconnect
   # the application from PostgreSQL.
   if [[ -f "${LOCAL_DB_DIR}/.env" ]]; then
-    set +u
-    # shellcheck disable=SC1090
-    source "${LOCAL_DB_DIR}/.env"
-    set -u
+    load_dotenv "${LOCAL_DB_DIR}/.env"
   fi
   POSTGRES_USER="${POSTGRES_USER:-postgres}"
   POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -hex 24)}"
@@ -459,9 +456,11 @@ install_node() {
       $PKG install -y -q nodejs
       ;;
   esac
-  # Install latest npm
+  # Keep npm on the stable major supported by this deployment. npm 11 can
+  # block native postinstall scripts (including esbuild) until manually
+  # approved, which prevents Vite from building on a fresh server.
   npm install --registry="${NPM_REGISTRY:-https://registry.npmjs.org/}" \
-    -g npm@latest --quiet
+    -g npm@10 --quiet
 }
 
 if command -v node &>/dev/null; then
@@ -475,6 +474,14 @@ if command -v node &>/dev/null; then
 else
   install_node
 fi
+
+NPM_REQUIRED_MAJOR=10
+NPM_MAJOR="$(npm --version | cut -d. -f1)"
+if [[ "$NPM_MAJOR" != "$NPM_REQUIRED_MAJOR" ]]; then
+  log "Selecting npm ${NPM_REQUIRED_MAJOR}.x for reproducible installs…"
+  npm install --registry="${NPM_REGISTRY:-https://registry.npmjs.org/}" \
+    -g "npm@${NPM_REQUIRED_MAJOR}" --quiet
+fi
 ok "Node.js $(node --version) / npm $(npm --version)"
 
 # =============================================================================
@@ -486,7 +493,33 @@ install_java() {
   log "Installing OpenJDK 21…"
   case "$PKG" in
     apt)
-      apt-get install -y -qq openjdk-21-jdk
+      # Ubuntu 22.04 (Jammy) does not always expose OpenJDK 21 in its
+      # default repositories. Prefer the package when available, then fall
+      # back to the official Eclipse Temurin 21 binary.
+      if apt-get install -y -qq openjdk-21-jdk; then
+        :
+      else
+        warn "openjdk-21-jdk is unavailable from the configured apt repositories; installing Temurin 21…"
+        local java_arch java_tarball java_dir
+        case "$(dpkg --print-architecture)" in
+          amd64) java_arch="x64" ;;
+          arm64) java_arch="aarch64" ;;
+          *) err "Unsupported Ubuntu architecture for Java 21: $(dpkg --print-architecture)" ;;
+        esac
+        java_tarball="/tmp/temurin-21-${java_arch}.tar.gz"
+        java_dir="/opt/temurin-21"
+        curl -fsSL \
+          "https://api.adoptium.net/v3/binary/latest/21/ga/linux/${java_arch}/jdk/hotspot/normal/eclipse" \
+          -o "$java_tarball"
+        rm -rf "$java_dir"
+        mkdir -p "$java_dir"
+        tar -xzf "$java_tarball" -C "$java_dir" --strip-components=1
+        rm -f "$java_tarball"
+        update-alternatives --install /usr/bin/java java "${java_dir}/bin/java" 2121
+        update-alternatives --install /usr/bin/javac javac "${java_dir}/bin/javac" 2121
+        update-alternatives --set java "${java_dir}/bin/java"
+        update-alternatives --set javac "${java_dir}/bin/javac"
+      fi
       ;;
     dnf|yum)
       $PKG install -y -q java-21-openjdk java-21-openjdk-devel
@@ -505,6 +538,9 @@ if command -v java &>/dev/null; then
 else
   install_java
 fi
+
+JAVA_VER="$(java -version 2>&1 | grep -oP '(?<=version ")[0-9]+' | head -1)"
+[[ "${JAVA_VER:-0}" -ge 21 ]] || err "Java 21 or newer is required, but Java ${JAVA_VER:-unknown} is active"
 
 # Set JAVA_HOME system-wide
 JAVA_HOME_PATH=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
@@ -587,6 +623,7 @@ if ! command -v docker &>/dev/null; then
   case "$PKG" in
     apt)
       install -m 0755 -d /etc/apt/keyrings
+      rm -f /etc/apt/keyrings/docker.gpg
       curl -fsSL "https://download.docker.com/linux/$(. /etc/os-release; echo "$ID")/gpg" \
         | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
       chmod a+r /etc/apt/keyrings/docker.gpg
