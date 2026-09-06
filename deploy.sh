@@ -190,6 +190,7 @@ npm_ci_production() {
 
   if npm ci \
       --registry="$NPM_REGISTRY" \
+      --include=dev \
       --prefer-offline --no-fund --no-audit >"$install_log" 2>&1; then
     install_status=0
   else
