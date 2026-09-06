@@ -182,6 +182,12 @@ npm_ci_production() {
   fi
 
   install_log="$(mktemp)"
+  # Newer npm versions can keep install scripts in a pending approval state.
+  # Vite needs esbuild's postinstall script to install its native binary.
+  if npm install-scripts --help >/dev/null 2>&1; then
+    npm install-scripts approve esbuild >/dev/null 2>&1 || true
+  fi
+
   if npm ci \
       --registry="$NPM_REGISTRY" \
       --prefer-offline --no-fund --no-audit >"$install_log" 2>&1; then
@@ -1293,7 +1299,15 @@ if ! $DOCKER_MODE; then
   log "Building frontend (Vite production build)…"
   export VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY
   export VITE_SUPABASE_PROJECT_ID VITE_WHATSAPP_SUPPORT_NUMBER
-  npm run build 2>&1 | tail -5
+  BUILD_LOG="$(mktemp)"
+  if npm run build >"$BUILD_LOG" 2>&1; then
+    tail -5 "$BUILD_LOG"
+    rm -f "$BUILD_LOG"
+  else
+    cat "$BUILD_LOG" >&2
+    rm -f "$BUILD_LOG"
+    err "Vite production build failed. Review the error above."
+  fi
   [[ -f "${APP_DIR}/dist/index.html" ]] || err "Build failed — ${APP_DIR}/dist/index.html not found"
   ok "Frontend built → ${APP_DIR}/dist"
 
