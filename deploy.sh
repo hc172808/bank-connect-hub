@@ -119,11 +119,45 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 if [[ -f "$ENV_FILE" ]]; then
-  log "Sourcing configuration from .env…"
-  set +u
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set -u
+  log "Loading configuration from .env…"
+
+  # Load dotenv assignments as data rather than sourcing the file as Bash.
+  # This keeps ordinary dotenv values such as `Bank (Support)` or URLs with
+  # query strings from being parsed as shell syntax or executed as commands.
+  load_dotenv() {
+    local line key value line_number=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      ((++line_number))
+
+      # Ignore blank lines and comments.
+      [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+
+      # Accept the common optional `export KEY=value` form.
+      line="${line#"${line%%[![:space:]]*}"}"
+      [[ "$line" == export[[:space:]]* ]] && line="${line#export }"
+      if [[ ! "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+        err "Invalid .env entry at line ${line_number}. Expected KEY=value."
+      fi
+
+      key="${BASH_REMATCH[1]}"
+      value="${BASH_REMATCH[2]}"
+      value="${value#"${value%%[![:space:]]*}"}"
+      value="${value%"${value##*[![:space:]]}"}"
+
+      # Remove one matching pair of dotenv quotes. Keep all other characters
+      # literal, including parentheses, dollar signs, and semicolons.
+      if [[ ${#value} -ge 2 &&
+            ( "${value:0:1}" == '"' && "${value: -1}" == '"' ||
+              "${value:0:1}" == "'" && "${value: -1}" == "'" ) ]]; then
+        value="${value:1:${#value}-2}"
+      fi
+
+      printf -v "$key" '%s' "$value"
+      export "$key"
+    done < "$ENV_FILE"
+  }
+
+  load_dotenv
   ok ".env loaded"
 fi
 
