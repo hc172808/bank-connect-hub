@@ -161,6 +161,50 @@ if [[ -f "$ENV_FILE" ]]; then
   ok ".env loaded"
 fi
 
+# Production servers must not use Replit's internal package mirror. The
+# repository lockfile may contain mirror URLs from an install performed inside
+# Replit, so npm_ci_production temporarily normalizes those URLs while npm ci
+# runs and restores the tracked lockfile immediately afterward.
+NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org/}"
+npm_ci_production() {
+  local lockfile="${PWD}/package-lock.json"
+  local lock_backup=""
+  local install_log
+  local install_status
+
+  if [[ -f "$lockfile" ]] &&
+     grep -q 'http://package-firewall\.replit\.local/npm/' "$lockfile"; then
+    lock_backup="$(mktemp)"
+    cp "$lockfile" "$lock_backup"
+    sed -i \
+      's#http://package-firewall\.replit\.local/npm/#https://registry.npmjs.org/#g' \
+      "$lockfile"
+  fi
+
+  install_log="$(mktemp)"
+  if npm ci \
+      --registry="$NPM_REGISTRY" \
+      --prefer-offline --no-fund --no-audit >"$install_log" 2>&1; then
+    install_status=0
+  else
+    install_status=$?
+  fi
+
+  if [[ -n "$lock_backup" ]]; then
+    cp "$lock_backup" "$lockfile"
+    rm -f "$lock_backup"
+  fi
+
+  if (( install_status != 0 )); then
+    tail -30 "$install_log" >&2 || true
+    rm -f "$install_log"
+    return "$install_status"
+  fi
+
+  tail -3 "$install_log"
+  rm -f "$install_log"
+}
+
 # =============================================================================
 # STEP 1 — Gather required values interactively
 # =============================================================================
@@ -410,7 +454,8 @@ install_node() {
       ;;
   esac
   # Install latest npm
-  npm install -g npm@latest --quiet
+  npm install --registry="${NPM_REGISTRY:-https://registry.npmjs.org/}" \
+    -g npm@latest --quiet
 }
 
 if command -v node &>/dev/null; then
@@ -935,7 +980,9 @@ if ! $DOCKER_MODE; then
   cd "$APP_DIR"
 
   log "Installing npm dependencies…"
-  npm ci --prefer-offline --no-fund --no-audit 2>&1 | tail -3
+  if ! npm_ci_production; then
+    err "npm ci failed. Check the npm output above and verify NPM_REGISTRY or package connectivity."
+  fi
   ok "npm packages installed ($(npm list --depth=0 2>/dev/null | wc -l) packages)"
 
   # ── Auto-generate VAPID keys if not already set ────────────────────────────
@@ -1111,8 +1158,9 @@ if ! $DOCKER_MODE; then
 else
   log "Installing build-server dependencies in ${APP_DIR}…"
   cd "$APP_DIR"
-  npm ci --prefer-offline --no-fund --no-audit &>/dev/null || \
-    npm install --no-fund --no-audit &>/dev/null
+  if ! npm_ci_production; then
+    err "npm ci failed while preparing the Docker build-server dependencies."
+  fi
 fi
 
 log "Creating systemd service: netlifecash-server…"
@@ -1238,7 +1286,9 @@ if ! $DOCKER_MODE; then
   fi
 
   log "Ensuring dependencies are up to date…"
-  npm ci --prefer-offline --no-fund --no-audit 2>&1 | tail -3 || npm install --no-fund --no-audit 2>&1 | tail -3
+  if ! npm_ci_production; then
+    err "npm ci failed before the frontend build. Check the npm output above."
+  fi
 
   log "Building frontend (Vite production build)…"
   export VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY
