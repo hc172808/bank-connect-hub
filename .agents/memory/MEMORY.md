@@ -10,3 +10,4 @@
 - [Remote firewall deployment](deployment-firewall.md) — deploy scripts must preserve SSH access and surface firewall errors instead of resetting silently
 - [Centralized software updates](software-updates.md) — scoped updater keeps project, OS, Android, and Docker updates explicit
 - [WhatsApp verification workflow](whatsapp-verification.md) — click-to-chat requests are database-backed and admin-reviewed
+- [Dependency recovery](dependency-recovery.md) — package-manager installs can refresh caret ranges; preserve manifests when restoring missing node_modules
