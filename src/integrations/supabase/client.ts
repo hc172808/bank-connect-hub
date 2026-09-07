@@ -50,10 +50,18 @@ export async function initSupabase(): Promise<void> {
   _initPromise = fetch('/api/config')
     .then(r => r.json())
     .then((cfg: { supabaseUrl: string; supabaseAnonKey: string }) => {
-      if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
-        _supabaseUrl = cfg.supabaseUrl;
-        _supabaseAnonKey = cfg.supabaseAnonKey;
-        _client = makeClient(_supabaseUrl, _supabaseAnonKey);
+      const url = sanitizeCredential(cfg.supabaseUrl);
+      const key = sanitizeCredential(cfg.supabaseAnonKey);
+      if (url && key) {
+        _supabaseUrl = url;
+        _supabaseAnonKey = key;
+        _client = makeClient(url, key);
+      } else if (ENV_URL && ENV_KEY) {
+        // Server config was empty or malformed — keep the build-time values.
+        _supabaseUrl = ENV_URL;
+        _supabaseAnonKey = ENV_KEY;
+        _client = makeClient(ENV_URL, ENV_KEY);
+        console.warn('[supabase] /api/config returned unusable credentials — using build-time env vars');
       }
     })
     .catch(() => {
