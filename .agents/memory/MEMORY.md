@@ -11,3 +11,4 @@
 - [Centralized software updates](software-updates.md) — scoped updater keeps project, OS, Android, and Docker updates explicit
 - [WhatsApp verification workflow](whatsapp-verification.md) — click-to-chat requests are database-backed and admin-reviewed
 - [Dependency recovery](dependency-recovery.md) — package-manager installs can refresh caret ranges; preserve manifests when restoring missing node_modules
+- [Nginx runtime config](nginx-runtime-config.md) — generate JavaScript separately; never interpolate dotenv values into nginx directives

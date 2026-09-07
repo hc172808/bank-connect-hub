@@ -1078,12 +1078,13 @@ server {
     root ${APP_DIR}/dist;
     index index.html;
 
-    # Serve env-config.js from a custom script
+    # Serve the generated runtime config file. Keeping JavaScript out of this
+    # nginx template prevents quotes, semicolons, or special dotenv characters
+    # from breaking nginx parsing.
     location = /env-config.js {
-        alias ${APP_DIR}/docker/generate-env.sh;
-        return 200 "window.__ENV__={VITE_SUPABASE_URL:'${VITE_SUPABASE_URL}',VITE_SUPABASE_PUBLISHABLE_KEY:'${VITE_SUPABASE_PUBLISHABLE_KEY}',VITE_SUPABASE_PROJECT_ID:'${VITE_SUPABASE_PROJECT_ID:-}',VITE_WHATSAPP_SUPPORT_NUMBER:'${VITE_WHATSAPP_SUPPORT_NUMBER:-}'};";
-        add_header Content-Type "application/javascript";
-        expires -1;
+        alias ${APP_DIR}/dist/env-config.js;
+        default_type application/javascript;
+        add_header Cache-Control "no-store";
     }
 
     # Health check endpoint
@@ -1347,6 +1348,23 @@ if ! $DOCKER_MODE; then
     err "Vite production build failed. Review the error above."
   fi
   [[ -f "${APP_DIR}/dist/index.html" ]] || err "Build failed — ${APP_DIR}/dist/index.html not found"
+  node --input-type=module <<'NODEEOF'
+import fs from "node:fs";
+
+const runtimeConfig = {
+  VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL || "",
+  VITE_SUPABASE_PUBLISHABLE_KEY: process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "",
+  VITE_SUPABASE_PROJECT_ID: process.env.VITE_SUPABASE_PROJECT_ID || "",
+  VITE_WHATSAPP_SUPPORT_NUMBER: process.env.VITE_WHATSAPP_SUPPORT_NUMBER || "",
+};
+
+fs.writeFileSync(
+  "dist/env-config.js",
+  `window.__ENV__=${JSON.stringify(runtimeConfig)};`,
+  "utf8",
+);
+NODEEOF
+  ok "Runtime frontend configuration written"
   ok "Frontend built → ${APP_DIR}/dist"
 
   log "Reloading web server + app services…"
