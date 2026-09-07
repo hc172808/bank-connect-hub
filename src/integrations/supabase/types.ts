@@ -1039,6 +1039,9 @@ export type Database = {
       transactions: {
         Row: {
           amount: number
+          chain_block_number: number | null
+          chain_status: string
+          chain_tx_hash: string | null
           completed_at: string | null
           created_at: string
           description: string | null
@@ -1051,6 +1054,9 @@ export type Database = {
         }
         Insert: {
           amount: number
+          chain_block_number?: number | null
+          chain_status?: string
+          chain_tx_hash?: string | null
           completed_at?: string | null
           created_at?: string
           description?: string | null
@@ -1063,6 +1069,9 @@ export type Database = {
         }
         Update: {
           amount?: number
+          chain_block_number?: number | null
+          chain_status?: string
+          chain_tx_hash?: string | null
           completed_at?: string | null
           created_at?: string
           description?: string | null
@@ -1313,6 +1322,15 @@ export type Database = {
           _receiver_id: string
           _sender_id: string
           _transaction_type: string
+        }
+        Returns: Json
+      }
+      record_chain_receipt: {
+        Args: {
+          _block_number: number
+          _status?: string
+          _transaction_id: string
+          _tx_hash?: string
         }
         Returns: Json
       }
