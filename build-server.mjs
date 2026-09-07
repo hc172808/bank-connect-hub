@@ -114,11 +114,25 @@ app.get("/api/health", (_req, res) => {
 });
 
 // GET /api/config — serve public client config (keeps secrets off the browser bundle)
+// Header-safe: strip quotes/whitespace and drop values with non-ASCII
+// characters (smart quotes, en-dashes, non-breaking spaces) that would make
+// every browser fetch fail with "String contains non ISO-8859-1 code point".
+function headerSafe(value, label) {
+  const cleaned = String(value || "")
+    .replace(/^[\s\u00a0\ufeff"']+|[\s\u00a0\ufeff"']+$/g, "")
+    .replace(/[\r\n\t]/g, "");
+  if (!/^[\x20-\x7e]*$/.test(cleaned)) {
+    console.error(`[config] ${label} contains invalid non-ASCII characters — check your .env. Serving empty value.`);
+    return "";
+  }
+  return cleaned;
+}
+
 app.get("/api/config", (_req, res) => {
   res.json({
-    supabaseUrl: getSupabaseUrl(),
-    supabaseAnonKey: process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "",
-    whatsappNumber: process.env.VITE_WHATSAPP_SUPPORT_NUMBER || "",
+    supabaseUrl: headerSafe(getSupabaseUrl(), "VITE_SUPABASE_URL"),
+    supabaseAnonKey: headerSafe(process.env.VITE_SUPABASE_PUBLISHABLE_KEY, "VITE_SUPABASE_PUBLISHABLE_KEY"),
+    whatsappNumber: headerSafe(process.env.VITE_WHATSAPP_SUPPORT_NUMBER, "VITE_WHATSAPP_SUPPORT_NUMBER"),
   });
 });
 
