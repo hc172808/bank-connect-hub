@@ -1445,7 +1445,10 @@ HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
 if [[ "$HTTP_CODE" == "200" ]]; then
   ok "App health check passed (HTTP ${HTTP_CODE})"
 else
-  warn "Health check returned HTTP ${HTTP_CODE} — nginx may still be starting"
+  warn "Health check returned HTTP ${HTTP_CODE} — nginx is not serving APP_PORT=${APP_PORT}"
+  systemctl status nginx --no-pager -l >&2 || true
+  nginx -t >&2 || true
+  err "Frontend health check failed. Start/fix nginx, then rerun deploy.sh."
 fi
 
 BUILD_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
