@@ -3,8 +3,27 @@ import type { Database } from './types';
 
 // Build-time env vars (baked into the bundle by Vite — safe for the anon/public key).
 // Used as an immediate fallback if /api/config is unreachable (e.g. mobile APK builds).
-const ENV_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const ENV_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+// Values must be safe to place in an HTTP header (Latin-1 / ASCII only).
+// A stray smart quote, en-dash or non-breaking space pasted into the server
+// .env otherwise makes every fetch throw:
+// "String contains non ISO-8859-1 code point".
+function sanitizeCredential(value: string | undefined | null): string {
+  if (!value) return '';
+  // Strip surrounding quotes/whitespace (including non-breaking spaces / BOM).
+  const cleaned = value
+    .replace(/^[\s\u00a0\ufeff"']+|[\s\u00a0\ufeff"']+$/g, '')
+    .replace(/[\r\n\t]/g, '');
+  // Reject anything that cannot be sent as a header value.
+  // eslint-disable-next-line no-control-regex
+  if (!/^[\x20-\x7e]*$/.test(cleaned)) {
+    console.error('[supabase] Credential contains invalid (non-ASCII) characters — ignoring it. Check VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY on the server.');
+    return '';
+  }
+  return cleaned;
+}
+
+const ENV_URL = sanitizeCredential(import.meta.env.VITE_SUPABASE_URL as string | undefined);
+const ENV_KEY = sanitizeCredential(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined);
 
 let _supabaseUrl = ENV_URL || '';
 let _supabaseAnonKey = ENV_KEY || '';
