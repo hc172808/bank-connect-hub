@@ -1,0 +1,5 @@
+ https://raw.githubusercontent.com/hc172808/bank-connect-hub/main/deploy.sh \
+  -o /opt/netlifecash/deploy.sh
+
+sudo chmod +x /opt/netlifecash/deploy.sh
+sudo bash /opt/netlifecash/deploy.sh --skip-android
