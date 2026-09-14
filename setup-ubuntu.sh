@@ -4,7 +4,7 @@
 #  Supports: Ubuntu 20.04, 22.04, 24.04 | Debian 11, 12
 #
 #  One-command install:
-#    curl -fsSL https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/setup-ubuntu.sh | sudo bash
+#    curl -fsSL https://raw.githubusercontent.com/hc172808/bank-connect-hub/main/setup-ubuntu.sh | sudo bash
 #  Or clone and run:
 #    chmod +x setup-ubuntu.sh && sudo ./setup-ubuntu.sh
 #
@@ -77,23 +77,12 @@ fi
 log "Verifying configuration…"
 echo ""
 
+# The application repository is public, so direct installs can use these
+# defaults without asking for a GitHub username, repository name, or password.
+GITHUB_USER="${GITHUB_USER:-hc172808}"
+GITHUB_REPO="${GITHUB_REPO:-bank-connect-hub}"
+
 # Prompt only for values still missing after .env sourcing
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  ask "GitHub username (lowercase):"
-  read -r GITHUB_USER
-fi
-
-if [[ -z "${GITHUB_REPO:-}" ]]; then
-  ask "GitHub repository name (lowercase):"
-  read -r GITHUB_REPO
-fi
-
-if [[ -z "${GITHUB_PAT:-}" ]]; then
-  ask "GitHub Personal Access Token (PAT) with 'read:packages' scope"
-  ask "  (create at https://github.com/settings/tokens):"
-  read -rs GITHUB_PAT; echo ""
-fi
-
 if [[ -z "${UPSTREAM_RPC:-}" ]]; then
   ask "Upstream Ethereum RPC URL (leave blank for BSC mainnet):"
   read -r UPSTREAM_RPC
@@ -224,11 +213,15 @@ else
 fi
 
 # =============================================================================
-# STEP 5 — GHCR authentication
+# STEP 5 — GHCR authentication (optional for the public image)
 # =============================================================================
-log "Authenticating with GitHub Container Registry…"
-echo "${GITHUB_PAT}" | docker login ghcr.io -u "${GITHUB_USER}" --password-stdin
-log "GHCR login saved ✓"
+if [[ -n "${GITHUB_PAT:-}" ]]; then
+  log "Authenticating with GitHub Container Registry using the optional token…"
+  echo "${GITHUB_PAT}" | docker login ghcr.io -u "${GITHUB_USER}" --password-stdin
+  log "GHCR login saved ✓"
+else
+  log "Using the public GHCR image; GitHub authentication is not required."
+fi
 
 # =============================================================================
 # STEP 6 — Kernel hardening (sysctl)
@@ -711,6 +704,7 @@ HOOKS
 cat > .env << ENV
 GITHUB_USER=${GITHUB_USER}
 GITHUB_REPO=${GITHUB_REPO}
+GITHUB_URL=https://github.com/hc172808/bank-connect-hub.git
 APP_PORT=${APP_PORT}
 UPSTREAM_RPC=${UPSTREAM_RPC}
 WEBHOOK_SECRET=${WEBHOOK_SECRET}

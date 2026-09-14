@@ -29,7 +29,8 @@
 #
 #  WHAT THIS INSTALLS (docker mode — --docker flag):
 #    Same as above except nginx is replaced by a Docker container.
-#    Requires GITHUB_USER, GITHUB_REPO, and GITHUB_PAT in .env.
+#    Uses the public image by default. Set GITHUB_PAT only if the GHCR
+#    package is private.
 #
 #  REQUIREMENTS COVERAGE (all 245 TODO.md features):
 #    Frontend        : Vite + React 18 + Tailwind + shadcn/ui
@@ -328,17 +329,10 @@ if [[ -z "${VITE_SUPABASE_PUBLISHABLE_KEY:-}" ]]; then
   ask "Supabase anon/public key:"; read -r VITE_SUPABASE_PUBLISHABLE_KEY
 fi
 
-# Required only for Docker mode
+# Docker mode uses the public GHCR image by default. A PAT is only needed
+# when the package has been made private.
 if $DOCKER_MODE; then
-  if [[ -z "${GITHUB_USER:-}" ]]; then
-    ask "GitHub username:"; read -r GITHUB_USER
-  fi
-  if [[ -z "${GITHUB_REPO:-}" ]]; then
-    ask "GitHub repository name:"; read -r GITHUB_REPO
-  fi
-  if [[ -z "${GITHUB_PAT:-}" ]]; then
-    ask "GitHub PAT (read:packages scope):"; read -rs GITHUB_PAT; echo ""
-  fi
+  :
 else
   # Source mode — need git repo URL if source not already here
   if ! $SOURCE_AVAILABLE; then
@@ -1084,9 +1078,13 @@ NODEEOF
   ok "Dependencies ready — the app itself is built last (STEP 13.9)"
 else
   section "STEP 10 — Docker image pull (--docker mode)"
-  log "Authenticating with GHCR…"
-  echo "${GITHUB_PAT}" | docker login ghcr.io -u "${GITHUB_USER}" --password-stdin
-  ok "GHCR authenticated"
+  if [[ -n "${GITHUB_PAT:-}" ]]; then
+    log "Authenticating with GHCR using the optional GitHub token…"
+    echo "${GITHUB_PAT}" | docker login ghcr.io -u "${GITHUB_USER}" --password-stdin
+    ok "GHCR authenticated"
+  else
+    log "Using the public GHCR image; GitHub authentication is not required."
+  fi
 fi
 
 # =============================================================================
