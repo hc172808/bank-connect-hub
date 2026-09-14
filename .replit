@@ -73,9 +73,5 @@ externalPort = 3001
 [userenv.shared]
 PORT = "3000"
 NODE_ENV = "development"
-VITE_SUPABASE_PROJECT_ID = "bfmcqoahifhthprztnor"
 VITE_SUPABASE_URL = "https://bfmcqoahifhthprztnor.supabase.co"
 VITE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Wu7L5AQlvtfPqQcEPGevFQ_zuu2kI-G"
-SESSION_SECRET = "FlOJo8h+/DAxO6tSy3crrifE1YcpJN19eJ144jquR7v2QXE6RHisKmg0Kh9lYYaafvzlO/EHKiMPFR9YsZSqFw=="
-SUPABASE_JWKS_URL = "https://bfmcqoahifhthprztnor.supabase.co/auth/v1/.well-known/jwks.json"
-SUPABASE_URL = "https://bfmcqoahifhthprztnor.supabase.co"
