@@ -161,6 +161,23 @@ if [[ -f "$ENV_FILE" ]]; then
   ok ".env loaded"
 fi
 
+# Accept the shorter names commonly used when Supabase credentials are stored
+# on an external server. Keep the VITE_ names as the canonical values because
+# Vite and the browser config endpoint use those names.
+VITE_SUPABASE_URL="${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}"
+VITE_SUPABASE_PUBLISHABLE_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}"
+VITE_SUPABASE_PROJECT_ID="${VITE_SUPABASE_PROJECT_ID:-${SUPABASE_PROJECT_ID:-}}"
+SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-${SUPABASE_SECRET_KEY:-}}"
+export VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY VITE_SUPABASE_PROJECT_ID
+export SUPABASE_SERVICE_ROLE_KEY
+
+# The production repository is explicit so a server does not accidentally
+# deploy the directory from which deploy.sh happened to be copied.
+GITHUB_USER="${GITHUB_USER:-hc172808}"
+GITHUB_REPO="${GITHUB_REPO:-bank-connect-hub}"
+GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
+GITHUB_URL="${GITHUB_URL:-https://github.com/${GITHUB_USER}/${GITHUB_REPO}.git}"
+
 # Production servers must not use Replit's internal package mirror. The
 # repository lockfile may contain mirror URLs from an install performed inside
 # Replit, so npm_ci_production temporarily normalizes those URLs while npm ci
@@ -173,11 +190,12 @@ npm_ci_production() {
   local install_status
 
   if [[ -f "$lockfile" ]] &&
-     grep -q 'http://package-firewall\.replit\.local/npm/' "$lockfile"; then
+     grep -Eq 'http://package-firewall\.replit\.(local|internal)/npm/' "$lockfile"; then
     lock_backup="$(mktemp)"
     cp "$lockfile" "$lock_backup"
     sed -i \
-      's#http://package-firewall\.replit\.local/npm/#https://registry.npmjs.org/#g' \
+      -e 's#http://package-firewall\.replit\.local/npm/#https://registry.npmjs.org/#g' \
+      -e 's#http://package-firewall\.replit\.internal/npm/#https://registry.npmjs.org/#g' \
       "$lockfile"
   fi
 
@@ -219,6 +237,10 @@ section "STEP 1 — Configuration"
 
 # ── Database backend choice ───────────────────────────────────────────────────
 DB_MODE="${DB_MODE:-${DATABASE_MODE:-}}"
+case "$DB_MODE" in
+  remote|remote-postgres) DB_MODE="remote-dsn" ;;
+  replit|cloud)           DB_MODE="cloud" ;;
+esac
 if [[ -z "$DB_MODE" ]]; then
   echo ""
   echo -e "${CYN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -852,29 +874,36 @@ section "STEP 9 — Application Source"
 
 APP_DIR="/opt/netlifecash"
 
-if $SOURCE_AVAILABLE; then
-  # Running from inside the repo — copy to APP_DIR if different
-  if [[ "$SCRIPT_DIR" != "$APP_DIR" ]]; then
-    log "Copying source from ${SCRIPT_DIR} to ${APP_DIR}…"
-    rsync -a --exclude='.git' --exclude='node_modules' --exclude='dist' \
-      "${SCRIPT_DIR}/" "${APP_DIR}/"
-  else
-    log "Running from ${APP_DIR} — no copy needed"
-  fi
-elif $DOCKER_MODE; then
+if $DOCKER_MODE; then
   # Docker mode — source not needed for nginx, just create app dir for config files
   mkdir -p "$APP_DIR"
 else
-  # Source mode — clone from GitHub
+  # Source mode always refreshes the deployment checkout from GitHub. A
+  # fast-forward-only update preserves local .env and generated data while
+  # refusing to deploy a stale or diverged checkout.
   if [[ -d "${APP_DIR}/.git" ]]; then
     log "Updating existing repo in ${APP_DIR}…"
     cd "$APP_DIR"
-    git pull origin "${GITHUB_BRANCH:-main}"
+    git fetch --prune origin
+    git checkout "${GITHUB_BRANCH}"
+    git pull --ff-only origin "${GITHUB_BRANCH}" \
+      || err "Cannot fast-forward ${APP_DIR}; resolve local changes before deploying."
+  elif $SOURCE_AVAILABLE && [[ -d "${SCRIPT_DIR}/.git" ]]; then
+    log "Updating source checkout from ${GITHUB_URL}…"
+    git -C "$SCRIPT_DIR" remote set-url origin "$GITHUB_URL"
+    git -C "$SCRIPT_DIR" fetch --prune origin
+    git -C "$SCRIPT_DIR" checkout "${GITHUB_BRANCH}"
+    git -C "$SCRIPT_DIR" pull --ff-only origin "${GITHUB_BRANCH}" \
+      || err "Cannot fast-forward ${SCRIPT_DIR}; resolve local changes before deploying."
+    mkdir -p "$APP_DIR"
+    log "Copying the updated source to ${APP_DIR}…"
+    rsync -a \
+      --exclude='.git' --exclude='.env' --exclude='node_modules' --exclude='dist' \
+      "${SCRIPT_DIR}/" "${APP_DIR}/"
   else
-    log "Cloning ${GITHUB_USER}/${GITHUB_REPO}…"
-    git clone "https://github.com/${GITHUB_USER}/${GITHUB_REPO}.git" "$APP_DIR"
+    log "Cloning ${GITHUB_URL}…"
+    git clone --branch "${GITHUB_BRANCH}" "${GITHUB_URL}" "$APP_DIR"
     cd "$APP_DIR"
-    git checkout "${GITHUB_BRANCH:-main}"
   fi
 fi
 cd "$APP_DIR"
@@ -954,6 +983,7 @@ VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
 VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}
 VITE_SUPABASE_PROJECT_ID=${VITE_SUPABASE_PROJECT_ID:-}
 VITE_WHATSAPP_SUPPORT_NUMBER=${VITE_WHATSAPP_SUPPORT_NUMBER:-}
+SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
 
 # ── Database ──────────────────────────────────────────────────────────────────
 DB_MODE=${DB_MODE:-cloud}

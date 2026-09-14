@@ -55,7 +55,8 @@ export const useAuth = () => {
       .from('user_roles')
       .select('role')
       .eq('user_id', userId)
-      .single();
+      .limit(1)
+      .maybeSingle();
     if (!error && data?.role) {
       return data.role as UserRole;
     }
@@ -65,7 +66,12 @@ export const useAuth = () => {
     if (metaFallback && validRoles.includes(metaFallback as UserRole)) {
       return metaFallback as UserRole;
     }
-    return null;
+    // A user can authenticate successfully before the profile/role trigger has
+    // been applied to the Supabase project, especially for accounts created
+    // before deployment. Treat such users as clients only. This avoids
+    // blocking the account while ensuring missing data can never grant admin,
+    // agent, or vendor access.
+    return 'client';
   };
 
   const stopDeviceCheck = useCallback(() => {

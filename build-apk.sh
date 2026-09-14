@@ -224,8 +224,8 @@ echo ""
 # FIX: write a static env-config.js into dist/ BEFORE cap sync so the file
 #   is packaged into the APK assets and loaded correctly on every device.
 echo "=== Injecting env-config.js into dist/ (fixes blank APK) ==="
-_SUP_URL="${VITE_SUPABASE_URL:-}"
-_SUP_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-}"
+_SUP_URL="${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}"
+_SUP_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}"
 _SUP_PID="${VITE_SUPABASE_PROJECT_ID:-}"
 _WA_NUM="${VITE_WHATSAPP_SUPPORT_NUMBER:-}"
 

@@ -56,7 +56,11 @@ app.use((req, res, next) => {
 // after the project is switched in Replit Secrets.
 function getSupabaseUrl() {
   const projectId = (process.env.VITE_SUPABASE_PROJECT_ID || "").trim();
-  const configuredUrl = (process.env.VITE_SUPABASE_URL || "").trim();
+  const configuredUrl = (
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    ""
+  ).trim();
   const requestedProjectUrl = "https://ocngdgwelxaiyzdywjld.supabase.co";
   const legacyProjectRef = "pdsjwvcxolifgvwjvtwy";
 
@@ -131,7 +135,11 @@ function headerSafe(value, label) {
 app.get("/api/config", (_req, res) => {
   res.json({
     supabaseUrl: headerSafe(getSupabaseUrl(), "VITE_SUPABASE_URL"),
-    supabaseAnonKey: headerSafe(process.env.VITE_SUPABASE_PUBLISHABLE_KEY, "VITE_SUPABASE_PUBLISHABLE_KEY"),
+    supabaseAnonKey: headerSafe(
+      process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+        process.env.SUPABASE_PUBLISHABLE_KEY,
+      "VITE_SUPABASE_PUBLISHABLE_KEY"
+    ),
     whatsappNumber: headerSafe(process.env.VITE_WHATSAPP_SUPPORT_NUMBER, "VITE_WHATSAPP_SUPPORT_NUMBER"),
   });
 });

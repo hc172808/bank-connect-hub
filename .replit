@@ -73,5 +73,3 @@ externalPort = 3001
 [userenv.shared]
 PORT = "3000"
 NODE_ENV = "development"
-VITE_SUPABASE_URL = "https://bfmcqoahifhthprztnor.supabase.co"
-VITE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Wu7L5AQlvtfPqQcEPGevFQ_zuu2kI-G"

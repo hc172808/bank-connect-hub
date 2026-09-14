@@ -22,8 +22,27 @@ function sanitizeCredential(value: string | undefined | null): string {
   return cleaned;
 }
 
-const ENV_URL = sanitizeCredential(import.meta.env.VITE_SUPABASE_URL as string | undefined);
-const ENV_KEY = sanitizeCredential(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined);
+type RuntimeEnv = {
+  VITE_SUPABASE_URL?: string;
+  VITE_SUPABASE_PUBLISHABLE_KEY?: string;
+};
+
+const runtimeEnv =
+  typeof window !== 'undefined'
+    ? (window as Window & { __ENV__?: RuntimeEnv }).__ENV__
+    : undefined;
+
+// Runtime env-config.js is used by Docker/nginx and bundled APKs. The Vite
+// values remain the fallback for local development and builds where that file
+// is intentionally absent.
+const ENV_URL = sanitizeCredential(
+  runtimeEnv?.VITE_SUPABASE_URL ||
+    (import.meta.env.VITE_SUPABASE_URL as string | undefined)
+);
+const ENV_KEY = sanitizeCredential(
+  runtimeEnv?.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)
+);
 
 let _supabaseUrl = ENV_URL || '';
 let _supabaseAnonKey = ENV_KEY || '';
