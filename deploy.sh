@@ -172,12 +172,12 @@ SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-${SUPABASE_SECRET_KEY:-}
 export VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY VITE_SUPABASE_PROJECT_ID
 export SUPABASE_SERVICE_ROLE_KEY
 
-# The production repository is explicit so a server does not accidentally
-# deploy the directory from which deploy.sh happened to be copied.
-GITHUB_USER="${GITHUB_USER:-hc172808}"
-GITHUB_REPO="${GITHUB_REPO:-bank-connect-hub}"
+# The production repository is fixed so an old server .env or Git remote
+# cannot redirect deployment to a placeholder or stale project.
+GITHUB_USER="hc172808"
+GITHUB_REPO="bank-connect-hub"
 GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
-GITHUB_URL="${GITHUB_URL:-https://github.com/${GITHUB_USER}/${GITHUB_REPO}.git}"
+GITHUB_URL="https://github.com/hc172808/bank-connect-hub.git"
 
 # Production servers must not use Replit's internal package mirror. The
 # repository lockfile may contain mirror URLs from an install performed inside
@@ -878,6 +878,12 @@ else
   if [[ -d "${APP_DIR}/.git" ]]; then
     log "Updating existing repo in ${APP_DIR}…"
     cd "$APP_DIR"
+    if git remote get-url origin &>/dev/null; then
+      git remote set-url origin "$GITHUB_URL"
+    else
+      git remote add origin "$GITHUB_URL"
+    fi
+    log "Git remote set to ${GITHUB_URL}"
     git fetch --prune origin
     git checkout "${GITHUB_BRANCH}"
     git pull --ff-only origin "${GITHUB_BRANCH}" \
