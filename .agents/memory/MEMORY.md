@@ -12,3 +12,4 @@
 - [WhatsApp verification workflow](whatsapp-verification.md) — click-to-chat requests are database-backed and admin-reviewed
 - [Dependency recovery](dependency-recovery.md) — package-manager installs can refresh caret ranges; preserve manifests when restoring missing node_modules
 - [Nginx runtime config](nginx-runtime-config.md) — generate JavaScript separately; never interpolate dotenv values into nginx directives
+- [Supabase schema rollout](supabase-schema-rollout.md) — app builds do not apply Supabase migrations; remote schema and storage policies need an explicit rollout

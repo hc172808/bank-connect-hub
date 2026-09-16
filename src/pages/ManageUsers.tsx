@@ -6,8 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2 } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { CountryPhoneInput } from "@/components/CountryPhoneInput";
+import { useAuth } from "@/hooks/useAuth";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -31,8 +33,12 @@ const ManageUsers = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
+  const [newUser, setNewUser] = useState({ fullName: "", phone: "", password: "" });
+  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { role: staffRole } = useAuth();
+  const staffHome = staffRole === "agent" ? "/agent" : "/admin";
 
   useEffect(() => {
     fetchUsers();
@@ -166,11 +172,40 @@ const ManageUsers = () => {
     fetchUsers();
   };
 
+  const createUser = async () => {
+    if (!newUser.fullName.trim() || !newUser.phone || newUser.password.length < 8) {
+      toast({ title: "Complete all fields", description: "Use a name, a valid phone number, and a password of at least 8 characters.", variant: "destructive" });
+      return;
+    }
+    setCreating(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
+      const response = await fetch("/api/auth/create-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(newUser),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "User could not be created.");
+      toast({ title: "User added", description: "The account was manually verified for the missing-code case. KYC is still required before financial features." });
+      setNewUser({ fullName: "", phone: "", password: "" });
+      void fetchUsers();
+    } catch (error) {
+      toast({ title: "Could not add user", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-primary p-6">
         <div className="flex items-center gap-4">
-          <Button onClick={() => navigate("/admin")} variant="secondary" size="icon">
+          <Button onClick={() => navigate(staffHome)} variant="secondary" size="icon">
             <ArrowLeft size={20} />
           </Button>
           <h1 className="text-2xl font-bold text-foreground">Manage Users</h1>
@@ -178,6 +213,19 @@ const ManageUsers = () => {
       </header>
 
       <main className="p-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><UserPlus className="h-5 w-5" /> Add a user manually</CardTitle>
+            <p className="text-sm text-muted-foreground">Use this when the user cannot receive the WhatsApp code. This creates a client account and marks phone verification as staff-approved; KYC is still required.</p>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <input className="h-10 rounded-md border bg-background px-3 text-sm" placeholder="Full name" value={newUser.fullName} onChange={(e) => setNewUser({ ...newUser, fullName: e.target.value })} />
+            <CountryPhoneInput value={newUser.phone} onChange={(phone) => setNewUser({ ...newUser, phone })} />
+            <input className="h-10 rounded-md border bg-background px-3 text-sm" type="password" placeholder="Temporary password (8+ characters)" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} />
+            <Button onClick={() => void createUser()} disabled={creating} className="gap-2">{creating ? "Adding user…" : <><UserPlus size={16} /> Add user</>}</Button>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">

@@ -1,6 +1,6 @@
--- WhatsApp account-verification requests and administrator instructions.
+-- WhatsApp account-verification requests and staff instructions.
 -- The WhatsApp number and instructions remain public app settings; verification
--- requests are visible only to their owner and administrators.
+-- requests are visible only to their owner and authorized staff.
 
 CREATE TABLE IF NOT EXISTS public.whatsapp_verification_requests (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -32,7 +32,7 @@ DROP POLICY IF EXISTS "Users can view their WhatsApp requests"
   ON public.whatsapp_verification_requests;
 CREATE POLICY "Users can view their WhatsApp requests"
   ON public.whatsapp_verification_requests FOR SELECT
-  USING (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin'));
+  USING (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'agent'));
 
 DROP POLICY IF EXISTS "Users can create their WhatsApp requests"
   ON public.whatsapp_verification_requests;
@@ -42,16 +42,16 @@ CREATE POLICY "Users can create their WhatsApp requests"
 
 DROP POLICY IF EXISTS "Admins can manage WhatsApp requests"
   ON public.whatsapp_verification_requests;
-CREATE POLICY "Admins can manage WhatsApp requests"
+CREATE POLICY "Staff can manage WhatsApp requests"
   ON public.whatsapp_verification_requests FOR UPDATE
-  USING (public.has_role(auth.uid(), 'admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'admin'));
+  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'agent'))
+  WITH CHECK (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'agent'));
 
 DROP POLICY IF EXISTS "Admins can delete WhatsApp requests"
   ON public.whatsapp_verification_requests;
-CREATE POLICY "Admins can delete WhatsApp requests"
+CREATE POLICY "Staff can delete WhatsApp requests"
   ON public.whatsapp_verification_requests FOR DELETE
-  USING (public.has_role(auth.uid(), 'admin'));
+  USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'agent'));
 
 INSERT INTO public.app_settings (key, value)
 VALUES

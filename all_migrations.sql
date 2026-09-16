@@ -1493,13 +1493,15 @@ CREATE TABLE public.kyc_submissions (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE public.kyc_submissions
+  ADD COLUMN IF NOT EXISTS proof_of_address_url text;
 GRANT SELECT, INSERT, UPDATE ON public.kyc_submissions TO authenticated;
 GRANT ALL ON public.kyc_submissions TO service_role;
 ALTER TABLE public.kyc_submissions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users view their own KYC" ON public.kyc_submissions FOR SELECT USING (auth.uid() = user_id OR has_role(auth.uid(), 'admin'::app_role));
+CREATE POLICY "Users view their own KYC" ON public.kyc_submissions FOR SELECT USING (auth.uid() = user_id OR has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'agent'::app_role));
 CREATE POLICY "Users create their own KYC" ON public.kyc_submissions FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users update their own pending KYC" ON public.kyc_submissions FOR UPDATE USING (auth.uid() = user_id AND status = 'pending');
-CREATE POLICY "Admins update any KYC" ON public.kyc_submissions FOR UPDATE USING (has_role(auth.uid(), 'admin'::app_role));
+CREATE POLICY "Staff update any KYC" ON public.kyc_submissions FOR UPDATE USING (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'agent'::app_role));
 
 -- Suspicious Activity Alerts
 CREATE TABLE public.suspicious_activity_alerts (
@@ -1597,9 +1599,9 @@ ON CONFLICT (id) DO NOTHING;
 CREATE POLICY "Users upload their own KYC docs" ON storage.objects FOR INSERT
   WITH CHECK (bucket_id = 'kyc-documents' AND auth.uid()::text = (storage.foldername(name))[1]);
 CREATE POLICY "Users view their own KYC docs" ON storage.objects FOR SELECT
-  USING (bucket_id = 'kyc-documents' AND (auth.uid()::text = (storage.foldername(name))[1] OR has_role(auth.uid(), 'admin'::app_role)));
+  USING (bucket_id = 'kyc-documents' AND (auth.uid()::text = (storage.foldername(name))[1] OR has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'agent'::app_role)));
 CREATE POLICY "Admins manage KYC docs" ON storage.objects FOR ALL
-  USING (bucket_id = 'kyc-documents' AND has_role(auth.uid(), 'admin'::app_role));
+  USING (bucket_id = 'kyc-documents' AND (has_role(auth.uid(), 'admin'::app_role) OR has_role(auth.uid(), 'agent'::app_role)));
 
 -- Updated_at triggers
 CREATE TRIGGER trg_2fa_updated_at BEFORE UPDATE ON public.two_factor_auth FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

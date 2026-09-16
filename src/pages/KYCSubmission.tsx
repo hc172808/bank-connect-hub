@@ -31,6 +31,8 @@ const KYCSubmission = () => {
     document_number: "",
   });
   const [frontFile, setFrontFile] = useState<File | null>(null);
+  const [backFile, setBackFile] = useState<File | null>(null);
+  const [proofOfAddressFile, setProofOfAddressFile] = useState<File | null>(null);
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
 
   useEffect(() => {
@@ -59,20 +61,32 @@ const KYCSubmission = () => {
   };
 
   const submit = async () => {
-    if (!frontFile || !selfieFile) {
-      toast.error("Please upload document and selfie");
+    if (!frontFile || !backFile || !proofOfAddressFile || !selfieFile) {
+      toast.error("Upload ID front, ID back, proof of address, and a selfie");
+      return;
+    }
+    const files = [frontFile, backFile, proofOfAddressFile, selfieFile];
+    const oversized = files.find((file) => file.size > 10 * 1024 * 1024);
+    if (oversized) {
+      toast.error("Each uploaded file must be 10 MB or smaller");
       return;
     }
     setSubmitting(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const doc = await uploadFile(frontFile, user.id, "doc");
-      const selfie = await uploadFile(selfieFile, user.id, "selfie");
+      const [doc, docBack, proofOfAddress, selfie] = await Promise.all([
+        uploadFile(frontFile, user.id, "id-front"),
+        uploadFile(backFile, user.id, "id-back"),
+        uploadFile(proofOfAddressFile, user.id, "proof-of-address"),
+        uploadFile(selfieFile, user.id, "selfie"),
+      ]);
       const { error } = await supabase.from("kyc_submissions" as never).insert({
         user_id: user.id,
         ...form,
         document_front_url: doc,
+        document_back_url: docBack,
+        proof_of_address_url: proofOfAddress,
         selfie_url: selfie,
       } as never);
       if (error) throw error;
@@ -156,8 +170,10 @@ const KYCSubmission = () => {
                 </select>
               </div>
               <div><Label>Document Number</Label><Input value={form.document_number} onChange={(e) => setForm({ ...form, document_number: e.target.value })} /></div>
-              <div><Label>Document Photo</Label><Input type="file" accept="image/*" onChange={(e) => setFrontFile(e.target.files?.[0] || null)} /></div>
-              <div><Label>Selfie</Label><Input type="file" accept="image/*" onChange={(e) => setSelfieFile(e.target.files?.[0] || null)} /></div>
+              <div><Label>ID Card — Front</Label><Input type="file" accept="image/*,.pdf" onChange={(e) => setFrontFile(e.target.files?.[0] || null)} /></div>
+              <div><Label>ID Card — Back</Label><Input type="file" accept="image/*,.pdf" onChange={(e) => setBackFile(e.target.files?.[0] || null)} /></div>
+              <div><Label>Proof of Address</Label><Input type="file" accept="image/*,.pdf" onChange={(e) => setProofOfAddressFile(e.target.files?.[0] || null)} /></div>
+              <div><Label>Selfie Photo</Label><Input type="file" accept="image/*" onChange={(e) => setSelfieFile(e.target.files?.[0] || null)} /></div>
               <Button onClick={submit} disabled={submitting} className="w-full">
                 {submitting ? "Submitting..." : "Submit for Review"}
               </Button>

@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
@@ -400,7 +400,34 @@ const AppRoutes = () => {
   useAutoPushSubscribe(user?.id);
   const { locked, unlock } = useAppLock();
   const navigate = useNavigate();
+  const location = useLocation();
   const { setNavigate: setAlertNavigate } = useNewReleaseAlert(user?.id);
+  const requiresKyc = role === "client" || role === "vendor";
+  const [kycStatus, setKycStatus] = useState<string | null>(null);
+  const [kycChecking, setKycChecking] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    if (!user || !requiresKyc) {
+      setKycStatus(null);
+      setKycChecking(false);
+      return () => { active = false; };
+    }
+
+    setKycChecking(true);
+    void supabase
+      .from("profiles")
+      .select("kyc_status")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return;
+        setKycStatus(error ? "unverified" : String((data as { kyc_status?: string } | null)?.kyc_status || "unverified"));
+        setKycChecking(false);
+      });
+
+    return () => { active = false; };
+  }, [user?.id, requiresKyc]);
 
   // Give the release alert hook access to navigate
   useEffect(() => { setAlertNavigate((path) => navigate(path)); }, [navigate]);
@@ -429,6 +456,25 @@ const AppRoutes = () => {
       </Routes>
 
     );
+  }
+
+  const kycAllowedPaths = [
+    "/kyc",
+    "/profile",
+    "/security",
+    "/notifications",
+    "/menu",
+    "/support",
+    "/feedback",
+    "/change-password",
+    "/verify-whatsapp",
+    "/whatsapp-guide",
+    "/whats-new",
+  ];
+  const kycApproved = kycStatus === "verified" || kycStatus === "approved";
+  if (requiresKyc && kycChecking && location.pathname !== "/kyc") return <FullScreenLoader />;
+  if (requiresKyc && !kycChecking && !kycApproved && !kycAllowedPaths.includes(location.pathname)) {
+    return <Navigate to="/kyc" replace />;
   }
 
   if (role === "client") {
@@ -551,6 +597,9 @@ const AppRoutes = () => {
         <Route path="/agent-deposit" element={<AgentDeposit />} />
         <Route path="/agent-cash-withdrawal" element={<AgentCashWithdrawal />} />
         <Route path="/print-qr" element={<AdminPrintQRCodes />} />
+        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><ManageUsers /></ProtectedRoute>} />
+        <Route path="/admin/whatsapp-verification" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminWhatsAppVerification /></ProtectedRoute>} />
+        <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminKYCReview /></ProtectedRoute>} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
@@ -578,11 +627,11 @@ const AppRoutes = () => {
       <RoleGuard allow={["admin"]}>
       <Routes>
         <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin"]}><ManageUsers /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><ManageUsers /></ProtectedRoute>} />
         <Route path="/admin/agents" element={<ProtectedRoute allowedRoles={["admin"]}><ManageAgents /></ProtectedRoute>} />
         <Route path="/admin/vendors" element={<ProtectedRoute allowedRoles={["admin"]}><ManageVendors /></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={["admin"]}><SystemSettings /></ProtectedRoute>} />
-        <Route path="/admin/whatsapp-verification" element={<ProtectedRoute allowedRoles={["admin"]}><AdminWhatsAppVerification /></ProtectedRoute>} />
+        <Route path="/admin/whatsapp-verification" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminWhatsAppVerification /></ProtectedRoute>} />
         <Route path="/whatsapp-guide" element={<WhatsAppGuide />} />
         <Route path="/admin/database" element={<ProtectedRoute allowedRoles={["admin"]}><DatabaseManagement /></ProtectedRoute>} />
         <Route path="/admin/transactions" element={<ProtectedRoute allowedRoles={["admin"]}><TransactionReports /></ProtectedRoute>} />
@@ -612,7 +661,7 @@ const AppRoutes = () => {
         <Route path="/admin/app-manager" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppManager /></ProtectedRoute>} />
         <Route path="/admin/boot-errors" element={<ProtectedRoute allowedRoles={["admin"]}><AdminBootErrors /></ProtectedRoute>} />
         <Route path="/admin/audit-logs" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAuditLogs /></ProtectedRoute>} />
-        <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={["admin"]}><AdminKYCReview /></ProtectedRoute>} />
+        <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminKYCReview /></ProtectedRoute>} />
         <Route path="/admin/alerts" element={<ProtectedRoute allowedRoles={["admin"]}><AdminSuspiciousAlerts /></ProtectedRoute>} />
         <Route path="/admin/announcements" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAnnouncements /></ProtectedRoute>} />
         <Route path="/admin/countries" element={<ProtectedRoute allowedRoles={["admin"]}><AdminCountries /></ProtectedRoute>} />

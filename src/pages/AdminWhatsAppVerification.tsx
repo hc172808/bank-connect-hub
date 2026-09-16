@@ -15,7 +15,7 @@ import { fetchWhatsAppSettings, type WhatsAppSettings, type WhatsAppVerification
 
 const AdminWhatsAppVerification = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const { toast } = useToast();
   const [settings, setSettings] = useState<WhatsAppSettings>({
     enabled: true,
@@ -87,8 +87,8 @@ const AdminWhatsAppVerification = () => {
   return (
     <div className="min-h-screen bg-background p-4 pb-20">
       <div className="max-w-4xl mx-auto">
-        <Button variant="ghost" onClick={() => navigate("/admin")} className="mb-4">
-          <ArrowLeft size={20} className="mr-2" /> Admin Dashboard
+          <Button variant="ghost" onClick={() => navigate(role === "agent" ? "/agent" : "/admin")} className="mb-4">
+           <ArrowLeft size={20} className="mr-2" /> Staff Dashboard
         </Button>
         <div className="flex items-start justify-between gap-3 mb-6">
           <div>

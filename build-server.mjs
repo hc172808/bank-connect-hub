@@ -1040,6 +1040,100 @@ app.post("/api/auth/ensure-admin", async (req, res) => {
   }
 });
 
+// POST /api/auth/create-user — staff-assisted account creation when a user
+// cannot receive the WhatsApp verification code. The service-role key stays
+// on this server; the browser only sends the authenticated staff session.
+app.post("/api/auth/create-user", async (req, res) => {
+  const authorization = String(req.headers.authorization || "");
+  const accessToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (!accessToken) return res.status(401).json({ error: "Staff sign-in required." });
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured on this server." });
+
+  const { fullName, phone, password } = req.body || {};
+  const digits = String(phone || "").replace(/\D/g, "");
+  const e164 = String(phone || "").trim().startsWith("+")
+    ? String(phone).trim()
+    : `+${digits}`;
+  if (!fullName || !digits || !password) {
+    return res.status(400).json({ error: "Full name, phone number, and password are required." });
+  }
+  if (digits.length < 7) return res.status(400).json({ error: "Enter a valid phone number." });
+  if (String(password).length < 8) return res.status(400).json({ error: "Password must be at least 8 characters." });
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const admin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
+    });
+
+    const { data: actorResult, error: actorError } = await admin.auth.getUser(accessToken);
+    if (actorError || !actorResult?.user) return res.status(401).json({ error: "Staff session is invalid or expired." });
+
+    let actorRole = actorResult.user.user_metadata?.account_type || actorResult.user.user_metadata?.role;
+    const { data: roleRow } = await admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", actorResult.user.id)
+      .limit(1)
+      .maybeSingle();
+    if (roleRow?.role) actorRole = roleRow.role;
+    if (actorRole !== "admin" && actorRole !== "agent") {
+      return res.status(403).json({ error: "Only an admin or agent can add users." });
+    }
+
+    const email = `${digits}@vbank.com`;
+    const { data: usersResult, error: listError } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    if (listError) throw new Error(listError.message);
+    const existing = usersResult.users.find((candidate) => candidate.email === email);
+    if (existing) return res.status(409).json({ error: "An account already exists for this phone number." });
+
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email,
+      password: String(password),
+      email_confirm: true,
+      user_metadata: {
+        full_name: String(fullName).trim(),
+        phone_number: e164,
+        role: "client",
+        account_type: "client",
+        phone_verified: true,
+        verification_method: "staff_manual",
+      },
+    });
+    if (createError || !created.user) throw new Error(createError?.message || "User could not be created.");
+
+    // Triggers normally create these rows. These upserts make staff-created
+    // accounts usable on projects where the trigger was not applied.
+    await admin.from("profiles").upsert({
+      id: created.user.id,
+      full_name: String(fullName).trim(),
+      phone_number: e164,
+      kyc_status: "unverified",
+    });
+    await admin.from("user_roles").upsert(
+      { user_id: created.user.id, role: "client" },
+      { onConflict: "user_id,role" },
+    );
+    await admin.from("whatsapp_verification_requests").insert({
+      user_id: created.user.id,
+      phone_number: e164,
+      verification_code: "MANUAL",
+      status: "verified",
+      admin_notes: `Manually verified by ${actorRole}.`,
+      verified_at: new Date().toISOString(),
+      verified_by: actorResult.user.id,
+    });
+
+    res.json({ ok: true, userId: created.user.id, email, verification: "manual" });
+  } catch (err) {
+    console.error("[create-user]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/auth/pending-resets — list pending OTP reset requests (in-memory)
 app.get("/api/auth/pending-resets", (_req, res) => {
   const now = Date.now();
