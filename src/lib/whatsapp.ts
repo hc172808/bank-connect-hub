@@ -13,13 +13,15 @@ const STORAGE_KEY = "vb.whatsappVerification";
 
 export interface WhatsAppSettings {
   enabled: boolean;
+  loginEnabled: boolean;
   supportNumber: string;
   businessName: string;
   instructions: string;
 }
 
 const DEFAULT_SETTINGS: WhatsAppSettings = {
-  enabled: true,
+  enabled: false,
+  loginEnabled: false,
   supportNumber: "",
   businessName: "NETLIFE CASH Support",
   instructions: "Send the pre-filled message exactly as shown. Never share your password, PIN, or one-time code with anyone outside the official support chat.",
@@ -40,6 +42,7 @@ export const fetchWhatsAppSettings = async (): Promise<WhatsAppSettings> => {
       .select("key, value")
       .in("key", [
         "whatsapp_verification_enabled",
+        "whatsapp_login_verification_enabled",
         "whatsapp_support_number",
         "whatsapp_business_name",
         "whatsapp_verification_instructions",
@@ -47,6 +50,7 @@ export const fetchWhatsAppSettings = async (): Promise<WhatsAppSettings> => {
     if (!error) {
       for (const row of (data || []) as Array<{ key: string; value: unknown }>) {
         if (row.key === "whatsapp_verification_enabled") settings.enabled = readSetting(row.value, "true") !== "false";
+        if (row.key === "whatsapp_login_verification_enabled") settings.loginEnabled = readSetting(row.value, "false") === "true";
         if (row.key === "whatsapp_support_number") settings.supportNumber = readSetting(row.value, "");
         if (row.key === "whatsapp_business_name") settings.businessName = readSetting(row.value, settings.businessName);
         if (row.key === "whatsapp_verification_instructions") settings.instructions = readSetting(row.value, settings.instructions);

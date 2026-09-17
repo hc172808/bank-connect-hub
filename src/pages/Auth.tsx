@@ -21,6 +21,17 @@ type AccountType = "client" | "vendor";
 type LoginStep = "credentials" | "otp";
 
 const phoneToEmail = (e164: string) => `${e164.replace("+", "")}@vbank.com`;
+const phoneEmailCandidates = (value: string) => {
+  const raw = value.replace(/\D/g, "");
+  const normalized = raw.length === 7 ? `592${raw}` : raw;
+  return [...new Set([
+    `${normalized}@vbank.com`,
+    `${raw}@vbank.com`,
+    `${raw.replace(/^592/, "")}@vbank.com`,
+    `${normalized}@virtualbank.app`,
+    `${raw}@virtualbank.app`,
+  ].filter((email) => !email.startsWith("@")))];
+};
 
 const Auth = () => {
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -187,7 +198,23 @@ const Auth = () => {
           return;
         }
 
-        await requestLoginOtp(phoneNumber, password);
+        const whatsappSettings = await fetchWhatsAppSettings();
+        if (!whatsappSettings.loginEnabled) {
+          let lastError: { message?: string } | null = null;
+          let signedIn = false;
+          for (const email of phoneEmailCandidates(phoneNumber)) {
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            if (!error && data.session) {
+              signedIn = true;
+              break;
+            }
+            lastError = error;
+          }
+          if (!signedIn) throw new Error(lastError?.message || "Invalid phone number or password.");
+          toast({ title: "Welcome back!", description: "WhatsApp login verification is currently disabled." });
+        } else {
+          await requestLoginOtp(phoneNumber, password);
+        }
         return;
       }
     } catch (error: any) {

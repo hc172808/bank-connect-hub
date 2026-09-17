@@ -19,6 +19,7 @@ const AdminWhatsAppVerification = () => {
   const { toast } = useToast();
   const [settings, setSettings] = useState<WhatsAppSettings>({
     enabled: true,
+    loginEnabled: false,
     supportNumber: "",
     businessName: "NETLIFE CASH Support",
     instructions: "",
@@ -52,6 +53,7 @@ const AdminWhatsAppVerification = () => {
     setSaving(true);
     const rows = [
       { key: "whatsapp_verification_enabled", value: settings.enabled },
+      { key: "whatsapp_login_verification_enabled", value: settings.loginEnabled },
       { key: "whatsapp_support_number", value: settings.supportNumber.trim() },
       { key: "whatsapp_business_name", value: settings.businessName.trim() },
       { key: "whatsapp_verification_instructions", value: settings.instructions.trim() },
@@ -107,6 +109,13 @@ const AdminWhatsAppVerification = () => {
             <div className="flex items-center justify-between rounded-lg border p-3">
               <div><p className="font-medium">Allow WhatsApp verification</p><p className="text-xs text-muted-foreground">Turn this off temporarily if support is unavailable.</p></div>
               <Switch checked={settings.enabled} onCheckedChange={(enabled) => setSettings((current) => ({ ...current, enabled }))} />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+              <div>
+                <p className="font-medium">Require WhatsApp code at login</p>
+                <p className="text-xs text-muted-foreground">Off by default so users can sign in while WhatsApp delivery is unavailable.</p>
+              </div>
+              <Switch checked={settings.loginEnabled} onCheckedChange={(loginEnabled) => setSettings((current) => ({ ...current, loginEnabled }))} />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2"><Label>Official WhatsApp number</Label><Input value={settings.supportNumber} onChange={(e) => setSettings((current) => ({ ...current, supportNumber: e.target.value }))} placeholder="+5926000000" data-testid="input-admin-whatsapp-number" /></div>
