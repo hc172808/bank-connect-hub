@@ -36,9 +36,16 @@ const BankReserve = () => {
   const [recipient, setRecipient] = useState("");
   const [distributionAmount, setDistributionAmount] = useState("");
   const [distributionNotes, setDistributionNotes] = useState("");
+  const [internalFundsEnabled, setInternalFundsEnabled] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
+    const { data: fundsToggle } = await supabase
+      .from("feature_toggles")
+      .select("is_enabled")
+      .eq("feature_key", "internal_funds")
+      .maybeSingle();
+    setInternalFundsEnabled(Boolean(fundsToggle?.is_enabled));
     if (isStaff) {
       const [snapshotResult, rolesResult, ledgerResult] = await Promise.all([
         (supabase as any).rpc("get_bank_reserve_snapshot"),
@@ -197,12 +204,16 @@ const BankReserve = () => {
             <CardContent>
               <p className="text-4xl font-bold mb-1">${myBalance.toFixed(2)}</p>
               <p className="text-sm text-muted-foreground mb-6">You can distribute only funds allocated to your agent wallet.</p>
-              <form className="space-y-4 max-w-xl" onSubmit={distributeFunds}>
+              {!internalFundsEnabled ? (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+                  Internal funds are disabled by an administrator. Agent distributions are unavailable.
+                </div>
+              ) : <form className="space-y-4 max-w-xl" onSubmit={distributeFunds}>
                 <div><Label>Recipient</Label><Select value={recipient} onValueChange={setRecipient}><SelectTrigger><SelectValue placeholder="Choose a client or vendor" /></SelectTrigger><SelectContent>{recipients.map(person => <SelectItem value={person.id} key={person.id}>{person.full_name || person.phone_number || person.id.slice(0, 8)}</SelectItem>)}</SelectContent></Select></div>
                 <div><Label htmlFor="distribution-amount">Amount</Label><Input id="distribution-amount" type="number" min="0.01" step="0.01" value={distributionAmount} onChange={e => setDistributionAmount(e.target.value)} required /></div>
                 <div><Label htmlFor="distribution-notes">Reference (optional)</Label><Textarea id="distribution-notes" value={distributionNotes} onChange={e => setDistributionNotes(e.target.value)} placeholder="Distribution reference" /></div>
                 <Button type="submit" disabled={saving || !recipient} className="w-full"><ArrowUpFromLine size={16} className="mr-2" /> Distribute funds</Button>
-              </form>
+              </form>}
             </CardContent>
           </Card>
         )}

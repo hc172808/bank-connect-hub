@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,26 @@ const RequestFunds = () => {
   const [selectedPayer, setSelectedPayer] = useState<any>(null);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [internalFundsEnabled, setInternalFundsEnabled] = useState(false);
+  const [checking, setChecking] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  useEffect(() => {
+    let active = true;
+    void supabase
+      .from("feature_toggles")
+      .select("is_enabled")
+      .eq("feature_key", "internal_funds")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active) {
+          setInternalFundsEnabled(Boolean(data?.is_enabled));
+          setChecking(false);
+        }
+      });
+    return () => { active = false; };
+  }, []);
 
   const searchUsers = async () => {
     if (!payerSearch.trim()) return;
@@ -35,6 +53,10 @@ const RequestFunds = () => {
 
   const handleRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!internalFundsEnabled) {
+      toast({ title: "Internal funds disabled", description: "This feature is currently disabled by an administrator.", variant: "destructive" });
+      return;
+    }
     if (!selectedPayer) {
       toast({
         title: "Error",
@@ -111,7 +133,12 @@ const RequestFunds = () => {
 
         <h1 className="text-2xl font-bold mb-6">Request Funds</h1>
 
-        <Card className="p-6">
+        {!checking && !internalFundsEnabled ? (
+          <Card className="p-6">
+            <p className="font-medium">Internal funds are currently disabled</p>
+            <p className="text-sm text-muted-foreground mt-2">Fund requests are unavailable until an administrator enables them.</p>
+          </Card>
+        ) : <Card className="p-6">
           <form onSubmit={handleRequest} className="space-y-4">
             <div>
               <Label>From User (Name or ID)</Label>
@@ -173,7 +200,7 @@ const RequestFunds = () => {
               Request expires in 15 minutes.
             </p>
           </form>
-        </Card>
+        </Card>}
       </div>
     </div>
   );

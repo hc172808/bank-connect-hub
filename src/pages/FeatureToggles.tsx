@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, ToggleLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, ToggleLeft, Loader2, Power, PowerOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -24,7 +24,7 @@ const FeatureToggles = () => {
   const [updating, setUpdating] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!authLoading && role !== "admin") {
+      if (!authLoading && role !== "admin" && role !== "founder") {
       navigate("/");
     }
   }, [role, authLoading, navigate]);
@@ -46,9 +46,47 @@ const FeatureToggles = () => {
         variant: "destructive",
       });
     } else {
-      setFeatures(data || []);
+      const existing = data || [];
+      if (!existing.some((feature) => feature.feature_key === "internal_funds")) {
+        const { data: inserted } = await supabase
+          .from("feature_toggles")
+          .insert({
+            feature_key: "internal_funds",
+            feature_name: "Internal Funds (master switch)",
+            is_enabled: false,
+          })
+          .select()
+          .single();
+        if (inserted) existing.push(inserted as FeatureToggle);
+      }
+      setFeatures(existing);
     }
     setLoading(false);
+  };
+
+  const internalFeatures = features.filter((feature) =>
+    feature.feature_key === "internal_funds" ||
+    feature.feature_key.startsWith("internal_funds_") ||
+    ["fund_requests", "fund_reversals", "bank_transfer", "card_deposits"].includes(feature.feature_key)
+  );
+
+  const setInternalFunds = async (enabled: boolean) => {
+    if (internalFeatures.length === 0) return;
+    setUpdating("internal-funds-bulk");
+    const ids = internalFeatures.map((feature) => feature.id);
+    const { error } = await supabase
+      .from("feature_toggles")
+      .update({ is_enabled: enabled })
+      .in("id", ids);
+    if (error) {
+      toast({ title: "Error", description: "Failed to update internal-funds controls", variant: "destructive" });
+    } else {
+      setFeatures((current) => current.map((feature) =>
+        ids.includes(feature.id) ? { ...feature, is_enabled: enabled } : feature
+      ));
+      toast({ title: enabled ? "Internal funds enabled" : "Internal funds disabled" });
+    }
+    setUpdating(null);
   };
 
   const toggleFeature = async (id: string, currentValue: boolean) => {
@@ -96,7 +134,60 @@ const FeatureToggles = () => {
         </div>
       </header>
 
-      <main className="p-6 space-y-6">
+        <main className="p-6 space-y-6">
+        <Card className="border-primary/30">
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <ToggleLeft size={24} />
+                  Internal funds
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Disabled by default. Enable individual controls or all internal-funds controls together.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void setInternalFunds(true)}
+                  disabled={updating === "internal-funds-bulk"}
+                >
+                  <Power size={15} className="mr-1" /> Enable all
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void setInternalFunds(false)}
+                  disabled={updating === "internal-funds-bulk"}
+                >
+                  <PowerOff size={15} className="mr-1" /> Disable all
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {internalFeatures.length === 0 ? (
+              <p className="text-sm text-muted-foreground">The internal-funds controls are not available until the database migration is applied.</p>
+            ) : internalFeatures.map((feature) => (
+              <div key={feature.id} className="flex items-center justify-between p-3 border rounded-lg">
+                <div>
+                  <h3 className="font-medium">{feature.feature_name}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {feature.is_enabled ? "Enabled" : "Disabled"}
+                  </p>
+                </div>
+                <Switch
+                  checked={feature.is_enabled}
+                  onCheckedChange={() => void toggleFeature(feature.id, feature.is_enabled)}
+                  disabled={updating === feature.id || updating === "internal-funds-bulk"}
+                />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

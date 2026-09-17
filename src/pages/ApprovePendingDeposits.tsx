@@ -34,28 +34,11 @@ const ApprovePendingDeposits = () => {
     setLoading(depositId);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      // Update pending deposit status
-      const { error: updateError } = await supabase
-        .from("pending_deposits")
-        .update({
-          status: "approved",
-          approved_by: user.id,
-          processed_at: new Date().toISOString(),
-        })
-        .eq("id", depositId);
-
-      if (updateError) throw updateError;
-
-      // Add funds using admin function
-      const { data, error: fundError } = await supabase.rpc("admin_add_funds", {
-        _user_id: userId,
-        _amount: amount,
+      const { data, error: approvalError } = await (supabase as any).rpc("approve_pending_deposit", {
+        _deposit_id: depositId,
       });
-
-      if (fundError) throw fundError;
+      if (approvalError) throw approvalError;
+      if (!data?.success) throw new Error(data?.error || "Deposit approval failed");
 
       toast({
         title: "Deposit Approved",

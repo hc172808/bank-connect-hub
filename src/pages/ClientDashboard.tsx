@@ -242,7 +242,7 @@ const ClientDashboard = () => {
     const allServices = [
       { icon: Receipt, label: "Pay Bills", path: "/pay-bills", featureKey: "pay_bills" },
       { icon: Send, label: "Send Money", path: "/send-money", featureKey: null },
-      { icon: Gift, label: "Request Funds", path: "/request-funds", featureKey: null },
+      { icon: Gift, label: "Request Funds", path: "/request-funds", featureKey: "internal_funds" },
       { icon: RotateCcw, label: "Reverse Funds", path: "/request-reversal", featureKey: null },
       { icon: ArrowUpFromLine, label: "Top-up", path: "/top-up", featureKey: "top_up" },
       { icon: Store, label: "Pay Merchant", path: "/pay-merchant", featureKey: "pay_merchant" },
@@ -550,6 +550,8 @@ const ClientDashboard = () => {
           <Button 
             onClick={() => navigate("/add-money")}
             className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
+            disabled={!isFeatureEnabled("internal_funds")}
+            title={!isFeatureEnabled("internal_funds") ? "Internal funds are disabled" : "Add money"}
           >
             <Plus size={20} />
             Add

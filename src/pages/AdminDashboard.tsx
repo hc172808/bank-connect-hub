@@ -117,18 +117,23 @@ const AdminDashboard = () => {
   };
 
   const fetchCounts = async () => {
-    // Total users
-    const { count: userCount } = await supabase
-      .from("profiles")
-      .select("id", { count: "exact", head: true });
-    if (userCount !== null) setTotalUsers(userCount);
+    const { data: metrics, error: metricsError } = await (supabase as any).rpc("get_admin_dashboard_metrics");
+    if (!metricsError && metrics?.success) {
+      setTotalUsers(Number(metrics.total_users || 0));
+      setActiveAgents(Number(metrics.active_agents || 0));
+      return;
+    }
 
-    // Active agents
-    const { count: agentCount } = await supabase
-      .from("user_roles")
-      .select("id", { count: "exact", head: true })
-      .eq("role", "agent");
-    if (agentCount !== null) setActiveAgents(agentCount);
+    // Keep the dashboard useful while an older database is being migrated.
+    const [{ count: userCount, error: userError }, { count: agentCount, error: agentError }] = await Promise.all([
+      supabase.from("profiles").select("id", { count: "exact", head: true }),
+      supabase.from("user_roles").select("id", { count: "exact", head: true }).eq("role", "agent"),
+    ]);
+    if (!userError && userCount !== null) setTotalUsers(userCount);
+    if (!agentError && agentCount !== null) setActiveAgents(agentCount);
+    if (metricsError && userError) {
+      toast({ title: "Dashboard counts unavailable", description: "Apply the bank-reserve migration or review admin read permissions.", variant: "destructive" });
+    }
   };
 
   const fetchWeeklyStats = async () => {

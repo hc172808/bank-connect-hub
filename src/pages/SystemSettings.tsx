@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,9 @@ const SystemSettings = () => {
   const [gitRemote, setGitRemote] = useState(DEFAULT_GIT_REMOTE);
   const [gitBranch, setGitBranch] = useState("main");
   const [restartAfter, setRestartAfter] = useState(false);
+  const [notificationProvider, setNotificationProvider] = useState("in_app");
+  const [notificationSender, setNotificationSender] = useState("NetLife Cash");
+  const [notificationSaving, setNotificationSaving] = useState(false);
 
   const [status, setStatus] = useState<UpdateStatus>("idle");
   const [logs, setLogs] = useState<{ kind: "step" | "log" | "error"; text: string }[]>([]);
@@ -36,6 +40,33 @@ const SystemSettings = () => {
 
   // Cleanup SSE on unmount
   useEffect(() => () => { esRef.current?.close(); }, []);
+
+  useEffect(() => {
+    void supabase
+      .from("app_settings")
+      .select("key, value")
+      .in("key", ["notification_provider", "notification_sender"])
+      .then(({ data }) => {
+        (data || []).forEach((setting: any) => {
+          if (setting.key === "notification_provider") setNotificationProvider(String(setting.value || "in_app"));
+          if (setting.key === "notification_sender") setNotificationSender(String(setting.value || "NetLife Cash"));
+        });
+      });
+  }, []);
+
+  const saveNotificationSettings = async () => {
+    setNotificationSaving(true);
+    const { error } = await supabase.from("app_settings").upsert([
+      { key: "notification_provider", value: notificationProvider },
+      { key: "notification_sender", value: notificationSender || "NetLife Cash" },
+    ], { onConflict: "key" });
+    setNotificationSaving(false);
+    toast({
+      title: error ? "Notification settings failed" : "Notification settings saved",
+      description: error ? error.message : "In-app reserve alerts remain active; the selected provider is ready for server configuration.",
+      variant: error ? "destructive" : "default",
+    });
+  };
 
   const appendLog = (kind: "step" | "log" | "error", text: string) =>
     setLogs((prev) => [...prev, { kind, text }]);
@@ -257,6 +288,44 @@ const SystemSettings = () => {
               </div>
               <Button variant="outline">Edit</Button>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* ── Notification Settings ─────────────────────────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Notification Provider</CardTitle>
+            <CardDescription>
+              Choose where future reserve and account alerts should be delivered. Credentials stay server-side.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="notification-provider">Provider</Label>
+              <select
+                id="notification-provider"
+                value={notificationProvider}
+                onChange={(event) => setNotificationProvider(event.target.value)}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="in_app">In-app notifications</option>
+                <option value="twilio">Twilio SMS (server configured)</option>
+                <option value="smtp">SMTP / email (server configured)</option>
+                <option value="custom">Custom provider</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="notification-sender">Sender label</Label>
+              <Input
+                id="notification-sender"
+                value={notificationSender}
+                onChange={(event) => setNotificationSender(event.target.value)}
+                placeholder="NetLife Cash"
+              />
+            </div>
+            <Button onClick={() => void saveNotificationSettings()} disabled={notificationSaving}>
+              {notificationSaving ? "Saving…" : "Save notification settings"}
+            </Button>
           </CardContent>
         </Card>
 

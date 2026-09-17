@@ -288,6 +288,13 @@
 | AD-17 | App Releases / Force Update | ✅ |
 | AD-18 | Theme Management | ✅ |
 | AD-19 | Financial Reports | ✅ |
+| AD-20 | Bank reserve with admin/founder-only funding controls | ✅ |
+| AD-21 | Admin/founder reserve balance dashboard with configurable low-balance alerts | ✅ |
+| AD-22 | Admin/founder-to-agent funding and agent-to-user distribution workflow | ✅ |
+| AD-23 | Internal funds master switch disabled by default | ✅ |
+| AD-24 | Individual and bulk internal-funds enable/disable controls | ✅ |
+| AD-25 | Founder/admin verification bypass | ✅ |
+| AD-26 | Admin dashboard count and zero-state error handling | ✅ |
 
 ---
 
