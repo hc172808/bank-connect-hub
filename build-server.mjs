@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { spawn, execSync, exec } from "child_process";
+import { spawn, execSync, exec, execFileSync } from "child_process";
 import { promisify } from "util";
 const execAsync = promisify(exec);
 import fs from "fs";
@@ -454,20 +454,21 @@ app.post("/api/git-pull", (req, res) => {
 
     if (remote) {
       try {
-        const setRemote = execSync(`git remote get-url origin`, { cwd: __dirname }).toString().trim();
+        const setRemote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: __dirname }).toString().trim();
         if (setRemote !== remote) {
-          execSync(`git remote set-url origin "${remote}"`, { cwd: __dirname });
+          execFileSync("git", ["remote", "set-url", "origin", remote], { cwd: __dirname });
           output.push(`Remote updated to: ${remote}`);
         }
       } catch {
-        execSync(`git remote add origin "${remote}"`, { cwd: __dirname });
+        execFileSync("git", ["remote", "add", "origin", remote], { cwd: __dirname });
         output.push(`Remote set to: ${remote}`);
       }
     }
 
-    const pullOut = execSync(`git pull origin "${branch}" 2>&1`, {
+    const pullOut = execFileSync("git", ["pull", "origin", branch], {
       cwd: __dirname,
       timeout: 120_000,
+      stdio: ["ignore", "pipe", "pipe"],
     }).toString();
 
     output.push(...pullOut.split("\n").filter(Boolean));
@@ -545,13 +546,13 @@ app.post("/api/update", (req, res) => {
       if (remote) {
         step("Configuring git remote…");
         try {
-          const existing = execSync("git remote get-url origin", { cwd: __dirname }).toString().trim();
+          const existing = execFileSync("git", ["remote", "get-url", "origin"], { cwd: __dirname }).toString().trim();
           if (existing !== remote) {
-            execSync(`git remote set-url origin "${remote}"`, { cwd: __dirname });
+            execFileSync("git", ["remote", "set-url", "origin", remote], { cwd: __dirname });
             log(`Remote updated to: ${remote}`);
           }
         } catch {
-          execSync(`git remote add origin "${remote}"`, { cwd: __dirname });
+          execFileSync("git", ["remote", "add", "origin", remote], { cwd: __dirname });
           log(`Remote added: ${remote}`);
         }
       }
@@ -763,6 +764,7 @@ app.post("/api/push/send", async (req, res) => {
 const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM  = process.env.TWILIO_PHONE_NUMBER;
+const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || "";
 
 const twilioOk = () => !!(TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM);
 
@@ -771,6 +773,21 @@ async function sendSms(to, body) {
   const twilio = (await import("twilio")).default;
   const client = twilio(TWILIO_SID, TWILIO_TOKEN);
   return client.messages.create({ body, from: TWILIO_FROM, to });
+}
+
+const whatsappOk = () => !!(TWILIO_SID && TWILIO_TOKEN && TWILIO_WHATSAPP_FROM);
+
+async function sendWhatsApp(to, body) {
+  if (!whatsappOk()) throw new Error("WhatsApp delivery is not configured.");
+  const twilio = (await import("twilio")).default;
+  const client = twilio(TWILIO_SID, TWILIO_TOKEN);
+  const from = TWILIO_WHATSAPP_FROM.startsWith("whatsapp:")
+    ? TWILIO_WHATSAPP_FROM
+    : `whatsapp:${TWILIO_WHATSAPP_FROM}`;
+  const recipient = String(to).startsWith("whatsapp:")
+    ? String(to)
+    : `whatsapp:${to}`;
+  return client.messages.create({ body, from, to: recipient });
 }
 
 app.get("/api/sms/status", (_req, res) => {
@@ -844,11 +861,38 @@ app.post("/api/sms/broadcast", async (req, res) => {
 
 const SUPABASE_URL      = getSupabaseUrl();
 const SUPABASE_ADMIN_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // optional
+const SUPABASE_PUBLISHABLE_KEY = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 /** In-memory OTP store: email -> { otpHash, expiresAt, attempts } */
 const resetOtpStore = new Map();
 
 const adminOk = () => !!(SUPABASE_URL && SUPABASE_ADMIN_KEY);
+
+function normalizePhoneDigits(value) {
+  let digits = String(value || "").replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  // The app's default country is Guyana. CountryPhoneInput normally sends
+  // E.164, but this also canonicalizes seven-digit legacy entries.
+  if (digits.length === 7) digits = `592${digits}`;
+  return digits;
+}
+
+function phoneEmailCandidates(value) {
+  const raw = String(value || "").replace(/\D/g, "");
+  const normalized = normalizePhoneDigits(value);
+  return [...new Set([
+    `${normalized}@vbank.com`,
+    `${raw}@vbank.com`,
+    `${raw.replace(/^592/, "")}@vbank.com`,
+    `${normalized}@virtualbank.app`,
+    `${raw}@virtualbank.app`,
+  ].filter((email) => !email.startsWith("@")))];
+}
+
+function phoneToE164(value) {
+  const digits = normalizePhoneDigits(value);
+  return digits ? `+${digits}` : "";
+}
 
 function hashOtp(otp) {
   return crypto.createHash("sha256").update(otp).digest("hex");
@@ -862,9 +906,99 @@ function generateOtp() {
 app.get("/api/auth/reset-status", (_req, res) => {
   res.json({
     smsAvailable: twilioOk(),
+    whatsappAvailable: whatsappOk(),
     adminResetAvailable: adminOk(),
     emailAvailable: smtpOk(),
   });
+});
+
+/** In-memory pre-authentication OTP store. Sessions are released only after
+ * the one-time code is verified. A process restart invalidates pending codes. */
+const loginOtpStore = new Map();
+
+// POST /api/auth/request-login-otp { phone, password }
+app.post("/api/auth/request-login-otp", async (req, res) => {
+  const { phone, password } = req.body || {};
+  if (!phone || !password) return res.status(400).json({ error: "Phone number and password are required." });
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    return res.status(503).json({ error: "Supabase authentication is not configured on the server." });
+  }
+  if (!whatsappOk()) {
+    return res.status(503).json({ error: "WhatsApp login verification is not configured. Add TWILIO_WHATSAPP_FROM on the server." });
+  }
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const authClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    let authData = null;
+    let lastError = null;
+    for (const email of phoneEmailCandidates(phone)) {
+      const result = await authClient.auth.signInWithPassword({ email, password });
+      if (!result.error && result.data.session && result.data.user) {
+        authData = result.data;
+        break;
+      }
+      lastError = result.error;
+    }
+    if (!authData) {
+      return res.status(401).json({ error: lastError?.message || "Invalid phone number or password." });
+    }
+
+    const e164 = phoneToE164(authData.user.user_metadata?.phone_number || phone);
+    if (!e164) return res.status(400).json({ error: "The account does not have a valid phone number." });
+
+    const code = generateOtp();
+    const challengeId = crypto.randomBytes(24).toString("hex");
+    loginOtpStore.set(challengeId, {
+      otpHash: hashOtp(code),
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      attempts: 0,
+      session: authData.session,
+      user: authData.user,
+    });
+
+    try {
+      await sendWhatsApp(
+        e164,
+        `NETLIFE CASH: Your login verification code is ${code}. It expires in 5 minutes. Never share this code.`,
+      );
+    } catch (deliveryError) {
+      loginOtpStore.delete(challengeId);
+      console.error("[login-otp] WhatsApp delivery error:", deliveryError.message);
+      return res.status(503).json({ error: "We could not send the WhatsApp verification code. Try again or contact an agent." });
+    }
+
+    const masked = `${e164.slice(0, 3)}${"*".repeat(Math.max(0, e164.length - 7))}${e164.slice(-4)}`;
+    res.json({ ok: true, challengeId, masked, expiresIn: 300 });
+  } catch (err) {
+    console.error("[login-otp] request error:", err.message);
+    res.status(500).json({ error: "Unable to start login verification." });
+  }
+});
+
+// POST /api/auth/verify-login-otp { challengeId, code }
+app.post("/api/auth/verify-login-otp", (req, res) => {
+  const { challengeId, code } = req.body || {};
+  const entry = loginOtpStore.get(String(challengeId || ""));
+  if (!entry) return res.status(400).json({ error: "This login code has expired. Request a new one." });
+  if (Date.now() > entry.expiresAt) {
+    loginOtpStore.delete(challengeId);
+    return res.status(400).json({ error: "This login code has expired. Request a new one." });
+  }
+  entry.attempts += 1;
+  if (entry.attempts > 5) {
+    loginOtpStore.delete(challengeId);
+    return res.status(429).json({ error: "Too many attempts. Request a new code." });
+  }
+  if (hashOtp(String(code || "")) !== entry.otpHash) {
+    return res.status(400).json({ error: `Incorrect code. ${5 - entry.attempts} attempt(s) remaining.` });
+  }
+
+  loginOtpStore.delete(challengeId);
+  res.json({ ok: true, session: entry.session, user: entry.user });
 });
 
 // POST /api/auth/request-reset  { phone, countryCode }
@@ -1052,10 +1186,8 @@ app.post("/api/auth/create-user", async (req, res) => {
   if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured on this server." });
 
   const { fullName, phone, password } = req.body || {};
-  const digits = String(phone || "").replace(/\D/g, "");
-  const e164 = String(phone || "").trim().startsWith("+")
-    ? String(phone).trim()
-    : `+${digits}`;
+  const digits = normalizePhoneDigits(phone);
+  const e164 = phoneToE164(phone);
   if (!fullName || !digits || !password) {
     return res.status(400).json({ error: "Full name, phone number, and password are required." });
   }
@@ -1087,7 +1219,10 @@ app.post("/api/auth/create-user", async (req, res) => {
     const email = `${digits}@vbank.com`;
     const { data: usersResult, error: listError } = await admin.auth.admin.listUsers({ perPage: 1000 });
     if (listError) throw new Error(listError.message);
-    const existing = usersResult.users.find((candidate) => candidate.email === email);
+    const existing = usersResult.users.find((candidate) =>
+      phoneEmailCandidates(phone).includes(candidate.email) ||
+      normalizePhoneDigits(candidate.user_metadata?.phone_number) === digits
+    );
     if (existing) return res.status(409).json({ error: "An account already exists for this phone number." });
 
     const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -1158,9 +1293,66 @@ app.delete("/api/auth/pending-resets/:email", (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /api/auth/all-users — list all Supabase users with profile info (admin only)
-app.get("/api/auth/all-users", async (_req, res) => {
+// GET /api/auth/all-users — list all Supabase users with profile info (staff only)
+app.get("/api/auth/all-users", async (req, res) => {
   if (!adminOk()) return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured" });
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
+    });
+    const bearer = String(req.headers.authorization || "");
+    const accessToken = bearer.startsWith("Bearer ") ? bearer.slice(7).trim() : "";
+    if (!accessToken) return res.status(401).json({ error: "Staff sign-in required." });
+    const { data: actorResult, error: actorError } = await adminClient.auth.getUser(accessToken);
+    if (actorError || !actorResult?.user) return res.status(401).json({ error: "Staff session is invalid or expired." });
+    let actorRole = actorResult.user.user_metadata?.account_type || actorResult.user.user_metadata?.role;
+    const { data: actorRoleRow } = await adminClient
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", actorResult.user.id)
+      .limit(1)
+      .maybeSingle();
+    if (actorRoleRow?.role) actorRole = actorRoleRow.role;
+    if (actorRole !== "admin" && actorRole !== "agent") {
+      return res.status(403).json({ error: "Only an admin or agent can view users." });
+    }
+    const { data: { users }, error } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
+    if (error) throw new Error(error.message);
+
+    // Fetch profiles for display names
+    const supaAdmin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      realtime: { transport: WebSocket },
+    });
+    const { data: profiles } = await supaAdmin.from("profiles").select("id, full_name, phone_number, wallet_address, disabled");
+    const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
+    const { data: roleRows } = await supaAdmin.from("user_roles").select("user_id, role");
+    const roleMap = Object.fromEntries((roleRows || []).map((row) => [row.user_id, row.role]));
+
+    const list = users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      fullName: profileMap[u.id]?.full_name || u.user_metadata?.full_name || null,
+      phone: profileMap[u.id]?.phone_number || u.user_metadata?.phone_number || null,
+      walletAddress: profileMap[u.id]?.wallet_address || null,
+      disabled: profileMap[u.id]?.disabled || false,
+      role: roleMap[u.id] || u.user_metadata?.account_type || u.user_metadata?.role || "client",
+      createdAt: u.created_at,
+      lastSignIn: u.last_sign_in_at,
+    }));
+    res.json({ users: list });
+  } catch (err) {
+    console.error("[reset] all-users error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/auth/phone-availability?phone=... — duplicate-phone guard for signup
+app.get("/api/auth/phone-availability", async (req, res) => {
+  const digits = normalizePhoneDigits(req.query.phone);
+  if (digits.length < 10) return res.status(400).json({ error: "Enter a valid phone number." });
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
   try {
     const { createClient } = await import("@supabase/supabase-js");
     const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
@@ -1169,26 +1361,15 @@ app.get("/api/auth/all-users", async (_req, res) => {
     });
     const { data: { users }, error } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
     if (error) throw new Error(error.message);
-
-    // Fetch profiles for display names
-    const supaAdmin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
-      realtime: { transport: WebSocket },
-    });
-    const { data: profiles } = await supaAdmin.from("profiles").select("id, full_name, phone_number");
-    const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
-
-    const list = users.map((u) => ({
-      id: u.id,
-      email: u.email,
-      fullName: profileMap[u.id]?.full_name || null,
-      phone: profileMap[u.id]?.phone_number || null,
-      createdAt: u.created_at,
-      lastSignIn: u.last_sign_in_at,
-    }));
-    res.json({ users: list });
+    const emails = phoneEmailCandidates(req.query.phone);
+    const duplicate = users.some((candidate) =>
+      emails.includes(candidate.email) ||
+      normalizePhoneDigits(candidate.user_metadata?.phone_number) === digits
+    );
+    res.json({ available: !duplicate });
   } catch (err) {
-    console.error("[reset] all-users error:", err.message);
-    res.status(500).json({ error: err.message });
+    console.error("[phone-availability]", err.message);
+    res.status(500).json({ error: "Could not check phone availability." });
   }
 });
 

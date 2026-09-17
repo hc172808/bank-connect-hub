@@ -12,6 +12,10 @@ create table public.profiles (
 );
 
 alter table public.profiles enable row level security;
+-- Store phone numbers in E.164 form in the app and prevent duplicates at the database boundary.
+create unique index if not exists profiles_phone_number_unique
+  on public.profiles (phone_number)
+  where phone_number is not null and phone_number <> '';
 
 -- Create user_roles table
 create table public.user_roles (

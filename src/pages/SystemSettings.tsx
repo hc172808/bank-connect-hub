@@ -14,13 +14,14 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 
 type UpdateStatus = "idle" | "running" | "done" | "failed";
+const DEFAULT_GIT_REMOTE = "https://github.com/hc172808/bank-connect-hub.git";
 
 const SystemSettings = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const logRef = useRef<HTMLDivElement>(null);
 
-  const [gitRemote, setGitRemote] = useState("");
+  const [gitRemote, setGitRemote] = useState(DEFAULT_GIT_REMOTE);
   const [gitBranch, setGitBranch] = useState("main");
   const [restartAfter, setRestartAfter] = useState(false);
 
@@ -141,7 +142,7 @@ const SystemSettings = () => {
             {/* Git options */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <Label>Remote URL <span className="text-muted-foreground text-xs">(leave blank to use existing origin)</span></Label>
+                  <Label>Remote URL</Label>
                 <Input
                   value={gitRemote}
                   onChange={(e) => setGitRemote(e.target.value)}

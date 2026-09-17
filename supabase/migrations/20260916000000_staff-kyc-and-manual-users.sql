@@ -2,6 +2,11 @@
 ALTER TABLE IF EXISTS public.kyc_submissions
   ADD COLUMN IF NOT EXISTS proof_of_address_url text;
 
+-- Phone numbers are canonicalized to E.164 by the app and must be unique.
+CREATE UNIQUE INDEX IF NOT EXISTS profiles_phone_number_unique
+  ON public.profiles (phone_number)
+  WHERE phone_number IS NOT NULL AND phone_number <> '';
+
 -- Agents may review KYC submissions alongside administrators.
 DROP POLICY IF EXISTS "Users view their own KYC" ON public.kyc_submissions;
 CREATE POLICY "Users view their own KYC"

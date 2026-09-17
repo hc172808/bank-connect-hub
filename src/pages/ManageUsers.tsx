@@ -17,6 +17,7 @@ import {
 
 interface User {
   id: string;
+  email?: string | null;
   full_name: string | null;
   phone_number: string | null;
   wallet_address: string | null;
@@ -58,40 +59,39 @@ const ManageUsers = () => {
 
   const fetchUsers = async () => {
     try {
-      const { data: profiles, error } = await supabase
-        .from("profiles")
-        .select("id, full_name, phone_number, wallet_address, disabled");
-
-      if (error) {
-        console.error("Error fetching profiles:", error);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
+      const response = await fetch("/api/auth/all-users", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        console.error("Error fetching users:", result.error);
         toast({
           variant: "destructive",
           title: "Error",
-          description: "Failed to load users. Make sure you have admin access.",
+          description: result.error || "Failed to load users.",
         });
         setLoading(false);
         return;
       }
 
-      if (profiles) {
-        const usersWithRoles = await Promise.all(
-          profiles.map(async (profile) => {
-            const { data: roleData } = await supabase
-              .from("user_roles")
-              .select("role")
-              .eq("user_id", profile.id)
-              .single();
-
-            return {
-              ...profile,
-              role: roleData?.role || "client"
-            };
-          })
-        );
-        setUsers(usersWithRoles);
-      }
+      setUsers((result.users || []).map((item: any) => ({
+        id: item.id,
+        email: item.email || null,
+        full_name: item.fullName || null,
+        phone_number: item.phone || null,
+        wallet_address: item.walletAddress || null,
+        disabled: Boolean(item.disabled),
+        role: item.role || "client",
+      })));
     } catch (error) {
       console.error("Error fetching users:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: (error as Error).message || "Failed to load users.",
+      });
     } finally {
       setLoading(false);
     }
