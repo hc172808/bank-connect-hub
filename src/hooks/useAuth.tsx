@@ -27,7 +27,7 @@ async function logSessionEvent(
   }
 }
 
-export type UserRole = 'admin' | 'agent' | 'client' | 'vendor';
+export type UserRole = 'admin' | 'founder' | 'agent' | 'client' | 'vendor';
 
 export interface AuthState {
   user: User | null;
@@ -62,7 +62,7 @@ export const useAuth = () => {
     }
     // Fall back to user_metadata.account_type when the user_roles table is
     // unavailable or the row hasn't been created yet (e.g. during initial setup).
-    const validRoles: UserRole[] = ['admin', 'agent', 'client', 'vendor'];
+    const validRoles: UserRole[] = ['admin', 'founder', 'agent', 'client', 'vendor'];
     if (metaFallback && validRoles.includes(metaFallback as UserRole)) {
       return metaFallback as UserRole;
     }

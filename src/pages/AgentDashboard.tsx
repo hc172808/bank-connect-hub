@@ -157,7 +157,8 @@ const AgentDashboard = () => {
         {/* Quick Actions */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
           {[
-            { icon: Plus,         label: "Add Funds",    path: "/agent-deposit",       color: "text-green-600" },
+             { icon: Plus,         label: "Add Funds",    path: "/agent-deposit",       color: "text-green-600" },
+             { icon: Wallet,       label: "Distribute",   path: "/bank-reserve",        color: "text-blue-600" },
             { icon: Wallet,       label: "Withdraw",     path: "/agent-cash-withdrawal", color: "text-red-600" },
             { icon: MessageSquare, label: "Messages",    path: "/chat",                color: "text-purple-600" },
             { icon: Receipt,      label: "Transactions", path: "/transactions",        color: "text-orange-600" },

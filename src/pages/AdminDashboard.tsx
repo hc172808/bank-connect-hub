@@ -39,6 +39,7 @@ const AdminDashboard = () => {
   const [newUsersWeek, setNewUsersWeek] = useState(0);
   const [totalFeesWeek, setTotalFeesWeek] = useState(0);
   const [recentTxs, setRecentTxs] = useState<any[]>([]);
+  const [bankReserve, setBankReserve] = useState<{ balance: number; low_balance_threshold: number; currency: string; is_low: boolean } | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -50,14 +51,28 @@ const AdminDashboard = () => {
     fetchTodayStats();
     fetchAiSummary();
     fetchWeeklyStats();
+    fetchBankReserve();
     // Auto-refresh KPIs every 30s
     const interval = setInterval(() => {
       fetchTodayStats();
       fetchWeeklyStats();
+      fetchBankReserve();
       setLastRefresh(new Date());
     }, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  const fetchBankReserve = async () => {
+    const { data } = await (supabase as any).rpc("get_bank_reserve_snapshot");
+    if (data?.success) {
+      setBankReserve({
+        balance: Number(data.balance || 0),
+        low_balance_threshold: Number(data.low_balance_threshold || 0),
+        currency: data.currency || "USD",
+        is_low: Boolean(data.is_low),
+      });
+    }
+  };
 
   const fetchTodayStats = async () => {
     const start = new Date();
@@ -212,6 +227,24 @@ const AdminDashboard = () => {
               <div className="text-xl font-bold" data-testid="kpi-total-users">{totalUsers}</div>
             </CardContent>
           </Card>
+          <Card
+            className={`cursor-pointer hover:shadow-md transition ${bankReserve?.is_low ? "border-red-500/60 bg-red-500/5" : ""}`}
+            onClick={() => navigate("/admin/bank-reserve")}
+            data-testid="card-bank-reserve"
+          >
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-xs font-medium">Bank Reserve</CardTitle>
+              <Wallet className={`h-4 w-4 ${bankReserve?.is_low ? "text-red-500" : "text-muted-foreground"}`} />
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold">
+                {bankReserve ? `${bankReserve.currency} ${bankReserve.balance.toFixed(2)}` : "—"}
+              </div>
+              <p className={`text-[10px] ${bankReserve?.is_low ? "text-red-600 font-semibold" : "text-muted-foreground"}`}>
+                {bankReserve?.is_low ? "Below alert threshold" : `Alert below ${bankReserve?.currency || "USD"} ${(bankReserve?.low_balance_threshold || 0).toFixed(2)}`}
+              </p>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-xs font-medium">Agents</CardTitle>
@@ -344,6 +377,15 @@ const AdminDashboard = () => {
               >
                 <Users size={20} />
                 Manage Users
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant={bankReserve?.is_low ? "destructive" : "secondary"}
+                onClick={() => navigate("/admin/bank-reserve")}
+              >
+                <Wallet size={20} />
+                Bank Reserve & Agent Funding
+                {bankReserve?.is_low && <span className="ml-auto text-xs">LOW</span>}
               </Button>
               <Button 
                 className="w-full justify-start gap-3 h-14 rounded-xl" 

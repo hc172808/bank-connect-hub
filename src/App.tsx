@@ -42,6 +42,7 @@ const Feedback = lazy(() => import("./pages/Feedback"));
 const ClientDashboard = lazy(() => import("./pages/ClientDashboard"));
 const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const BankReserve = lazy(() => import("./pages/BankReserve"));
 const ManageUsers = lazy(() => import("./pages/ManageUsers"));
 const ManageAgents = lazy(() => import("./pages/ManageAgents"));
 const ManageVendors = lazy(() => import("./pages/ManageVendors"));
@@ -365,7 +366,8 @@ const ProtectedRoute = ({
 
   if (loading) return <FullScreenLoader />;
   if (!user) return <Navigate to="/auth" replace />;
-  if (role && !allowedRoles.includes(role)) return <Navigate to={`/${role}`} replace />;
+  const founderUsesAdminAccess = role === "founder" && allowedRoles.includes("admin");
+  if (role && !allowedRoles.includes(role) && !founderUsesAdminAccess) return <Navigate to={`/${role}`} replace />;
 
   return <>{children}</>;
 };
@@ -596,6 +598,7 @@ const AppRoutes = () => {
         <Route path="/agent" element={<AgentDashboard />} />
         <Route path="/agent-deposit" element={<AgentDeposit />} />
         <Route path="/agent-cash-withdrawal" element={<AgentCashWithdrawal />} />
+        <Route path="/bank-reserve" element={<ProtectedRoute allowedRoles={["agent"]}><BankReserve /></ProtectedRoute>} />
         <Route path="/print-qr" element={<AdminPrintQRCodes />} />
         <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><ManageUsers /></ProtectedRoute>} />
         <Route path="/admin/whatsapp-verification" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminWhatsAppVerification /></ProtectedRoute>} />
@@ -622,11 +625,12 @@ const AppRoutes = () => {
     );
   }
 
-  if (role === "admin") {
+  if (role === "admin" || role === "founder") {
     return (
-      <RoleGuard allow={["admin"]}>
+      <RoleGuard allow={["admin", "founder"]}>
       <Routes>
         <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/admin/bank-reserve" element={<ProtectedRoute allowedRoles={["admin"]}><BankReserve /></ProtectedRoute>} />
         <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><ManageUsers /></ProtectedRoute>} />
         <Route path="/admin/agents" element={<ProtectedRoute allowedRoles={["admin"]}><ManageAgents /></ProtectedRoute>} />
         <Route path="/admin/vendors" element={<ProtectedRoute allowedRoles={["admin"]}><ManageVendors /></ProtectedRoute>} />
