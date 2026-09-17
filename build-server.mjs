@@ -791,7 +791,11 @@ async function sendWhatsApp(to, body) {
 }
 
 app.get("/api/sms/status", (_req, res) => {
-  res.json({ configured: twilioOk(), from: TWILIO_FROM ? TWILIO_FROM.replace(/\d(?=\d{4})/g, "*") : null });
+  res.json({
+    configured: twilioOk(),
+    whatsappConfigured: whatsappOk(),
+    from: TWILIO_FROM ? TWILIO_FROM.replace(/\d(?=\d{4})/g, "*") : null,
+  });
 });
 
 // POST /api/sms/send — raw SMS (admin)
@@ -1846,6 +1850,8 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`[build-server] listening on port ${PORT}`);
   if (twilioOk()) console.log(`[build-server] SMS (Twilio) ✓  from ${TWILIO_FROM}`);
   else            console.log(`[build-server] SMS (Twilio) — not configured (set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER)`);
+  if (whatsappOk()) console.log(`[build-server] WhatsApp OTP (Twilio) ✓`);
+  else               console.log(`[build-server] WhatsApp OTP — not configured (set TWILIO_WHATSAPP_FROM)`);
   if (smtpOk())   console.log(`[build-server] Email (SMTP) ✓  ${SMTP_HOST}:${SMTP_PORT}`);
   else            console.log(`[build-server] Email (SMTP)  — not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)`);
 });

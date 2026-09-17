@@ -59,6 +59,7 @@ recreating the local database.
 
 **Optional (set in Replit Secrets to enable features):**
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` — SMS alerts
+- `TWILIO_WHATSAPP_FROM` — WhatsApp-enabled Twilio sender used for mandatory login OTPs
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` — Email alerts
 - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` — Push notifications (auto-generated if not set)
 
