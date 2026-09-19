@@ -470,10 +470,12 @@ app.post("/api/git-pull", (req, res) => {
       }
     }
 
+    const activeRemote = remote || execFileSync("git", ["remote", "get-url", "origin"], { cwd: __dirname }).toString().trim();
     const pullOut = execFileSync("git", ["pull", "origin", branch], {
       cwd: __dirname,
       timeout: 120_000,
       stdio: ["ignore", "pipe", "pipe"],
+      env: gitEnvForRemote(activeRemote),
     }).toString();
 
     output.push(...pullOut.split("\n").filter(Boolean));
@@ -513,6 +515,36 @@ function findGitRoot() {
   }
 
   return null;
+}
+
+const GIT_ASKPASS_HELPER = path.join("/tmp", "vbank-git-askpass.cjs");
+
+function ensureGitAskpassHelper() {
+  if (!fs.existsSync(GIT_ASKPASS_HELPER)) {
+    fs.writeFileSync(
+      GIT_ASKPASS_HELPER,
+      [
+        "const prompt = process.argv.slice(2).join(' ').toLowerCase();",
+        "process.stdout.write(prompt.includes('username') ? 'x-access-token' : (process.env.GIT_ASKPASS_VALUE || ''));",
+        "",
+      ].join("\n"),
+      { mode: 0o700 },
+    );
+  }
+  return GIT_ASKPASS_HELPER;
+}
+
+function gitEnvForRemote(remoteUrl) {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+  const token = process.env.GITHUB_TOKEN;
+  if (token && /github\.com/i.test(String(remoteUrl || ""))) {
+    // Keep the credential out of .git/config, the remote URL, and streamed logs.
+    // GitHub receives it through this short-lived child-process environment.
+    env.GIT_ASKPASS = ensureGitAskpassHelper();
+    env.GIT_ASKPASS_VALUE = token;
+    env.GIT_USERNAME = "x-access-token";
+  }
+  return env;
 }
 
 function updateSseSend(data) {
@@ -601,11 +633,12 @@ app.post("/api/update", (req, res) => {
           "This running app is not inside a Git repository. Pull & Update cannot run until the project is started from a Git checkout.",
         );
       }
+      const activeRemote = remote || execFileSync("git", ["remote", "get-url", "origin"], { cwd: gitRoot }).toString().trim();
       await new Promise((resolve, reject) => {
         const proc = spawn("git", ["pull", "origin", branch], {
           cwd: gitRoot,
           stdio: ["ignore", "pipe", "pipe"],
-          env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+          env: gitEnvForRemote(activeRemote),
         });
         proc.stdout.on("data", (d) => d.toString().split("\n").filter(Boolean).forEach(log));
         proc.stderr.on("data", (d) => d.toString().split("\n").filter(Boolean).forEach(log));
