@@ -65,26 +65,45 @@ const ManageUsers = () => {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        console.error("Error fetching users:", result.error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: result.error || "Failed to load users.",
-        });
-        setLoading(false);
+      if (response.ok) {
+        setUsers((result.users || []).map((item: any) => ({
+          id: item.id,
+          email: item.email || null,
+          full_name: item.fullName || null,
+          phone_number: item.phone || null,
+          wallet_address: item.walletAddress || null,
+          disabled: Boolean(item.disabled),
+          role: item.role || "client",
+        })));
         return;
       }
 
-      setUsers((result.users || []).map((item: any) => ({
-        id: item.id,
-        email: item.email || null,
-        full_name: item.fullName || null,
-        phone_number: item.phone || null,
-        wallet_address: item.walletAddress || null,
-        disabled: Boolean(item.disabled),
-        role: item.role || "client",
+      // Listing auth.users requires the optional service-role key. Fall back
+      // to the authenticated staff session so the page still works when the
+      // build server is intentionally configured without that secret.
+      const [{ data: profiles, error: profilesError }, { data: roleRows, error: rolesError }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id, full_name, phone_number, wallet_address, disabled")
+          .order("created_at", { ascending: false }),
+        supabase.from("user_roles").select("user_id, role"),
+      ]);
+      if (profilesError) throw profilesError;
+      if (rolesError) throw rolesError;
+
+      const rolesByUser = new Map((roleRows || []).map((row) => [row.user_id, row.role]));
+      setUsers((profiles || []).map((profile) => ({
+        id: profile.id,
+        email: null,
+        full_name: profile.full_name,
+        phone_number: profile.phone_number,
+        wallet_address: profile.wallet_address,
+        disabled: Boolean(profile.disabled),
+        role: rolesByUser.get(profile.id) || "client",
       })));
+      if (result.error) {
+        console.info("Using authenticated profile list for Manage Users:", result.error);
+      }
     } catch (error) {
       console.error("Error fetching users:", error);
       toast({

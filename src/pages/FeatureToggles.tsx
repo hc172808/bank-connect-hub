@@ -15,6 +15,14 @@ interface FeatureToggle {
   is_enabled: boolean;
 }
 
+const DEFAULT_FEATURES = [
+  { feature_key: "pay_bills", feature_name: "Pay Bills" },
+  { feature_key: "top_up", feature_name: "Mobile Top-up" },
+  { feature_key: "pay_merchant", feature_name: "Pay Merchant" },
+  { feature_key: "pwa_install", feature_name: "Install App Prompt" },
+  { feature_key: "internal_funds", feature_name: "Internal Funds (master switch)" },
+] as const;
+
 const FeatureToggles = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -40,26 +48,41 @@ const FeatureToggles = () => {
       .order("feature_name");
 
     if (error) {
+      console.error("Error loading feature toggles:", error);
       toast({
         title: "Error",
-        description: "Failed to load feature toggles",
+        description: error.message || "Failed to load feature toggles",
         variant: "destructive",
       });
     } else {
-      const existing = data || [];
-      if (!existing.some((feature) => feature.feature_key === "internal_funds")) {
-        const { data: inserted } = await supabase
+      let existing = [...(data || [])] as FeatureToggle[];
+      const missing = DEFAULT_FEATURES.filter((defaultFeature) =>
+        !existing.some((feature) => feature.feature_key === defaultFeature.feature_key)
+      );
+
+      if (missing.length > 0) {
+        const { data: inserted, error: insertError } = await supabase
           .from("feature_toggles")
-          .insert({
-            feature_key: "internal_funds",
-            feature_name: "Internal Funds (master switch)",
+          .insert(missing.map((feature) => ({
+            ...feature,
             is_enabled: false,
-          })
+          })))
           .select()
-          .single();
-        if (inserted) existing.push(inserted as FeatureToggle);
+        if (insertError) {
+          // Keep already available rows visible even if an older database
+          // policy does not allow seeding from the browser.
+          console.error("Could not seed default feature toggles:", insertError);
+          toast({
+            title: "Some feature toggles could not be created",
+            description: insertError.message,
+            variant: "destructive",
+          });
+        } else if (inserted) {
+          existing = existing.concat(inserted as FeatureToggle[]);
+        }
       }
-      setFeatures(existing);
+
+      setFeatures(existing.sort((a, b) => a.feature_name.localeCompare(b.feature_name)));
     }
     setLoading(false);
   };
@@ -196,7 +219,11 @@ const FeatureToggles = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {features.map((feature) => (
+            {features.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No feature toggles are available. Apply the feature toggles database migration and reload this page.
+              </p>
+            ) : features.map((feature) => (
               <div
                 key={feature.id}
                 className="flex items-center justify-between p-4 border rounded-lg"
@@ -213,7 +240,7 @@ const FeatureToggles = () => {
                   )}
                   <Switch
                     checked={feature.is_enabled}
-                    onCheckedChange={() => toggleFeature(feature.id, feature.is_enabled)}
+                    onCheckedChange={() => void toggleFeature(feature.id, feature.is_enabled)}
                     disabled={updating === feature.id}
                   />
                 </div>
