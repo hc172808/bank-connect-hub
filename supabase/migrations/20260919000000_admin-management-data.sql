@@ -12,6 +12,15 @@ CREATE TABLE IF NOT EXISTS public.feature_toggles (
 
 ALTER TABLE public.feature_toggles ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS full_name text,
+  ADD COLUMN IF NOT EXISTS phone_number text,
+  ADD COLUMN IF NOT EXISTS wallet_address text,
+  ADD COLUMN IF NOT EXISTS disabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS disabled_at timestamptz,
+  ADD COLUMN IF NOT EXISTS disabled_by uuid,
+  ADD COLUMN IF NOT EXISTS kyc_status text NOT NULL DEFAULT 'unverified';
+
 DROP POLICY IF EXISTS "Everyone can view feature toggles" ON public.feature_toggles;
 CREATE POLICY "Everyone can view feature toggles"
   ON public.feature_toggles FOR SELECT USING (true);

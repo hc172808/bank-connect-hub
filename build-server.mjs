@@ -55,7 +55,12 @@ app.use((req, res, next) => {
 // VITE_SUPABASE_URL from pointing the browser at an older Supabase project
 // after the project is switched in Replit Secrets.
 function getSupabaseUrl() {
-  const projectId = (process.env.VITE_SUPABASE_PROJECT_ID || "").trim();
+  const projectId = (
+    process.env.VITE_SUPABASE_PROJECT_ID ||
+    process.env.SUPABASE_PROJECT_ID ||
+    process.env.PROJECT_ID ||
+    ""
+  ).trim();
   const configuredUrl = (
     process.env.VITE_SUPABASE_URL ||
     process.env.SUPABASE_URL ||
@@ -901,8 +906,12 @@ app.post("/api/sms/broadcast", async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════════
 
 const SUPABASE_URL      = getSupabaseUrl();
-const SUPABASE_ADMIN_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // optional
-const SUPABASE_PUBLISHABLE_KEY = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const SUPABASE_ADMIN_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SECRET_KEY; // optional
+const SUPABASE_PUBLISHABLE_KEY =
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.SUPABASE_PUBLISHABLE_KEY;
 
 /** In-memory OTP store: email -> { otpHash, expiresAt, attempts } */
 const resetOtpStore = new Map();
@@ -1136,14 +1145,14 @@ app.post("/api/auth/ensure-admin", async (req, res) => {
   const { email, password, metadata = {}, legacyEmails = [] } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: "email and password required" });
 
-  let supabaseUrl = process.env.VITE_SUPABASE_URL;
-  let serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  let supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  let serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
   if (!supabaseUrl || !serviceKey) {
     try {
       const dotenv = fs.readFileSync(path.join(__dirname, ".env"), "utf8");
       const parse  = (key) => { const m = dotenv.match(new RegExp(`^${key}="?([^"\\n]+)"?`, "m")); return m?.[1] || ""; };
-      supabaseUrl = supabaseUrl || parse("VITE_SUPABASE_URL");
-      serviceKey  = serviceKey  || parse("SUPABASE_SERVICE_ROLE_KEY");
+      supabaseUrl = supabaseUrl || parse("VITE_SUPABASE_URL") || parse("SUPABASE_URL");
+      serviceKey  = serviceKey || parse("SUPABASE_SERVICE_ROLE_KEY") || parse("SUPABASE_SECRET_KEY");
     } catch { /* ignore */ }
   }
   if (!supabaseUrl || !serviceKey) {
@@ -1366,7 +1375,10 @@ app.get("/api/auth/all-users", async (req, res) => {
     const supaAdmin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
       realtime: { transport: WebSocket },
     });
-    const { data: profiles } = await supaAdmin.from("profiles").select("id, full_name, phone_number, wallet_address, disabled");
+    // Older Supabase projects may only have id/timestamps on profiles. Read
+    // the available row shape and fall back to Auth metadata below instead of
+    // failing the entire user list on a missing optional column.
+    const { data: profiles } = await supaAdmin.from("profiles").select("*");
     const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
     const { data: roleRows } = await supaAdmin.from("user_roles").select("user_id, role");
     const roleMap = Object.fromEntries((roleRows || []).map((row) => [row.user_id, row.role]));
@@ -1374,10 +1386,10 @@ app.get("/api/auth/all-users", async (req, res) => {
     const list = users.map((u) => ({
       id: u.id,
       email: u.email,
-      fullName: profileMap[u.id]?.full_name || u.user_metadata?.full_name || null,
-      phone: profileMap[u.id]?.phone_number || u.user_metadata?.phone_number || null,
-      walletAddress: profileMap[u.id]?.wallet_address || null,
-      disabled: profileMap[u.id]?.disabled || false,
+       fullName: profileMap[u.id]?.full_name || u.user_metadata?.full_name || null,
+       phone: profileMap[u.id]?.phone_number || u.user_metadata?.phone_number || null,
+       walletAddress: profileMap[u.id]?.wallet_address || u.user_metadata?.wallet_address || null,
+       disabled: Boolean(profileMap[u.id]?.disabled),
       role: roleMap[u.id] || u.user_metadata?.account_type || u.user_metadata?.role || "client",
       createdAt: u.created_at,
       lastSignIn: u.last_sign_in_at,

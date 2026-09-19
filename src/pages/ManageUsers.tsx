@@ -84,7 +84,7 @@ const ManageUsers = () => {
       const [{ data: profiles, error: profilesError }, { data: roleRows, error: rolesError }] = await Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, phone_number, wallet_address, disabled")
+          .select("*")
           .order("created_at", { ascending: false }),
         supabase.from("user_roles").select("user_id, role"),
       ]);
@@ -95,9 +95,9 @@ const ManageUsers = () => {
       setUsers((profiles || []).map((profile) => ({
         id: profile.id,
         email: null,
-        full_name: profile.full_name,
-        phone_number: profile.phone_number,
-        wallet_address: profile.wallet_address,
+        full_name: profile.full_name || null,
+        phone_number: profile.phone_number || null,
+        wallet_address: profile.wallet_address || null,
         disabled: Boolean(profile.disabled),
         role: rolesByUser.get(profile.id) || "client",
       })));
