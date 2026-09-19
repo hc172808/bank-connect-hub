@@ -485,6 +485,31 @@ app.post("/api/git-pull", (req, res) => {
 // Tracks the in-progress update so only one runs at a time
 let updateJob = null; // { logs[], status: "running"|"done"|"failed", listeners[] }
 
+function findGitRoot() {
+  const candidates = [
+    __dirname,
+    process.cwd(),
+    path.dirname(__dirname),
+    "/home/runner/workspace",
+  ];
+  const seen = new Set();
+
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    try {
+      return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+        cwd: candidate,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).toString().trim();
+    } catch {
+      // Try the next known project location.
+    }
+  }
+
+  return null;
+}
+
 function updateSseSend(data) {
   if (!updateJob) return;
   const line = `data: ${JSON.stringify(data)}\n\n`;
@@ -545,23 +570,35 @@ app.post("/api/update", (req, res) => {
       // ── Step 1: optionally update remote ───────────────────────────────────
       if (remote) {
         step("Configuring git remote…");
+        const gitRoot = findGitRoot();
+        if (!gitRoot) {
+          throw new Error(
+            "This running app is not inside a Git repository. Open the Replit workspace from the repository checkout or initialize/clone the repository before using Pull & Update.",
+          );
+        }
         try {
-          const existing = execFileSync("git", ["remote", "get-url", "origin"], { cwd: __dirname }).toString().trim();
+          const existing = execFileSync("git", ["remote", "get-url", "origin"], { cwd: gitRoot }).toString().trim();
           if (existing !== remote) {
-            execFileSync("git", ["remote", "set-url", "origin", remote], { cwd: __dirname });
+            execFileSync("git", ["remote", "set-url", "origin", remote], { cwd: gitRoot });
             log(`Remote updated to: ${remote}`);
           }
         } catch {
-          execFileSync("git", ["remote", "add", "origin", remote], { cwd: __dirname });
+          execFileSync("git", ["remote", "add", "origin", remote], { cwd: gitRoot });
           log(`Remote added: ${remote}`);
         }
       }
 
       // ── Step 2: git pull ───────────────────────────────────────────────────
       step(`Pulling from origin/${branch}…`);
+      const gitRoot = findGitRoot();
+      if (!gitRoot) {
+        throw new Error(
+          "This running app is not inside a Git repository. Pull & Update cannot run until the project is started from a Git checkout.",
+        );
+      }
       await new Promise((resolve, reject) => {
         const proc = spawn("git", ["pull", "origin", branch], {
-          cwd: __dirname,
+          cwd: gitRoot,
           stdio: ["ignore", "pipe", "pipe"],
           env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
         });
