@@ -158,10 +158,22 @@ const Auth = () => {
           setLoading(false);
           return;
         }
-        const availability = await fetch(`/api/auth/phone-availability?phone=${encodeURIComponent(phoneNumber)}`);
-        const availabilityResult = await availability.json().catch(() => ({}));
-        if (!availability.ok) throw new Error(availabilityResult.error || "Could not check phone number.");
-        if (!availabilityResult.available) throw new Error("That phone number is already registered. Use another number or sign in.");
+        // Duplicate checking is a helpful server-side guard, but registration
+        // must not depend on the optional service-role key. Supabase Auth still
+        // enforces the unique login email when signUp() runs below.
+        try {
+          const availability = await fetch(`/api/auth/phone-availability?phone=${encodeURIComponent(phoneNumber)}`);
+          const availabilityResult = await availability.json().catch(() => ({}));
+          if (availability.ok && availabilityResult.available === false) {
+            throw new Error("That phone number is already registered. Use another number or sign in.");
+          }
+          if (!availability.ok) {
+            console.warn("[auth] Phone availability check skipped:", availabilityResult.error || availability.statusText);
+          }
+        } catch (availabilityError: any) {
+          if (availabilityError?.message?.includes("already registered")) throw availabilityError;
+          console.warn("[auth] Phone availability check unavailable; continuing signup.", availabilityError);
+        }
 
         const { error } = await supabase.auth.signUp({
           email: phoneToEmail(phoneNumber),
