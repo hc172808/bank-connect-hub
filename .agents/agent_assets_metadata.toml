@@ -6,33 +6,53 @@ id = "P-eRMQC9iWH6V4IF7JuAh"
 uri = "file://public/supabase-migrations.zip"
 type = "unspecified"
 title = "supabase-migrations.sql (zipped)"
+logical_id = "bb22855a-e03f-4585-9c60-c48fac3cfce9"
 
 [[outputs]]
 id = "fe9A8gNuq_BRNuzwUMvDH"
 uri = "file://virtualbank-android.tar.gz"
 type = "unspecified"
 title = "Virtual Bank — Android Project (open in Android Studio)"
+logical_id = "1ce64d3a-05cd-4bb0-a0a2-1785f8e65d7e"
 
 [[outputs]]
 id = "JCh7dvTJw5Tx-Otd4pNPC"
 uri = "file://VirtualBank-debug.zip"
 type = "unspecified"
 title = "VirtualBank-debug.apk (zipped)"
+logical_id = "2b1660b0-15ed-4803-af03-325849eb3c03"
 
 [[outputs]]
 id = "ANzVPoA0a8i5nH9MfBdr0"
 uri = "file://all_migrations.zip"
 type = "unspecified"
 title = "Database Schema — all_migrations.zip"
+logical_id = "af2ad8db-bc7c-4f15-af5f-531892c15001"
 
 [[outputs]]
 id = "cDzrgAHW2S6KTQpIOlBY6"
 uri = "file://supabase-selfhost.zip"
 type = "unspecified"
 title = "NETLIFE CASH — Self-hosted Supabase Package"
+logical_id = "40dbc816-7e1f-4583-9f84-595872b8a7cd"
 
 [[outputs]]
 id = "gx13niRVCT06lQiK61VbJ"
 uri = "file://db-server.zip"
 type = "unspecified"
 title = "NETLIFE CASH — Database Server Setup (Postgres + pgAdmin)"
+logical_id = "d57a2ca2-8d50-47ea-a452-edd3a9e1fc01"
+
+[[outputs]]
+id = "X1c1UV730HLAGPeuWOw2d"
+uri = "file://VirtualBank-1.0.0-debug.apk"
+type = "unspecified"
+title = "VirtualBank 1.0.0 debug APK"
+description = "Built successfully with Java 21, Gradle, and verified V1/V2/V3 signatures."
+logical_id = "63f93cda-ea78-4b1d-8466-f1ec7ed3a69e"
+content_hash = "sha256:1132e76dc6fa16f12ed14b853622797c0f9af1652c923099c3bad747c002281b"
+size = 5902453
+mtime_ms = 1789946067904
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:7fb01844-6712-414b-8506-4819970b8a04/63f93cda-ea78-4b1d-8466-f1ec7ed3a69e/6e1c7e6c-d9ef-431d-9b2d-ab34bb04d993"
+storage_version_token = "1789946118657805"
+content_type = "application/octet-stream"
