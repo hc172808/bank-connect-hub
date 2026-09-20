@@ -76,6 +76,7 @@ const SendMoney = () => {
   const [estimatingGas, setEstimatingGas] = useState(false);
   const [userWalletAddress, setUserWalletAddress] = useState<string | null>(null);
   const [senderName, setSenderName] = useState("You");
+  const [kycStatus, setKycStatus] = useState<string>("checking");
 
   const [selectedCoin, setSelectedCoin] = useState("");
   const [supportedCoins, setSupportedCoins] = useState<SupportedCoin[]>([]);
@@ -99,6 +100,7 @@ const SendMoney = () => {
 
   useEffect(() => {
     fetchRecentRecipients();
+    void fetchUserWallet();
   }, []);
 
   // Debounced lookup of users by name/phone
@@ -204,12 +206,15 @@ const SendMoney = () => {
     if (!user) return;
     const { data } = await supabase
       .from("profiles")
-      .select("wallet_address, full_name")
+      .select("wallet_address, full_name, kyc_status")
       .eq("id", user.id)
       .single();
     if (data?.wallet_address) setUserWalletAddress(data.wallet_address);
     if (data?.full_name) setSenderName(data.full_name);
+    setKycStatus(String((data as { kyc_status?: string } | null)?.kyc_status || "unverified"));
   };
+
+  const kycApproved = kycStatus === "verified" || kycStatus === "approved";
 
   const fetchSupportedCoins = async () => {
     const [coinsRes, feesRes] = await Promise.all([
@@ -306,6 +311,15 @@ const SendMoney = () => {
 
   // ── Internal transfer ─────────────────────────────────────────────────────
   const processInternalTransfer = async () => {
+    if (!kycApproved) {
+      toast({
+        title: "Identity verification required",
+        description: "You can receive internal funds, but sending internal funds requires admin or agent approval of your KYC.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
     setAnimState("sending");
 
@@ -515,6 +529,17 @@ const SendMoney = () => {
           <QRScanner onScanSuccess={handleScanSuccess} onClose={() => setShowScanner(false)} />
         ) : (
           <Card className="p-6">
+            {sendMode === "internal" && kycStatus !== "checking" && !kycApproved && (
+              <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm">
+                <p className="font-medium text-amber-700 dark:text-amber-300">Internal sending is locked until KYC is approved.</p>
+                <p className="mt-1 text-muted-foreground">
+                  You can still receive funds. Submit your documents and an admin or agent can review them.
+                </p>
+                <Button type="button" variant="link" className="h-auto px-0 pt-2" onClick={() => navigate("/kyc")}>
+                  Open identity verification
+                </Button>
+              </div>
+            )}
             <form onSubmit={handleSend} className="space-y-4">
               {sendMode === "internal" ? (
                 <div className="space-y-3">
@@ -679,7 +704,7 @@ const SendMoney = () => {
                 )}
               </div>
 
-              <Button type="submit" className="w-full" disabled={isBusy} data-testid="button-send">
+              <Button type="submit" className="w-full" disabled={isBusy || (sendMode === "internal" && (kycStatus === "checking" || !kycApproved))} data-testid="button-send">
                 {isBusy ? "Processing…" : `Send ${sendMode === "blockchain" ? blockchainSettings?.native_coin_symbol : "Money"}`}
               </Button>
             </form>

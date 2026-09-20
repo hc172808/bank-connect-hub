@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { isFeatureEnabled } from "@/lib/featureToggles";
@@ -435,34 +435,7 @@ const AppRoutes = () => {
   useAutoPushSubscribe(user?.id);
   const { locked, unlock } = useAppLock();
   const navigate = useNavigate();
-  const location = useLocation();
   const { setNavigate: setAlertNavigate } = useNewReleaseAlert(user?.id);
-  const requiresKyc = role === "client" || role === "vendor";
-  const [kycStatus, setKycStatus] = useState<string | null>(null);
-  const [kycChecking, setKycChecking] = useState(true);
-
-  useEffect(() => {
-    let active = true;
-    if (!user || !requiresKyc) {
-      setKycStatus(null);
-      setKycChecking(false);
-      return () => { active = false; };
-    }
-
-    setKycChecking(true);
-    void supabase
-      .from("profiles")
-      .select("kyc_status")
-      .eq("id", user.id)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!active) return;
-        setKycStatus(error ? "unverified" : String((data as { kyc_status?: string } | null)?.kyc_status || "unverified"));
-        setKycChecking(false);
-      });
-
-    return () => { active = false; };
-  }, [user?.id, requiresKyc]);
 
   // Give the release alert hook access to navigate
   useEffect(() => { setAlertNavigate((path) => navigate(path)); }, [navigate]);
@@ -491,25 +464,6 @@ const AppRoutes = () => {
       </Routes>
 
     );
-  }
-
-  const kycAllowedPaths = [
-    "/kyc",
-    "/profile",
-    "/security",
-    "/notifications",
-    "/menu",
-    "/support",
-    "/feedback",
-    "/change-password",
-    "/verify-whatsapp",
-    "/whatsapp-guide",
-    "/whats-new",
-  ];
-  const kycApproved = kycStatus === "verified" || kycStatus === "approved";
-  if (requiresKyc && kycChecking && location.pathname !== "/kyc") return <FullScreenLoader />;
-  if (requiresKyc && !kycChecking && !kycApproved && !kycAllowedPaths.includes(location.pathname)) {
-    return <Navigate to="/kyc" replace />;
   }
 
   if (role === "client") {
