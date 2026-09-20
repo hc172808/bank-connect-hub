@@ -2,6 +2,31 @@
 -- Keep this migration idempotent so it is safe on projects with partial
 -- feature-toggle data from earlier migrations.
 
+ALTER TABLE public.feature_toggles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Everyone can view feature toggles" ON public.feature_toggles;
+CREATE POLICY "Everyone can view feature toggles"
+  ON public.feature_toggles FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Admins can manage feature toggles" ON public.feature_toggles;
+DROP POLICY IF EXISTS "Admins and founders can manage feature toggles" ON public.feature_toggles;
+CREATE POLICY "Admins and founders can manage feature toggles"
+  ON public.feature_toggles FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.user_roles
+      WHERE user_id = auth.uid() AND role::text IN ('admin', 'founder')
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.user_roles
+      WHERE user_id = auth.uid() AND role::text IN ('admin', 'founder')
+    )
+  );
+
 INSERT INTO public.feature_toggles (feature_key, feature_name, is_enabled)
 VALUES
   ('pay_bills', 'Pay Bills', false),
