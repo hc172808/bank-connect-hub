@@ -62,8 +62,8 @@ function getSupabaseUrl() {
     ""
   ).trim();
   const configuredUrl = (
-    process.env.VITE_SUPABASE_URL ||
     process.env.SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
     ""
   ).trim();
   const requestedProjectUrl = "https://ocngdgwelxaiyzdywjld.supabase.co";
@@ -73,6 +73,12 @@ function getSupabaseUrl() {
   // Replit secret has been replaced with the new project URL/reference.
   if (projectId === legacyProjectRef || configuredUrl.includes(`${legacyProjectRef}.supabase.co`)) {
     return requestedProjectUrl;
+  }
+  // SUPABASE_URL is the authoritative server-side setting. PROJECT_ID can be
+  // a Replit project id rather than a Supabase project ref, and deriving a
+  // hostname from it can silently point the browser at a nonexistent project.
+  if (configuredUrl) {
+    return configuredUrl;
   }
   if (/^[a-z0-9]{20}$/.test(projectId)) {
     return `https://${projectId}.supabase.co`;
@@ -141,8 +147,8 @@ app.get("/api/config", (_req, res) => {
   res.json({
     supabaseUrl: headerSafe(getSupabaseUrl(), "VITE_SUPABASE_URL"),
     supabaseAnonKey: headerSafe(
-      process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-        process.env.SUPABASE_PUBLISHABLE_KEY,
+      process.env.SUPABASE_PUBLISHABLE_KEY ||
+        process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       "VITE_SUPABASE_PUBLISHABLE_KEY"
     ),
     whatsappNumber: headerSafe(process.env.VITE_WHATSAPP_SUPPORT_NUMBER, "VITE_WHATSAPP_SUPPORT_NUMBER"),
@@ -943,8 +949,8 @@ const SUPABASE_ADMIN_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SECRET_KEY; // optional
 const SUPABASE_PUBLISHABLE_KEY =
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.SUPABASE_PUBLISHABLE_KEY;
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 /** In-memory OTP store: email -> { otpHash, expiresAt, attempts } */
 const resetOtpStore = new Map();
