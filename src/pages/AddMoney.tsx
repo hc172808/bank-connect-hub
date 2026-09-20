@@ -1,8 +1,8 @@
 import { useEffect, useNavigate, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, CreditCard, Building, Wallet, Smartphone } from "lucide-react";
+import { isFeatureEnabled } from "@/lib/featureToggles";
 
 const addOptions = [
   {
@@ -42,14 +42,11 @@ const AddMoney = () => {
 
   useEffect(() => {
     let active = true;
-    void supabase
-      .from("feature_toggles")
-      .select("is_enabled")
-      .eq("feature_key", "internal_funds")
-      .maybeSingle()
-      .then(({ data }) => {
+    void isFeatureEnabled("internal_funds")
+      .catch(() => false)
+      .then((isEnabled) => {
         if (active) {
-          setInternalFundsEnabled(Boolean(data?.is_enabled));
+          setInternalFundsEnabled(isEnabled);
           setChecking(false);
         }
       });

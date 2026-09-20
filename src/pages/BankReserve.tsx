@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { isFeatureEnabled } from "@/lib/featureToggles";
 
 type Person = { id: string; full_name: string | null; phone_number: string | null };
 type Reserve = { balance: number; low_balance_threshold: number; currency: string; is_low: boolean; updated_at: string };
@@ -40,12 +41,7 @@ const BankReserve = () => {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data: fundsToggle } = await supabase
-      .from("feature_toggles")
-      .select("is_enabled")
-      .eq("feature_key", "internal_funds")
-      .maybeSingle();
-    setInternalFundsEnabled(Boolean(fundsToggle?.is_enabled));
+    setInternalFundsEnabled(await isFeatureEnabled("internal_funds").catch(() => false));
     if (isStaff) {
       const [snapshotResult, rolesResult, ledgerResult] = await Promise.all([
         (supabase as any).rpc("get_bank_reserve_snapshot"),

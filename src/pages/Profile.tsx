@@ -28,6 +28,7 @@ import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { AppDownloadButton } from '@/components/AppDownloadButton';
 import { LanguageSelector } from '@/components/LanguageSelector';
 import { Globe } from 'lucide-react';
+import { isFeatureEnabled } from '@/lib/featureToggles';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -86,15 +87,9 @@ export default function Profile() {
       isBiometricAvailable().then(setBiometricAvailable);
       checkBiometricSupport().then(setBiometricSupport);
       // Check if admin has enabled the PWA install option
-      supabase
-        .from('feature_toggles')
-        .select('is_enabled')
-        .eq('feature_key', 'pwa_install')
-        .maybeSingle()
-        .then(({ data }) => {
-          // Default ON when row is missing
-          setPwaInstallEnabled(data ? !!data.is_enabled : true);
-        });
+      isFeatureEnabled('pwa_install')
+        .then(setPwaInstallEnabled)
+        .catch(() => setPwaInstallEnabled(true));
     }
   }, [user]);
 

@@ -36,6 +36,7 @@ import {
 import { format, startOfMonth } from "date-fns";
 import { requestNotificationPermission, subscribeToTransactionNotifications, subscribeToChatNotifications } from "@/lib/pushNotifications";
 import { PiggyBank, CalendarClock, Target } from "lucide-react";
+import { fetchFeatureToggles } from "@/lib/featureToggles";
 
 interface SavingsGoal { id: string; name: string; target: number; saved: number; }
 interface ScheduledPayment { id: string; label: string; amount: number; nextDate: string; }
@@ -138,15 +139,15 @@ const ClientDashboard = () => {
       }
     });
 
-    const [walletRes, profileRes, featuresRes] = await Promise.all([
+    const [walletRes, profileRes] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", user.id).single(),
       supabase.from("profiles").select("full_name, wallet_address").eq("id", user.id).single(),
-      supabase.from("feature_toggles").select("feature_key, is_enabled"),
     ]);
+    const features = await fetchFeatureToggles().catch(() => []);
 
     if (walletRes.data) setWallet(walletRes.data);
     if (profileRes.data) setProfile(profileRes.data);
-    if (featuresRes.data) setFeatureToggles(featuresRes.data);
+    setFeatureToggles(features);
 
     // This-month income/spending + recent + top payees
     const monthStart = startOfMonth(new Date()).toISOString();

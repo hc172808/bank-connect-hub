@@ -48,7 +48,15 @@ VALUES
   ('top_up', 'Mobile Top-up', false),
   ('pay_merchant', 'Pay Merchant', false),
   ('pwa_install', 'Install App Prompt', false),
-  ('internal_funds', 'Internal Funds (master switch)', false)
+  ('app_download', 'App Download', false),
+  ('internal_funds', 'Internal Funds (master switch)', false),
+  ('fund_requests', 'Fund Requests', false),
+  ('fund_reversals', 'Fund Reversals', false),
+  ('bank_transfer', 'Bank Transfer Deposits', false),
+  ('card_deposits', 'Card Deposits', false),
+  ('agent_deposits', 'Agent Deposits', false),
+  ('agent_distributions', 'Agent Distributions', false),
+  ('bank_reserve', 'Bank Reserve Controls', false)
 ON CONFLICT (feature_key) DO NOTHING;
 
 DROP POLICY IF EXISTS "Staff can view all profiles" ON public.profiles;

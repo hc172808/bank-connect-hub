@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { isFeatureEnabled } from "@/lib/featureToggles";
 import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
 import { useAppLock } from "./hooks/useAppLock";
 import { useNewReleaseAlert } from "./hooks/useNewReleaseAlert";
@@ -378,14 +379,11 @@ const InternalFundsGate = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     let active = true;
-    void supabase
-      .from("feature_toggles")
-      .select("is_enabled")
-      .eq("feature_key", "internal_funds")
-      .maybeSingle()
-      .then(({ data }) => {
+    void isFeatureEnabled("internal_funds")
+      .catch(() => false)
+      .then((isEnabled) => {
         if (!active) return;
-        setEnabled(Boolean(data?.is_enabled));
+        setEnabled(isEnabled);
         setChecking(false);
       });
     return () => { active = false; };

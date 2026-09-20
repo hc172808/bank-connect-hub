@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
+import { isFeatureEnabled } from "@/lib/featureToggles";
 
 const RequestFunds = () => {
   const [amount, setAmount] = useState("");
@@ -21,14 +22,11 @@ const RequestFunds = () => {
 
   useEffect(() => {
     let active = true;
-    void supabase
-      .from("feature_toggles")
-      .select("is_enabled")
-      .eq("feature_key", "internal_funds")
-      .maybeSingle()
-      .then(({ data }) => {
+    void isFeatureEnabled("internal_funds")
+      .catch(() => false)
+      .then((isEnabled) => {
         if (active) {
-          setInternalFundsEnabled(Boolean(data?.is_enabled));
+          setInternalFundsEnabled(isEnabled);
           setChecking(false);
         }
       });

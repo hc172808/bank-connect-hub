@@ -957,6 +957,119 @@ const resetOtpStore = new Map();
 
 const adminOk = () => !!(SUPABASE_URL && SUPABASE_ADMIN_KEY);
 
+const DEFAULT_FEATURE_TOGGLES = [
+  { feature_key: "pay_bills", feature_name: "Pay Bills", is_enabled: false },
+  { feature_key: "top_up", feature_name: "Mobile Top-up", is_enabled: false },
+  { feature_key: "pay_merchant", feature_name: "Pay Merchant", is_enabled: false },
+  { feature_key: "pwa_install", feature_name: "Install App Prompt", is_enabled: false },
+  { feature_key: "app_download", feature_name: "App Download", is_enabled: false },
+  { feature_key: "internal_funds", feature_name: "Internal Funds (master switch)", is_enabled: false },
+  { feature_key: "fund_requests", feature_name: "Fund Requests", is_enabled: false },
+  { feature_key: "fund_reversals", feature_name: "Fund Reversals", is_enabled: false },
+  { feature_key: "bank_transfer", feature_name: "Bank Transfer Deposits", is_enabled: false },
+  { feature_key: "card_deposits", feature_name: "Card Deposits", is_enabled: false },
+  { feature_key: "agent_deposits", feature_name: "Agent Deposits", is_enabled: false },
+  { feature_key: "agent_distributions", feature_name: "Agent Distributions", is_enabled: false },
+  { feature_key: "bank_reserve", feature_name: "Bank Reserve Controls", is_enabled: false },
+];
+
+async function getSupabaseAdminClient() {
+  if (!adminOk()) throw new Error("Supabase service role is not configured on this server.");
+  const { createClient } = await import("@supabase/supabase-js");
+  return createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    realtime: { transport: WebSocket },
+  });
+}
+
+async function requireFeatureAdmin(req, admin) {
+  const authorization = String(req.headers.authorization || "");
+  const accessToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (!accessToken) return { status: 401, error: "Admin sign-in required." };
+
+  const { data: actorResult, error: actorError } = await admin.auth.getUser(accessToken);
+  if (actorError || !actorResult?.user) {
+    return { status: 401, error: "Admin session is invalid or expired." };
+  }
+
+  let actorRole = actorResult.user.user_metadata?.account_type || actorResult.user.user_metadata?.role;
+  const { data: roleRow } = await admin
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", actorResult.user.id)
+    .limit(1)
+    .maybeSingle();
+  if (roleRow?.role) actorRole = roleRow.role;
+
+  if (actorRole !== "admin" && actorRole !== "founder") {
+    return { status: 403, error: "Only admins and founders can manage feature toggles." };
+  }
+  return { user: actorResult.user };
+}
+
+// Feature toggles are public configuration, but some Supabase projects have
+// missing/stale anonymous SELECT policies. Read them through the server-held
+// service key so feature gates cannot silently treat every feature as absent.
+app.get("/api/feature-toggles", async (_req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const { data, error } = await admin
+      .from("feature_toggles")
+      .select("id, feature_key, feature_name, is_enabled, updated_at")
+      .order("feature_name");
+    if (error) throw new Error(error.message);
+    res.json({ features: data || [] });
+  } catch (err) {
+    console.error("[feature-toggles] read error:", err.message);
+    res.status(503).json({ error: err.message });
+  }
+});
+
+// Seed missing rows without changing the enabled state of existing rows.
+app.post("/api/feature-toggles/seed", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireFeatureAdmin(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    const { error } = await admin
+      .from("feature_toggles")
+      .upsert(DEFAULT_FEATURE_TOGGLES, { onConflict: "feature_key", ignoreDuplicates: true });
+    if (error) throw new Error(error.message);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[feature-toggles] seed error:", err.message);
+    res.status(503).json({ error: err.message });
+  }
+});
+
+app.patch("/api/feature-toggles/:id", async (req, res) => {
+  const { id } = req.params;
+  const { is_enabled } = req.body || {};
+  if (!id || typeof is_enabled !== "boolean") {
+    return res.status(400).json({ error: "id and boolean is_enabled are required." });
+  }
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireFeatureAdmin(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    const { data, error } = await admin
+      .from("feature_toggles")
+      .update({ is_enabled })
+      .eq("id", id)
+      .select("id, feature_key, feature_name, is_enabled, updated_at")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return res.status(404).json({ error: "Feature toggle not found." });
+    res.json({ feature: data });
+  } catch (err) {
+    console.error("[feature-toggles] update error:", err.message);
+    res.status(503).json({ error: err.message });
+  }
+});
+
 function normalizePhoneDigits(value) {
   let digits = String(value || "").replace(/\D/g, "");
   if (digits.startsWith("00")) digits = digits.slice(2);

@@ -1,27 +1,17 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, ToggleLeft, Loader2, Power, PowerOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-
-interface FeatureToggle {
-  id: string;
-  feature_key: string;
-  feature_name: string;
-  is_enabled: boolean;
-}
-
-const DEFAULT_FEATURES = [
-  { feature_key: "pay_bills", feature_name: "Pay Bills" },
-  { feature_key: "top_up", feature_name: "Mobile Top-up" },
-  { feature_key: "pay_merchant", feature_name: "Pay Merchant" },
-  { feature_key: "pwa_install", feature_name: "Install App Prompt" },
-  { feature_key: "internal_funds", feature_name: "Internal Funds (master switch)" },
-] as const;
+import {
+  ensureFeatureToggles,
+  fetchFeatureToggles,
+  updateFeatureToggle,
+  type FeatureToggle,
+} from "@/lib/featureToggles";
 
 const FeatureToggles = () => {
   const navigate = useNavigate();
@@ -38,51 +28,29 @@ const FeatureToggles = () => {
   }, [role, authLoading, navigate]);
 
   useEffect(() => {
-    fetchFeatures();
+    void fetchFeatures();
   }, []);
 
   const fetchFeatures = async () => {
-    const { data, error } = await supabase
-      .from("feature_toggles")
-      .select("*")
-      .order("feature_name");
+    try {
+      await ensureFeatureToggles();
+    } catch (error) {
+      // Existing projects may already have every row and still reject a
+      // redundant seed request; the read below remains the source of truth.
+      console.warn("Could not seed default feature toggles:", error);
+    }
 
-    if (error) {
+    try {
+      const existing = await fetchFeatureToggles();
+      setFeatures(existing.sort((a, b) => a.feature_name.localeCompare(b.feature_name)));
+    } catch (error: any) {
       console.error("Error loading feature toggles:", error);
       toast({
         title: "Error",
         description: error.message || "Failed to load feature toggles",
         variant: "destructive",
       });
-    } else {
-      let existing = [...(data || [])] as FeatureToggle[];
-      const missing = DEFAULT_FEATURES.filter((defaultFeature) =>
-        !existing.some((feature) => feature.feature_key === defaultFeature.feature_key)
-      );
-
-      if (missing.length > 0) {
-        const { data: inserted, error: insertError } = await supabase
-          .from("feature_toggles")
-          .insert(missing.map((feature) => ({
-            ...feature,
-            is_enabled: false,
-          })))
-          .select()
-        if (insertError) {
-          // Keep already available rows visible even if an older database
-          // policy does not allow seeding from the browser.
-          console.error("Could not seed default feature toggles:", insertError);
-          toast({
-            title: "Some feature toggles could not be created",
-            description: insertError.message,
-            variant: "destructive",
-          });
-        } else if (inserted) {
-          existing = existing.concat(inserted as FeatureToggle[]);
-        }
-      }
-
-      setFeatures(existing.sort((a, b) => a.feature_name.localeCompare(b.feature_name)));
+      setFeatures([]);
     }
     setLoading(false);
   };
@@ -90,49 +58,49 @@ const FeatureToggles = () => {
   const internalFeatures = features.filter((feature) =>
     feature.feature_key === "internal_funds" ||
     feature.feature_key.startsWith("internal_funds_") ||
-    ["fund_requests", "fund_reversals", "bank_transfer", "card_deposits"].includes(feature.feature_key)
+    [
+      "fund_requests",
+      "fund_reversals",
+      "bank_transfer",
+      "card_deposits",
+      "agent_deposits",
+      "agent_distributions",
+      "bank_reserve",
+    ].includes(feature.feature_key)
   );
 
   const setInternalFunds = async (enabled: boolean) => {
     if (internalFeatures.length === 0) return;
     setUpdating("internal-funds-bulk");
     const ids = internalFeatures.map((feature) => feature.id);
-    const { error } = await supabase
-      .from("feature_toggles")
-      .update({ is_enabled: enabled })
-      .in("id", ids);
-    if (error) {
-      toast({ title: "Error", description: "Failed to update internal-funds controls", variant: "destructive" });
-    } else {
+    try {
+      await Promise.all(ids.map((id) => updateFeatureToggle(id, enabled)));
       setFeatures((current) => current.map((feature) =>
         ids.includes(feature.id) ? { ...feature, is_enabled: enabled } : feature
       ));
       toast({ title: enabled ? "Internal funds enabled" : "Internal funds disabled" });
+    } catch (error: any) {
+      toast({ title: "Error", description: "Failed to update internal-funds controls", variant: "destructive" });
     }
     setUpdating(null);
   };
 
   const toggleFeature = async (id: string, currentValue: boolean) => {
     setUpdating(id);
-    
-    const { error } = await supabase
-      .from("feature_toggles")
-      .update({ is_enabled: !currentValue })
-      .eq("id", id);
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update feature",
-        variant: "destructive",
-      });
-    } else {
-      setFeatures(features.map(f => 
+    try {
+      await updateFeatureToggle(id, !currentValue);
+      setFeatures((current) => current.map(f =>
         f.id === id ? { ...f, is_enabled: !currentValue } : f
       ));
       toast({
         title: "Updated",
         description: `Feature ${!currentValue ? "enabled" : "disabled"}`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update feature",
+        variant: "destructive",
       });
     }
     setUpdating(null);
@@ -192,7 +160,7 @@ const FeatureToggles = () => {
           </CardHeader>
           <CardContent className="space-y-3">
             {internalFeatures.length === 0 ? (
-              <p className="text-sm text-muted-foreground">The internal-funds controls are not available until the database migration is applied.</p>
+              <p className="text-sm text-muted-foreground">No internal-funds controls are configured yet. Apply the feature-toggle migration and refresh.</p>
             ) : internalFeatures.map((feature) => (
               <div key={feature.id} className="flex items-center justify-between p-3 border rounded-lg">
                 <div>
@@ -221,7 +189,7 @@ const FeatureToggles = () => {
           <CardContent className="space-y-4">
             {features.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No feature toggles are available. Apply the feature toggles database migration and reload this page.
+                No feature toggles are available. Check the Supabase connection and reload this page.
               </p>
             ) : features.map((feature) => (
               <div
