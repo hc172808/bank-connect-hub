@@ -5,8 +5,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
 import { useAppLock } from "./hooks/useAppLock";
 import { useNewReleaseAlert } from "./hooks/useNewReleaseAlert";
@@ -14,20 +15,34 @@ import { AppLockScreen } from "./components/AppLockScreen";
 import { DisplacedSessionDialog } from "./components/DisplacedSessionDialog";
 import { MobileBrowserVerifyDialog } from "./components/MobileBrowserVerifyDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { RoleGuard } from "./components/RoleGuard";
+import { IncidentBanner } from "./components/IncidentBanner";
+import { toast as sonnerToast } from "sonner";
+import { buildSnapshot, snapshotToText } from "@/lib/bootDiagnostics";
 import { ScrollToTop } from "./components/ScrollToTop";
+import { BootDiagnosticsPanel } from "./components/BootDiagnosticsPanel";
+import {
+  logBoot,
+  getAttempts,
+  getBackoffStep,
+  ensureRetryDeadline,
+  commitRetry,
+  reportBootFailure,
+  BOOT_KEYS,
+} from "@/lib/bootDiagnostics";
 
 // Lazy-loaded pages (route-based code splitting)
 const Auth = lazy(() => import("./pages/Auth"));
 const Register = lazy(() => import("./pages/Register"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
-const SetupAdminUser = lazy(() => import("./pages/SetupAdminUser"));
 const Profile = lazy(() => import("./pages/Profile"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
 const Feedback = lazy(() => import("./pages/Feedback"));
 const ClientDashboard = lazy(() => import("./pages/ClientDashboard"));
 const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const BankReserve = lazy(() => import("./pages/BankReserve"));
 const ManageUsers = lazy(() => import("./pages/ManageUsers"));
 const ManageAgents = lazy(() => import("./pages/ManageAgents"));
 const ManageVendors = lazy(() => import("./pages/ManageVendors"));
@@ -68,6 +83,8 @@ const VendorDashboard = lazy(() => import("./pages/VendorDashboard"));
 const VendorCharge = lazy(() => import("./pages/VendorCharge"));
 const VendorAnalytics = lazy(() => import("./pages/VendorAnalytics"));
 const VerifyWhatsApp = lazy(() => import("./pages/VerifyWhatsApp"));
+const WhatsAppGuide = lazy(() => import("./pages/WhatsAppGuide"));
+const AdminWhatsAppVerification = lazy(() => import("./pages/AdminWhatsAppVerification"));
 const AdminAISecurity = lazy(() => import("./pages/AdminAISecurity"));
 const AdminFirewall   = lazy(() => import("./pages/AdminFirewall"));
 const AdminLitenode   = lazy(() => import("./pages/AdminLitenode"));
@@ -135,6 +152,7 @@ const NFCTapPayment                = lazy(() => import("./pages/NFCTapPayment"))
 const APIIntegrations              = lazy(() => import("./pages/APIIntegrations"));
 const OpenBanking                  = lazy(() => import("./pages/OpenBanking"));
 const DownloadApp                  = lazy(() => import("./pages/DownloadApp"));
+const AdminBootErrors              = lazy(() => import("./pages/AdminBootErrors"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -149,17 +167,124 @@ const queryClient = new QueryClient({
 const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
   const [slow, setSlow] = useState(false);
   const [stuck, setStuck] = useState(false);
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [diagnosis, setDiagnosis] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [showDiag, setShowDiag] = useState(false);
+  const [logoTaps, setLogoTaps] = useState(0);
+  const [attempts] = useState(() => getAttempts());
+  const [lastStep] = useState(() => {
+    try { return localStorage.getItem(BOOT_KEYS.step); } catch { return null; }
+  });
 
   useEffect(() => {
+    logBoot("react-auth-loading");
     const slowT = setTimeout(() => setSlow(true), 5000);
-    const stuckT = setTimeout(() => setStuck(true), 15000);
+    const stuckT = setTimeout(() => { setStuck(true); logBoot("react-stuck"); }, 15000);
     return () => { clearTimeout(slowT); clearTimeout(stuckT); };
   }, []);
 
+  // Auto-retry when the device reconnects after a stall.
+  useEffect(() => {
+    const onOnline = () => setOnline(true);
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!stuck || !online) { setCountdown(null); return; }
+    // Exponential backoff persisted in localStorage: resuming after a reload
+    // continues the *exact* remaining wait rather than restarting the timer.
+    const { retryAt } = ensureRetryDeadline();
+    const remainingNow = () => Math.ceil((retryAt - Date.now()) / 1000);
+    setCountdown(remainingNow());
+    const iv = setInterval(() => {
+      const remaining = remainingNow();
+      setCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(iv);
+        commitRetry();
+        window.location.reload();
+      }
+    }, 500);
+    return () => clearInterval(iv);
+  }, [stuck, online, attempts]);
+
+  // When stalled, work out WHY: network, backend config, backend reachability, or session.
+  useEffect(() => {
+    if (!stuck) return;
+    let cancelled = false;
+    (async () => {
+      const set = (s: string) => { if (!cancelled) setDiagnosis(s); logBoot("diagnosis", s); };
+      if (!navigator.onLine) {
+        set("Network: device is offline.");
+        void reportBootFailure({ stage: "network", reason: "device offline" });
+        return;
+      }
+      try {
+        const res = await fetch("/api/config", { cache: "no-store" });
+        if (!res.ok) {
+          set(`Config: /api/config returned HTTP ${res.status}. Using build-time keys.`);
+          void reportBootFailure({ stage: "initSupabase", reason: `config HTTP ${res.status}` });
+        }
+      } catch (e) {
+        set(`Config: could not reach /api/config (${e instanceof Error ? e.message : "network error"}). Falling back to build-time keys.`);
+        void reportBootFailure({ stage: "initSupabase", reason: "config unreachable", error: e });
+      }
+      try {
+        const { error } = await supabase.auth.getSession();
+        if (error) {
+          set(`Session: ${error.message}`);
+          void reportBootFailure({ stage: "auth", reason: error.message, error, force: true });
+          return;
+        }
+      } catch (e) {
+        set(`Backend: auth request failed (${e instanceof Error ? e.message : "unknown error"}). Backend may be unreachable.`);
+        void reportBootFailure({ stage: "auth", reason: "auth request failed", error: e, force: true });
+        return;
+      }
+      if (!cancelled) {
+        setDiagnosis((d) => d ?? "App shell loaded but a screen never mounted — usually a slow bundle download.");
+        void reportBootFailure({ stage: "bundle", reason: "app shell never mounted a screen" });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [stuck]);
+
+  // User-friendly toast on bootstrap failure: copies a full report and offers
+  // a one-tap link into the hidden Diagnostics panel.
+  useEffect(() => {
+    if (!stuck || !diagnosis) return;
+    const report = snapshotToText(buildSnapshot(diagnosis));
+    const copy = async () => {
+      try { await navigator.clipboard.writeText(report); } catch {
+        const ta = document.createElement("textarea");
+        ta.value = report; document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); ta.remove();
+      }
+    };
+    sonnerToast.error("The app couldn't finish starting", {
+      id: "boot-failure",
+      description: diagnosis,
+      duration: 15000,
+      action: {
+        label: "Diagnostics",
+        onClick: () => { void copy(); setShowDiag(true); },
+      },
+    });
+  }, [stuck, diagnosis]);
+
   const message = stuck
-    ? (navigator.onLine
-        ? "Taking longer than usual. Check your connection and try again."
-        : "You're offline. Reconnect and reload the app.")
+    ? (online
+        ? countdown !== null
+          ? `Reconnecting automatically in ${Math.max(countdown, 0)}s… (attempt ${attempts + 1})`
+          : "Connection detected — retrying automatically…"
+        : "You're offline. We'll retry automatically once you reconnect.")
     : slow
       ? "Still loading — hang tight…"
       : label;
@@ -169,8 +294,17 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
       className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-6 text-center"
       data-testid="loader-fullscreen"
     >
+      <BootDiagnosticsPanel open={showDiag} reason={diagnosis} onClose={() => setShowDiag(false)} />
       <div className="flex flex-col items-center gap-3">
-        <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg">
+        <div
+          role="presentation"
+          onClick={() => {
+            const n = logoTaps + 1;
+            setLogoTaps(n);
+            if (n >= 5) { setLogoTaps(0); setShowDiag(true); }
+          }}
+          className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg cursor-default select-none"
+        >
           <span className="text-primary-foreground font-black text-2xl">N</span>
         </div>
         <p className="text-lg font-bold text-foreground">NETLIFE CASH</p>
@@ -178,17 +312,44 @@ const FullScreenLoader = ({ label = "Loading..." }: { label?: string }) => {
       {!stuck && (
         <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       )}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span
+          className={`w-2.5 h-2.5 rounded-full ${online ? "bg-emerald-500" : "bg-destructive"} animate-pulse`}
+          aria-hidden
+        />
+        <span>{online ? "Online — connected" : "Offline — waiting for connectivity"}</span>
+      </div>
+      {attempts > 0 && (
+        <p className="text-[11px] text-muted-foreground font-mono">
+          Resumed after retry #{attempts} · backoff step {getBackoffStep()}
+          {lastStep ? ` · last step: ${lastStep}` : ""}
+        </p>
+      )}
       <p className={`text-sm ${stuck ? "text-destructive" : "text-muted-foreground"} max-w-xs`}>
         {message}
       </p>
       {stuck && (
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="mt-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm shadow hover:opacity-90"
-        >
-          Reload app
-        </button>
+        <p className="text-xs text-muted-foreground max-w-sm font-mono break-words">
+          {diagnosis ?? "Checking network, backend and session…"}
+        </p>
+      )}
+      {stuck && (
+        <div className="flex flex-col items-center gap-2 mt-2">
+          <button
+            type="button"
+            onClick={() => { commitRetry(); window.location.reload(); }}
+            className="px-5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm shadow hover:opacity-90"
+          >
+            Retry now
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowDiag(true)}
+            className="text-[11px] underline text-muted-foreground"
+          >
+            Diagnostics
+          </button>
+        </div>
       )}
     </div>
   );
@@ -205,8 +366,44 @@ const ProtectedRoute = ({
 
   if (loading) return <FullScreenLoader />;
   if (!user) return <Navigate to="/auth" replace />;
-  if (role && !allowedRoles.includes(role)) return <Navigate to={`/${role}`} replace />;
+  const founderUsesAdminAccess = role === "founder" && allowedRoles.includes("admin");
+  if (role && !allowedRoles.includes(role) && !founderUsesAdminAccess) return <Navigate to={`/${role}`} replace />;
 
+  return <>{children}</>;
+};
+
+const InternalFundsGate = ({ children }: { children: React.ReactNode }) => {
+  const [enabled, setEnabled] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    void supabase
+      .from("feature_toggles")
+      .select("is_enabled")
+      .eq("feature_key", "internal_funds")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!active) return;
+        setEnabled(Boolean(data?.is_enabled));
+        setChecking(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  if (checking) return <FullScreenLoader />;
+  if (!enabled) {
+    return (
+      <div className="min-h-screen bg-background p-6 flex items-center justify-center">
+        <div className="max-w-md text-center">
+          <h1 className="text-xl font-semibold">Internal funds are disabled</h1>
+          <p className="text-sm text-muted-foreground mt-2">
+            An administrator must enable internal-funds controls before this action is available.
+          </p>
+        </div>
+      </div>
+    );
+  }
   return <>{children}</>;
 };
 
@@ -240,7 +437,34 @@ const AppRoutes = () => {
   useAutoPushSubscribe(user?.id);
   const { locked, unlock } = useAppLock();
   const navigate = useNavigate();
+  const location = useLocation();
   const { setNavigate: setAlertNavigate } = useNewReleaseAlert(user?.id);
+  const requiresKyc = role === "client" || role === "vendor";
+  const [kycStatus, setKycStatus] = useState<string | null>(null);
+  const [kycChecking, setKycChecking] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    if (!user || !requiresKyc) {
+      setKycStatus(null);
+      setKycChecking(false);
+      return () => { active = false; };
+    }
+
+    setKycChecking(true);
+    void supabase
+      .from("profiles")
+      .select("kyc_status")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return;
+        setKycStatus(error ? "unverified" : String((data as { kyc_status?: string } | null)?.kyc_status || "unverified"));
+        setKycChecking(false);
+      });
+
+    return () => { active = false; };
+  }, [user?.id, requiresKyc]);
 
   // Give the release alert hook access to navigate
   useEffect(() => { setAlertNavigate((path) => navigate(path)); }, [navigate]);
@@ -265,18 +489,38 @@ const AppRoutes = () => {
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/setup-admin-user" element={<SetupAdminUser />} />
         <Route path="*" element={<Navigate to="/auth" replace />} />
       </Routes>
+
     );
+  }
+
+  const kycAllowedPaths = [
+    "/kyc",
+    "/profile",
+    "/security",
+    "/notifications",
+    "/menu",
+    "/support",
+    "/feedback",
+    "/change-password",
+    "/verify-whatsapp",
+    "/whatsapp-guide",
+    "/whats-new",
+  ];
+  const kycApproved = kycStatus === "verified" || kycStatus === "approved";
+  if (requiresKyc && kycChecking && location.pathname !== "/kyc") return <FullScreenLoader />;
+  if (requiresKyc && !kycChecking && !kycApproved && !kycAllowedPaths.includes(location.pathname)) {
+    return <Navigate to="/kyc" replace />;
   }
 
   if (role === "client") {
     return (
+      <RoleGuard allow={["client"]}>
       <Routes>
         <Route path="/client" element={<ClientDashboard />} />
         <Route path="/send-money" element={<SendMoney />} />
-        <Route path="/request-funds" element={<RequestFunds />} />
+        <Route path="/request-funds" element={<InternalFundsGate><RequestFunds /></InternalFundsGate>} />
         <Route path="/my-qr" element={<MyQRCode />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
@@ -290,11 +534,11 @@ const AppRoutes = () => {
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/menu" element={<Menu />} />
         <Route path="/scan-to-pay" element={<ScanToPay />} />
-        <Route path="/add-money" element={<AddMoney />} />
-        <Route path="/add-money/card" element={<AddMoneyCard />} />
-        <Route path="/add-money/bank" element={<AddMoneyBank />} />
-        <Route path="/add-money/agent" element={<AddMoneyAgent />} />
-        <Route path="/add-money/mobile" element={<AddMoneyMobile />} />
+        <Route path="/add-money" element={<InternalFundsGate><AddMoney /></InternalFundsGate>} />
+        <Route path="/add-money/card" element={<InternalFundsGate><AddMoneyCard /></InternalFundsGate>} />
+        <Route path="/add-money/bank" element={<InternalFundsGate><AddMoneyBank /></InternalFundsGate>} />
+        <Route path="/add-money/agent" element={<InternalFundsGate><AddMoneyAgent /></InternalFundsGate>} />
+        <Route path="/add-money/mobile" element={<InternalFundsGate><AddMoneyMobile /></InternalFundsGate>} />
         <Route path="/receive-money" element={<ReceiveMoney />} />
         <Route path="/coin-convert" element={<CoinConvert />} />
         <Route path="/vendor-store" element={<VendorStore />} />
@@ -335,13 +579,19 @@ const AppRoutes = () => {
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/verify-whatsapp" element={<VerifyWhatsApp />} />
+        <Route path="/whatsapp-guide" element={<WhatsAppGuide />} />
+        <Route path="/" element={<Navigate to="/client" replace />} />
+        <Route path="/index" element={<Navigate to="/client" replace />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
+      </RoleGuard>
     );
   }
 
   if (role === "vendor") {
     return (
+      <RoleGuard allow={["vendor"]}>
       <Routes>
         <Route path="/vendor" element={<VendorDashboard />} />
         <Route path="/vendor/charge" element={<VendorCharge />} />
@@ -350,7 +600,7 @@ const AppRoutes = () => {
         <Route path="/receive-money" element={<ReceiveMoney />} />
         <Route path="/scan-to-pay" element={<ScanToPay />} />
         <Route path="/transactions" element={<Transactions />} />
-        <Route path="/request-funds" element={<RequestFunds />} />
+        <Route path="/request-funds" element={<InternalFundsGate><RequestFunds /></InternalFundsGate>} />
         <Route path="/my-qr" element={<MyQRCode />} />
         <Route path="/vendor-store" element={<VendorStore />} />
         <Route path="/verify-whatsapp" element={<VerifyWhatsApp />} />
@@ -367,18 +617,27 @@ const AppRoutes = () => {
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/whatsapp-guide" element={<WhatsAppGuide />} />
+        <Route path="/" element={<Navigate to="/vendor" replace />} />
+        <Route path="/index" element={<Navigate to="/vendor" replace />} />
         <Route path="*" element={<Navigate to="/vendor" replace />} />
       </Routes>
+      </RoleGuard>
     );
   }
 
   if (role === "agent") {
     return (
+      <RoleGuard allow={["agent"]}>
       <Routes>
         <Route path="/agent" element={<AgentDashboard />} />
-        <Route path="/agent-deposit" element={<AgentDeposit />} />
+        <Route path="/agent-deposit" element={<InternalFundsGate><AgentDeposit /></InternalFundsGate>} />
         <Route path="/agent-cash-withdrawal" element={<AgentCashWithdrawal />} />
+        <Route path="/bank-reserve" element={<ProtectedRoute allowedRoles={["agent"]}><BankReserve /></ProtectedRoute>} />
         <Route path="/print-qr" element={<AdminPrintQRCodes />} />
+        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><ManageUsers /></ProtectedRoute>} />
+        <Route path="/admin/whatsapp-verification" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminWhatsAppVerification /></ProtectedRoute>} />
+        <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminKYCReview /></ProtectedRoute>} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/change-password" element={<ChangePassword />} />
@@ -392,30 +651,38 @@ const AppRoutes = () => {
         <Route path="/nfc-payment" element={<NFCTapPayment />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/whatsapp-guide" element={<WhatsAppGuide />} />
+        <Route path="/" element={<Navigate to="/agent" replace />} />
+        <Route path="/index" element={<Navigate to="/agent" replace />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Routes>
+      </RoleGuard>
     );
   }
 
-  if (role === "admin") {
+  if (role === "admin" || role === "founder") {
     return (
+      <RoleGuard allow={["admin", "founder"]}>
       <Routes>
         <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin"]}><ManageUsers /></ProtectedRoute>} />
+        <Route path="/admin/bank-reserve" element={<ProtectedRoute allowedRoles={["admin", "founder"]}><BankReserve /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><ManageUsers /></ProtectedRoute>} />
         <Route path="/admin/agents" element={<ProtectedRoute allowedRoles={["admin"]}><ManageAgents /></ProtectedRoute>} />
         <Route path="/admin/vendors" element={<ProtectedRoute allowedRoles={["admin"]}><ManageVendors /></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={["admin"]}><SystemSettings /></ProtectedRoute>} />
+        <Route path="/admin/whatsapp-verification" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminWhatsAppVerification /></ProtectedRoute>} />
+        <Route path="/whatsapp-guide" element={<WhatsAppGuide />} />
         <Route path="/admin/database" element={<ProtectedRoute allowedRoles={["admin"]}><DatabaseManagement /></ProtectedRoute>} />
         <Route path="/admin/transactions" element={<ProtectedRoute allowedRoles={["admin"]}><TransactionReports /></ProtectedRoute>} />
         <Route path="/admin/financial" element={<ProtectedRoute allowedRoles={["admin"]}><FinancialReports /></ProtectedRoute>} />
         <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={["admin"]}><UserAnalytics /></ProtectedRoute>} />
         <Route path="/fee-management" element={<FeeManagement />} />
-        <Route path="/admin-deposit" element={<AdminDeposit />} />
-        <Route path="/approve-deposits" element={<ApprovePendingDeposits />} />
+        <Route path="/admin-deposit" element={<InternalFundsGate><AdminDeposit /></InternalFundsGate>} />
+        <Route path="/approve-deposits" element={<InternalFundsGate><ApprovePendingDeposits /></InternalFundsGate>} />
         <Route path="/admin/blockchain" element={<ProtectedRoute allowedRoles={["admin"]}><BlockchainSettings /></ProtectedRoute>} />
         <Route path="/admin/coins" element={<ProtectedRoute allowedRoles={["admin"]}><CoinManagement /></ProtectedRoute>} />
         <Route path="/admin/conversion-fees" element={<ProtectedRoute allowedRoles={["admin"]}><ConversionFees /></ProtectedRoute>} />
-        <Route path="/admin/features" element={<ProtectedRoute allowedRoles={["admin"]}><FeatureToggles /></ProtectedRoute>} />
+        <Route path="/admin/features" element={<ProtectedRoute allowedRoles={["admin", "founder"]}><FeatureToggles /></ProtectedRoute>} />
         <Route path="/admin/vendor-fees" element={<ProtectedRoute allowedRoles={["admin"]}><VendorRegistrationFees /></ProtectedRoute>} />
         <Route path="/admin/print-qr" element={<ProtectedRoute allowedRoles={["admin"]}><AdminPrintQRCodes /></ProtectedRoute>} />
         <Route path="/admin/notifications" element={<ProtectedRoute allowedRoles={["admin"]}><AdminNotifications /></ProtectedRoute>} />
@@ -431,8 +698,9 @@ const AppRoutes = () => {
         <Route path="/admin/app-releases" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppReleases /></ProtectedRoute>} />
         <Route path="/admin/themes" element={<ProtectedRoute allowedRoles={["admin"]}><AdminThemes /></ProtectedRoute>} />
         <Route path="/admin/app-manager" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAppManager /></ProtectedRoute>} />
+        <Route path="/admin/boot-errors" element={<ProtectedRoute allowedRoles={["admin"]}><AdminBootErrors /></ProtectedRoute>} />
         <Route path="/admin/audit-logs" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAuditLogs /></ProtectedRoute>} />
-        <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={["admin"]}><AdminKYCReview /></ProtectedRoute>} />
+        <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminKYCReview /></ProtectedRoute>} />
         <Route path="/admin/alerts" element={<ProtectedRoute allowedRoles={["admin"]}><AdminSuspiciousAlerts /></ProtectedRoute>} />
         <Route path="/admin/announcements" element={<ProtectedRoute allowedRoles={["admin"]}><AdminAnnouncements /></ProtectedRoute>} />
         <Route path="/admin/countries" element={<ProtectedRoute allowedRoles={["admin"]}><AdminCountries /></ProtectedRoute>} />
@@ -455,8 +723,11 @@ const AppRoutes = () => {
         <Route path="/api-integrations" element={<APIIntegrations />} />
         <Route path="/open-banking" element={<OpenBanking />} />
         <Route path="/download-app" element={<DownloadApp />} />
+        <Route path="/" element={<Navigate to="/admin" replace />} />
+        <Route path="/index" element={<Navigate to="/admin" replace />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
+      </RoleGuard>
     );
   }
 
@@ -505,6 +776,7 @@ const App = () => (
               <AppRoutes />
             </Suspense>
             <UpdateBanner />
+            <IncidentBanner />
           </ForceUpdateGate>
         </BrowserRouter>
       </TooltipProvider>

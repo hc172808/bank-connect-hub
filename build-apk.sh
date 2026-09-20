@@ -6,6 +6,33 @@ set -euo pipefail
 [[ -f ".env" ]]       && { set +u; source ".env";       set -u; }
 [[ -f ".env.local" ]] && { set +u; source ".env.local"; set -u; }
 
+# ── Auto-detect JAVA_HOME before SDK manager operations ───────────────────────
+# sdkmanager itself requires Java, including when an SDK already exists.
+if [[ -z "${JAVA_HOME:-}" ]]; then
+  for _candidate in \
+      /usr/lib/jvm/java-21-openjdk-amd64 \
+      /usr/lib/jvm/java-21-openjdk \
+      /usr/lib/jvm/temurin-21 \
+      /usr/local/lib/jvm/java-21; do
+    if [[ -d "$_candidate" ]]; then
+      export JAVA_HOME="$_candidate"
+      break
+    fi
+  done
+  if [[ -z "${JAVA_HOME:-}" ]]; then
+    _java_bin=$(command -v java 2>/dev/null || true)
+    if [[ -n "$_java_bin" ]]; then
+      _real=$(readlink -f "$_java_bin")
+      export JAVA_HOME="${_real%/bin/java}"
+    fi
+  fi
+fi
+
+if [[ -z "${JAVA_HOME:-}" ]]; then
+  echo "❌ Java 21 not found. Install it before building the APK."
+  exit 1
+fi
+
 # ── Auto-detect ANDROID_HOME ────────────────────────────────────────────────
 # Priority: env var → common install paths
 if [[ -z "${ANDROID_HOME:-}" ]]; then
@@ -40,16 +67,31 @@ if [[ -z "${ANDROID_HOME:-}" ]]; then
   echo "✅ Android SDK installed at $ANDROID_HOME"
 fi
 
+# An existing SDK can still be incomplete or have unaccepted licenses.
+# Always normalize the required packages before invoking Gradle.
+SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+if [[ ! -x "$SDKMANAGER" ]]; then
+  echo "❌ Android SDK manager not found at $SDKMANAGER"
+  exit 1
+fi
+export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools"
+yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+"$SDKMANAGER" \
+  "platform-tools" \
+  "platforms;android-35" \
+  "build-tools;34.0.0" \
+  --sdk_root="$ANDROID_HOME" >/dev/null
+
 # Always keep local.properties in sync with the detected ANDROID_HOME
 echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
 # ── Auto-detect JAVA_HOME ────────────────────────────────────────────────────
 if [[ -z "${JAVA_HOME:-}" ]]; then
   for _candidate in \
-      /usr/lib/jvm/java-17-openjdk-amd64 \
-      /usr/lib/jvm/java-17-openjdk \
-      /usr/lib/jvm/temurin-17 \
-      /usr/local/lib/jvm/java-17; do
+      /usr/lib/jvm/java-21-openjdk-amd64 \
+      /usr/lib/jvm/java-21-openjdk \
+      /usr/lib/jvm/temurin-21 \
+      /usr/local/lib/jvm/java-21; do
     if [[ -d "$_candidate" ]]; then
       export JAVA_HOME="$_candidate"
       break
@@ -66,7 +108,7 @@ if [[ -z "${JAVA_HOME:-}" ]]; then
 fi
 
 if [[ -z "${JAVA_HOME:-}" ]]; then
-  echo "❌ Java 17 not found. Install it: apt install openjdk-17-jdk"
+  echo "❌ Java 21 not found. Install it: apt install openjdk-21-jdk"
   exit 1
 fi
 
@@ -182,8 +224,8 @@ echo ""
 # FIX: write a static env-config.js into dist/ BEFORE cap sync so the file
 #   is packaged into the APK assets and loaded correctly on every device.
 echo "=== Injecting env-config.js into dist/ (fixes blank APK) ==="
-_SUP_URL="${VITE_SUPABASE_URL:-}"
-_SUP_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-}"
+_SUP_URL="${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}"
+_SUP_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}"
 _SUP_PID="${VITE_SUPABASE_PROJECT_ID:-}"
 _WA_NUM="${VITE_WHATSAPP_SUPPORT_NUMBER:-}"
 
@@ -231,13 +273,21 @@ echo ""
 echo "=== Building ${BUILD_TYPE} APK ==="
 cd android
 
+# Use the checked-in wrapper so builds do not depend on a system-wide Gradle
+# installation. The wrapper also pins the Gradle version required by this
+# Android project.
+if [[ ! -x "./gradlew" ]]; then
+  echo "❌ Android Gradle wrapper is missing or not executable: android/gradlew"
+  exit 1
+fi
+
 # Pass version as Gradle project property for dynamic versionCode/Name
 if [[ "$BUILD_TYPE" == "release" ]]; then
-  gradle assembleRelease --no-daemon -PapkVersion="$VERSION"
+  ./gradlew assembleRelease --no-daemon -PapkVersion="$VERSION"
   RAW_APK="app/build/outputs/apk/release/app-release.apk"
   [[ -f "$RAW_APK" ]] || RAW_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
 else
-  gradle assembleDebug --no-daemon -PapkVersion="$VERSION"
+  ./gradlew assembleDebug --no-daemon -PapkVersion="$VERSION"
   RAW_APK="app/build/outputs/apk/debug/app-debug.apk"
 fi
 

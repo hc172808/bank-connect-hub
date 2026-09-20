@@ -14,7 +14,7 @@ COPY --from=builder /gyds-rpcnode /app/gyds-rpcnode
 RUN mkdir -p /app/data && chown -R gyds:gyds /app
 USER gyds
 VOLUME ["/app/data"]
-ENV GYDS_CHAIN_ID=13370 \
+ENV GYDS_CHAIN_ID=198282 \
     GYDS_NODE_MODE=full \
     GYDS_LOG_LEVEL=info \
     GYDS_DATA_DIR=/app/data \

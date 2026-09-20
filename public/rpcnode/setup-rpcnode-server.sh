@@ -30,7 +30,7 @@ BRANCH="main"
 GO_VERSION="1.22.4"
 
 GYDS_DATADIR="${GYDS_DATADIR:-/var/lib/gyds-rpcnode}"
-GYDS_CHAIN_ID="${GYDS_CHAIN_ID:-13370}"
+GYDS_CHAIN_ID="${GYDS_CHAIN_ID:-198282}"
 GYDS_RPC_PORT="${GYDS_RPC_PORT:-8545}"
 GYDS_WS_PORT="${GYDS_WS_PORT:-8546}"
 GYDS_P2P_PORT="${GYDS_P2P_PORT:-30303}"
@@ -94,7 +94,7 @@ EXAMPLES
 
 METAMASK / TRUST WALLET CONFIG
   Network Name : GYDS Chain
-  Chain ID     : 13370
+  Chain ID     : 198282
   RPC URL      : http://YOUR_IP:8545  (or https:// if --domain is set)
   WebSocket    : ws://YOUR_IP:8546    (or wss:// if --domain is set)
   Symbol       : GYDS

@@ -1,4 +1,5 @@
-import { useNavigate } from "react-router-dom";
+import { useEffect, useNavigate, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, CreditCard, Building, Wallet, Smartphone } from "lucide-react";
@@ -36,6 +37,24 @@ const addOptions = [
 
 const AddMoney = () => {
   const navigate = useNavigate();
+  const [internalFundsEnabled, setInternalFundsEnabled] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    void supabase
+      .from("feature_toggles")
+      .select("is_enabled")
+      .eq("feature_key", "internal_funds")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active) {
+          setInternalFundsEnabled(Boolean(data?.is_enabled));
+          setChecking(false);
+        }
+      });
+    return () => { active = false; };
+  }, []);
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -51,6 +70,14 @@ const AddMoney = () => {
 
         <h1 className="text-2xl font-bold mb-6">Add Money</h1>
 
+        {!checking && !internalFundsEnabled ? (
+          <Card className="p-6">
+            <p className="font-medium">Internal funds are currently disabled</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              An administrator must enable internal-funds controls before deposits can be requested.
+            </p>
+          </Card>
+        ) : (
         <Card>
           <CardHeader>
             <CardTitle>Choose Method</CardTitle>
@@ -73,6 +100,7 @@ const AddMoney = () => {
             ))}
           </CardContent>
         </Card>
+        )}
 
         <p className="text-sm text-muted-foreground text-center mt-6">
           For cash deposits, please visit your nearest agent location

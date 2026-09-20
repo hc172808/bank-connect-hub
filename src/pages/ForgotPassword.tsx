@@ -104,6 +104,8 @@ export default function ForgotPassword() {
   const [showPass, setShowPass]               = useState(false);
   const [phoneLoading, setPhoneLoading]       = useState(false);
   const [resendCooldown, setResendCooldown]   = useState(0);
+  const [resendCount, setResendCount]         = useState(0);
+  const MAX_RESENDS = 3;
 
   // Passkey-reset direct password setter
   const [passkeyNewPass, setPasskeyNewPass]         = useState("");
@@ -156,6 +158,18 @@ export default function ForgotPassword() {
   // ── Phone / SMS OTP flow ──────────────────────────────────────────────────
   const sendOtp = async () => {
     if (!rawPhone) { toast({ title: "Enter your mobile number", variant: "destructive" }); return; }
+    if (resendCooldown > 0) {
+      toast({ title: `Please wait ${resendCooldown}s`, description: "You can request another code shortly.", variant: "destructive" });
+      return;
+    }
+    if (resendCount >= MAX_RESENDS) {
+      toast({
+        title: "Too many code requests",
+        description: "You've reached the limit. Try email recovery or contact support on WhatsApp.",
+        variant: "destructive",
+      });
+      return;
+    }
     setPhoneLoading(true);
     try {
       const res = await fetch("/api/auth/request-reset", {
@@ -167,7 +181,9 @@ export default function ForgotPassword() {
       if (!res.ok) throw new Error(data.error || "Failed to send code");
       setMaskedPhone(data.masked || `${countryCode}****${rawPhone.slice(-4)}`);
       setStep("otp");
-      setResendCooldown(60);
+      setResendCount(c => c + 1);
+      // Escalating cooldown: 60s, 120s, 180s
+      setResendCooldown(60 * Math.min(resendCount + 1, MAX_RESENDS));
       toast({ title: "Code sent!", description: `SMS sent to ${data.masked}` });
     } catch (err: unknown) {
       toast({
@@ -823,18 +839,27 @@ export default function ForgotPassword() {
       <div className="flex items-center justify-between text-sm">
         <button
           className="text-muted-foreground hover:text-foreground underline disabled:opacity-40"
-          disabled={resendCooldown > 0 || phoneLoading}
-          onClick={() => { setStep("phone_form"); setOtp(""); }}
+          disabled={resendCooldown > 0 || phoneLoading || resendCount >= MAX_RESENDS}
+          onClick={() => { setOtp(""); sendOtp(); }}
         >
-          {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend code"}
+          {resendCount >= MAX_RESENDS
+            ? "Resend limit reached"
+            : resendCooldown > 0
+              ? `Resend in ${resendCooldown}s`
+              : `Resend code (${MAX_RESENDS - resendCount} left)`}
         </button>
         <button
           className="text-muted-foreground hover:text-foreground underline"
-          onClick={() => setStep("phone_form")}
+          onClick={() => { setStep("phone_form"); setOtp(""); }}
         >
           Change number
         </button>
       </div>
+      {resendCount >= MAX_RESENDS && (
+        <p className="text-xs text-destructive text-center">
+          You've requested the maximum number of SMS codes. Use email recovery or contact support.
+        </p>
+      )}
     </div>
   );
 

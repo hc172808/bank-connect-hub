@@ -2,13 +2,6 @@ import { ethers } from "ethers";
 
 const RPC_TIMEOUT_MS = 8000;
 
-// ── Public BSC fallbacks — always last in the chain ──────────────────────────
-const PUBLIC_BSC_RPCS = [
-  "https://bsc-dataseed.binance.org",
-  "https://bsc-dataseed1.binance.org",
-  "https://bsc-dataseed2.binance.org",
-];
-
 // ── Node config cache — fetched from build-server, refreshed every 60 s ──────
 interface NodeConfig {
   FULLNODE_RPC_1: string;
@@ -37,8 +30,10 @@ async function fetchNodeConfig(): Promise<NodeConfig | null> {
 }
 
 /**
- * Build the full RPC chain for a given primary URL:
- *   FULLNODE_RPC_1 → FULLNODE_RPC_2 → FULLNODE_RPC_3 → primaryUrl → public BSC RPCs
+ * Build the private RPC chain for a given primary URL.
+ *
+ * There are intentionally no public-network fallbacks. A private financial
+ * system must fail closed when its own node is unavailable.
  *
  * Empty / duplicate entries are filtered out automatically.
  */
@@ -57,16 +52,11 @@ export async function getNodeRpcChain(primaryUrl?: string): Promise<string[]> {
     ordered.push(primaryUrl.trim());
   }
 
-  for (const pub of PUBLIC_BSC_RPCS) {
-    if (!ordered.includes(pub)) ordered.push(pub);
-  }
-
   return ordered;
 }
 
 /**
- * Get a working provider using the full node fallback chain.
- * Tries custom fullnodes first, then the app's configured RPC, then public BSC RPCs.
+ * Get a working provider using only configured private nodes.
  */
 export async function getChainedProvider(
   primaryUrl?: string

@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { spawn, execSync, exec } from "child_process";
+import { spawn, execSync, exec, execFileSync } from "child_process";
 import { promisify } from "util";
 const execAsync = promisify(exec);
 import fs from "fs";
@@ -8,6 +8,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import webpush from "web-push";
 import crypto from "crypto";
+import WebSocket from "ws";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -49,6 +50,41 @@ app.use((req, res, next) => {
   res.set('Expires', '0');
   next();
 });
+
+// Prefer the project reference when it is available. This keeps a stale
+// VITE_SUPABASE_URL from pointing the browser at an older Supabase project
+// after the project is switched in Replit Secrets.
+function getSupabaseUrl() {
+  const projectId = (
+    process.env.VITE_SUPABASE_PROJECT_ID ||
+    process.env.SUPABASE_PROJECT_ID ||
+    process.env.PROJECT_ID ||
+    ""
+  ).trim();
+  const configuredUrl = (
+    process.env.SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    ""
+  ).trim();
+  const requestedProjectUrl = "https://ocngdgwelxaiyzdywjld.supabase.co";
+  const legacyProjectRef = "pdsjwvcxolifgvwjvtwy";
+
+  // Migration guard for the previous project. Remove this branch after the
+  // Replit secret has been replaced with the new project URL/reference.
+  if (projectId === legacyProjectRef || configuredUrl.includes(`${legacyProjectRef}.supabase.co`)) {
+    return requestedProjectUrl;
+  }
+  // SUPABASE_URL is the authoritative server-side setting. PROJECT_ID can be
+  // a Replit project id rather than a Supabase project ref, and deriving a
+  // hostname from it can silently point the browser at a nonexistent project.
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+  if (/^[a-z0-9]{20}$/.test(projectId)) {
+    return `https://${projectId}.supabase.co`;
+  }
+  return configuredUrl;
+}
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 function loadBuilds() {
@@ -93,11 +129,29 @@ app.get("/api/health", (_req, res) => {
 });
 
 // GET /api/config — serve public client config (keeps secrets off the browser bundle)
+// Header-safe: strip quotes/whitespace and drop values with non-ASCII
+// characters (smart quotes, en-dashes, non-breaking spaces) that would make
+// every browser fetch fail with "String contains non ISO-8859-1 code point".
+function headerSafe(value, label) {
+  const cleaned = String(value || "")
+    .replace(/^[\s\u00a0\ufeff"']+|[\s\u00a0\ufeff"']+$/g, "")
+    .replace(/[\r\n\t]/g, "");
+  if (!/^[\x20-\x7e]*$/.test(cleaned)) {
+    console.error(`[config] ${label} contains invalid non-ASCII characters — check your .env. Serving empty value.`);
+    return "";
+  }
+  return cleaned;
+}
+
 app.get("/api/config", (_req, res) => {
   res.json({
-    supabaseUrl: process.env.VITE_SUPABASE_URL || "",
-    supabaseAnonKey: process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "",
-    whatsappNumber: process.env.VITE_WHATSAPP_SUPPORT_NUMBER || "",
+    supabaseUrl: headerSafe(getSupabaseUrl(), "VITE_SUPABASE_URL"),
+    supabaseAnonKey: headerSafe(
+      process.env.SUPABASE_PUBLISHABLE_KEY ||
+        process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      "VITE_SUPABASE_PUBLISHABLE_KEY"
+    ),
+    whatsappNumber: headerSafe(process.env.VITE_WHATSAPP_SUPPORT_NUMBER, "VITE_WHATSAPP_SUPPORT_NUMBER"),
   });
 });
 
@@ -411,20 +465,23 @@ app.post("/api/git-pull", (req, res) => {
 
     if (remote) {
       try {
-        const setRemote = execSync(`git remote get-url origin`, { cwd: __dirname }).toString().trim();
+        const setRemote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: __dirname }).toString().trim();
         if (setRemote !== remote) {
-          execSync(`git remote set-url origin "${remote}"`, { cwd: __dirname });
+          execFileSync("git", ["remote", "set-url", "origin", remote], { cwd: __dirname });
           output.push(`Remote updated to: ${remote}`);
         }
       } catch {
-        execSync(`git remote add origin "${remote}"`, { cwd: __dirname });
+        execFileSync("git", ["remote", "add", "origin", remote], { cwd: __dirname });
         output.push(`Remote set to: ${remote}`);
       }
     }
 
-    const pullOut = execSync(`git pull origin "${branch}" 2>&1`, {
+    const activeRemote = remote || execFileSync("git", ["remote", "get-url", "origin"], { cwd: __dirname }).toString().trim();
+    const pullOut = execFileSync("git", ["pull", "origin", branch], {
       cwd: __dirname,
       timeout: 120_000,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: gitEnvForRemote(activeRemote),
     }).toString();
 
     output.push(...pullOut.split("\n").filter(Boolean));
@@ -440,6 +497,61 @@ app.post("/api/git-pull", (req, res) => {
 // ── App Update (git pull + npm install + optional restart) ───────────────────
 // Tracks the in-progress update so only one runs at a time
 let updateJob = null; // { logs[], status: "running"|"done"|"failed", listeners[] }
+
+function findGitRoot() {
+  const candidates = [
+    __dirname,
+    process.cwd(),
+    path.dirname(__dirname),
+    "/home/runner/workspace",
+  ];
+  const seen = new Set();
+
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    try {
+      return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+        cwd: candidate,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).toString().trim();
+    } catch {
+      // Try the next known project location.
+    }
+  }
+
+  return null;
+}
+
+const GIT_ASKPASS_HELPER = path.join("/tmp", "vbank-git-askpass.cjs");
+
+function ensureGitAskpassHelper() {
+  if (!fs.existsSync(GIT_ASKPASS_HELPER)) {
+    fs.writeFileSync(
+      GIT_ASKPASS_HELPER,
+      [
+        "const prompt = process.argv.slice(2).join(' ').toLowerCase();",
+        "process.stdout.write(prompt.includes('username') ? 'x-access-token' : (process.env.GIT_ASKPASS_VALUE || ''));",
+        "",
+      ].join("\n"),
+      { mode: 0o700 },
+    );
+  }
+  return GIT_ASKPASS_HELPER;
+}
+
+function gitEnvForRemote(remoteUrl) {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+  const token = process.env.GITHUB_TOKEN;
+  if (token && /github\.com/i.test(String(remoteUrl || ""))) {
+    // Keep the credential out of .git/config, the remote URL, and streamed logs.
+    // GitHub receives it through this short-lived child-process environment.
+    env.GIT_ASKPASS = ensureGitAskpassHelper();
+    env.GIT_ASKPASS_VALUE = token;
+    env.GIT_USERNAME = "x-access-token";
+  }
+  return env;
+}
 
 function updateSseSend(data) {
   if (!updateJob) return;
@@ -501,25 +613,38 @@ app.post("/api/update", (req, res) => {
       // ── Step 1: optionally update remote ───────────────────────────────────
       if (remote) {
         step("Configuring git remote…");
+        const gitRoot = findGitRoot();
+        if (!gitRoot) {
+          throw new Error(
+            "This running app is not inside a Git repository. Open the Replit workspace from the repository checkout or initialize/clone the repository before using Pull & Update.",
+          );
+        }
         try {
-          const existing = execSync("git remote get-url origin", { cwd: __dirname }).toString().trim();
+          const existing = execFileSync("git", ["remote", "get-url", "origin"], { cwd: gitRoot }).toString().trim();
           if (existing !== remote) {
-            execSync(`git remote set-url origin "${remote}"`, { cwd: __dirname });
+            execFileSync("git", ["remote", "set-url", "origin", remote], { cwd: gitRoot });
             log(`Remote updated to: ${remote}`);
           }
         } catch {
-          execSync(`git remote add origin "${remote}"`, { cwd: __dirname });
+          execFileSync("git", ["remote", "add", "origin", remote], { cwd: gitRoot });
           log(`Remote added: ${remote}`);
         }
       }
 
       // ── Step 2: git pull ───────────────────────────────────────────────────
       step(`Pulling from origin/${branch}…`);
+      const gitRoot = findGitRoot();
+      if (!gitRoot) {
+        throw new Error(
+          "This running app is not inside a Git repository. Pull & Update cannot run until the project is started from a Git checkout.",
+        );
+      }
+      const activeRemote = remote || execFileSync("git", ["remote", "get-url", "origin"], { cwd: gitRoot }).toString().trim();
       await new Promise((resolve, reject) => {
         const proc = spawn("git", ["pull", "origin", branch], {
-          cwd: __dirname,
+          cwd: gitRoot,
           stdio: ["ignore", "pipe", "pipe"],
-          env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+          env: gitEnvForRemote(activeRemote),
         });
         proc.stdout.on("data", (d) => d.toString().split("\n").filter(Boolean).forEach(log));
         proc.stderr.on("data", (d) => d.toString().split("\n").filter(Boolean).forEach(log));
@@ -720,6 +845,7 @@ app.post("/api/push/send", async (req, res) => {
 const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM  = process.env.TWILIO_PHONE_NUMBER;
+const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || "";
 
 const twilioOk = () => !!(TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM);
 
@@ -730,8 +856,27 @@ async function sendSms(to, body) {
   return client.messages.create({ body, from: TWILIO_FROM, to });
 }
 
+const whatsappOk = () => !!(TWILIO_SID && TWILIO_TOKEN && TWILIO_WHATSAPP_FROM);
+
+async function sendWhatsApp(to, body) {
+  if (!whatsappOk()) throw new Error("WhatsApp delivery is not configured.");
+  const twilio = (await import("twilio")).default;
+  const client = twilio(TWILIO_SID, TWILIO_TOKEN);
+  const from = TWILIO_WHATSAPP_FROM.startsWith("whatsapp:")
+    ? TWILIO_WHATSAPP_FROM
+    : `whatsapp:${TWILIO_WHATSAPP_FROM}`;
+  const recipient = String(to).startsWith("whatsapp:")
+    ? String(to)
+    : `whatsapp:${to}`;
+  return client.messages.create({ body, from, to: recipient });
+}
+
 app.get("/api/sms/status", (_req, res) => {
-  res.json({ configured: twilioOk(), from: TWILIO_FROM ? TWILIO_FROM.replace(/\d(?=\d{4})/g, "*") : null });
+  res.json({
+    configured: twilioOk(),
+    whatsappConfigured: whatsappOk(),
+    from: TWILIO_FROM ? TWILIO_FROM.replace(/\d(?=\d{4})/g, "*") : null,
+  });
 });
 
 // POST /api/sms/send — raw SMS (admin)
@@ -799,13 +944,44 @@ app.post("/api/sms/broadcast", async (req, res) => {
 // Password Reset via OTP (Twilio SMS + Supabase Admin)
 // ══════════════════════════════════════════════════════════════════════════════
 
-const SUPABASE_URL      = process.env.VITE_SUPABASE_URL;
-const SUPABASE_ADMIN_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // optional
+const SUPABASE_URL      = getSupabaseUrl();
+const SUPABASE_ADMIN_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SECRET_KEY; // optional
+const SUPABASE_PUBLISHABLE_KEY =
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 /** In-memory OTP store: email -> { otpHash, expiresAt, attempts } */
 const resetOtpStore = new Map();
 
 const adminOk = () => !!(SUPABASE_URL && SUPABASE_ADMIN_KEY);
+
+function normalizePhoneDigits(value) {
+  let digits = String(value || "").replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  // The app's default country is Guyana. CountryPhoneInput normally sends
+  // E.164, but this also canonicalizes seven-digit legacy entries.
+  if (digits.length === 7) digits = `592${digits}`;
+  return digits;
+}
+
+function phoneEmailCandidates(value) {
+  const raw = String(value || "").replace(/\D/g, "");
+  const normalized = normalizePhoneDigits(value);
+  return [...new Set([
+    `${normalized}@vbank.com`,
+    `${raw}@vbank.com`,
+    `${raw.replace(/^592/, "")}@vbank.com`,
+    `${normalized}@virtualbank.app`,
+    `${raw}@virtualbank.app`,
+  ].filter((email) => !email.startsWith("@")))];
+}
+
+function phoneToE164(value) {
+  const digits = normalizePhoneDigits(value);
+  return digits ? `+${digits}` : "";
+}
 
 function hashOtp(otp) {
   return crypto.createHash("sha256").update(otp).digest("hex");
@@ -819,9 +995,99 @@ function generateOtp() {
 app.get("/api/auth/reset-status", (_req, res) => {
   res.json({
     smsAvailable: twilioOk(),
+    whatsappAvailable: whatsappOk(),
     adminResetAvailable: adminOk(),
     emailAvailable: smtpOk(),
   });
+});
+
+/** In-memory pre-authentication OTP store. Sessions are released only after
+ * the one-time code is verified. A process restart invalidates pending codes. */
+const loginOtpStore = new Map();
+
+// POST /api/auth/request-login-otp { phone, password }
+app.post("/api/auth/request-login-otp", async (req, res) => {
+  const { phone, password } = req.body || {};
+  if (!phone || !password) return res.status(400).json({ error: "Phone number and password are required." });
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    return res.status(503).json({ error: "Supabase authentication is not configured on the server." });
+  }
+  if (!whatsappOk()) {
+    return res.status(503).json({ error: "WhatsApp login verification is not configured. Add TWILIO_WHATSAPP_FROM on the server." });
+  }
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const authClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    let authData = null;
+    let lastError = null;
+    for (const email of phoneEmailCandidates(phone)) {
+      const result = await authClient.auth.signInWithPassword({ email, password });
+      if (!result.error && result.data.session && result.data.user) {
+        authData = result.data;
+        break;
+      }
+      lastError = result.error;
+    }
+    if (!authData) {
+      return res.status(401).json({ error: lastError?.message || "Invalid phone number or password." });
+    }
+
+    const e164 = phoneToE164(authData.user.user_metadata?.phone_number || phone);
+    if (!e164) return res.status(400).json({ error: "The account does not have a valid phone number." });
+
+    const code = generateOtp();
+    const challengeId = crypto.randomBytes(24).toString("hex");
+    loginOtpStore.set(challengeId, {
+      otpHash: hashOtp(code),
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      attempts: 0,
+      session: authData.session,
+      user: authData.user,
+    });
+
+    try {
+      await sendWhatsApp(
+        e164,
+        `NETLIFE CASH: Your login verification code is ${code}. It expires in 5 minutes. Never share this code.`,
+      );
+    } catch (deliveryError) {
+      loginOtpStore.delete(challengeId);
+      console.error("[login-otp] WhatsApp delivery error:", deliveryError.message);
+      return res.status(503).json({ error: "We could not send the WhatsApp verification code. Try again or contact an agent." });
+    }
+
+    const masked = `${e164.slice(0, 3)}${"*".repeat(Math.max(0, e164.length - 7))}${e164.slice(-4)}`;
+    res.json({ ok: true, challengeId, masked, expiresIn: 300 });
+  } catch (err) {
+    console.error("[login-otp] request error:", err.message);
+    res.status(500).json({ error: "Unable to start login verification." });
+  }
+});
+
+// POST /api/auth/verify-login-otp { challengeId, code }
+app.post("/api/auth/verify-login-otp", (req, res) => {
+  const { challengeId, code } = req.body || {};
+  const entry = loginOtpStore.get(String(challengeId || ""));
+  if (!entry) return res.status(400).json({ error: "This login code has expired. Request a new one." });
+  if (Date.now() > entry.expiresAt) {
+    loginOtpStore.delete(challengeId);
+    return res.status(400).json({ error: "This login code has expired. Request a new one." });
+  }
+  entry.attempts += 1;
+  if (entry.attempts > 5) {
+    loginOtpStore.delete(challengeId);
+    return res.status(429).json({ error: "Too many attempts. Request a new code." });
+  }
+  if (hashOtp(String(code || "")) !== entry.otpHash) {
+    return res.status(400).json({ error: `Incorrect code. ${5 - entry.attempts} attempt(s) remaining.` });
+  }
+
+  loginOtpStore.delete(challengeId);
+  res.json({ ok: true, session: entry.session, user: entry.user });
 });
 
 // POST /api/auth/request-reset  { phone, countryCode }
@@ -882,6 +1148,7 @@ app.post("/api/auth/verify-reset", async (req, res) => {
     const { createClient } = await import("@supabase/supabase-js");
     const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
 
     // Look up user by the virtual email
@@ -909,6 +1176,7 @@ app.post("/api/auth/verify-reset", async (req, res) => {
   }
 });
 
+/*
 // GET /api/setup-admin — one-shot browser page that creates the admin user via client-side JS
 app.get("/api/setup-admin", (_req, res) => {
   // Read creds from .env fallback
@@ -923,7 +1191,7 @@ app.get("/api/setup-admin", (_req, res) => {
       };
       supabaseUrl = supabaseUrl || parse("VITE_SUPABASE_URL");
       anonKey     = anonKey    || parse("VITE_SUPABASE_PUBLISHABLE_KEY");
-    } catch { /* ignore */ }
+    } catch { }
   }
   res.setHeader("Content-Type", "text/html");
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Admin Setup</title>
@@ -1066,60 +1334,255 @@ app.post("/api/auth/create-user", async (req, res) => {
   if (!isLocal) return res.status(403).json({ error: "Forbidden" });
 
   const { email, password, metadata = {} } = req.body || {};
+*/
+// POST /api/auth/ensure-admin — idempotent: create OR confirm+fix existing admin user
+// Accepts { email, password, metadata, legacyEmails? }
+// legacyEmails: older emails for the same account (e.g. without country code) that
+//               should be migrated to the canonical email automatically.
+app.post("/api/auth/ensure-admin", async (req, res) => {
+  const { email, password, metadata = {}, legacyEmails = [] } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: "email and password required" });
 
-  // Load from env OR parse .env file as fallback
-  let supabaseUrl = process.env.VITE_SUPABASE_URL;
-  let anonKey    = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  let serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !anonKey) {
+  let supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  let serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+  if (!supabaseUrl || !serviceKey) {
     try {
       const dotenv = fs.readFileSync(path.join(__dirname, ".env"), "utf8");
-      const parse = (key) => {
-        const m = dotenv.match(new RegExp(`^${key}="?([^"\\n]+)"?`, "m"));
-        return m?.[1] || "";
-      };
-      supabaseUrl = supabaseUrl || parse("VITE_SUPABASE_URL");
-      anonKey     = anonKey    || parse("VITE_SUPABASE_PUBLISHABLE_KEY");
-      serviceKey  = serviceKey || parse("SUPABASE_SERVICE_ROLE_KEY");
+      const parse  = (key) => { const m = dotenv.match(new RegExp(`^${key}="?([^"\\n]+)"?`, "m")); return m?.[1] || ""; };
+      supabaseUrl = supabaseUrl || parse("VITE_SUPABASE_URL") || parse("SUPABASE_URL");
+      serviceKey  = serviceKey || parse("SUPABASE_SERVICE_ROLE_KEY") || parse("SUPABASE_SECRET_KEY");
     } catch { /* ignore */ }
   }
-  if (!supabaseUrl || !anonKey) return res.status(503).json({ error: "Supabase not configured" });
+  if (!supabaseUrl || !serviceKey) {
+    return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured on this server." });
+  }
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const admin = createClient(supabaseUrl, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
+    });
+
+    // Load all users once (used for lookup)
+    const { data: { users }, error: listErr } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    if (listErr) throw new Error(listErr.message);
+
+    let userId = null;
+    let action  = "";
+
+    // 1. Check if canonical email already exists
+    const canonical = users.find((u) => u.email === email);
+    if (canonical) {
+      userId = canonical.id;
+      // Ensure email is confirmed, password and metadata are current
+      const { error: updateErr } = await admin.auth.admin.updateUserById(userId, {
+        password, email_confirm: true, user_metadata: metadata,
+      });
+      if (updateErr) throw new Error(updateErr.message);
+      action = "confirmed+updated";
+      console.log("[ensure-admin] Canonical user found — confirmed:", email);
+
+    } else {
+      // 2. Check for legacy email (e.g. without country code)
+      const legacy = users.find((u) => legacyEmails.includes(u.email));
+      if (legacy) {
+        userId = legacy.id;
+        // Migrate: update email to canonical + confirm + fix password+metadata
+        const { error: migrateErr } = await admin.auth.admin.updateUserById(userId, {
+          email, password, email_confirm: true, user_metadata: metadata,
+        });
+        if (migrateErr) throw new Error(migrateErr.message);
+        action = "migrated+confirmed";
+        console.log("[ensure-admin] Legacy user migrated:", legacy.email, "→", email);
+
+      } else {
+        // 3. Create brand-new user (email pre-confirmed)
+        const { data: created, error: createErr } = await admin.auth.admin.createUser({
+          email, password, user_metadata: metadata, email_confirm: true,
+        });
+        if (createErr) throw new Error(createErr.message);
+        userId = created.user.id;
+        action = "created";
+        console.log("[ensure-admin] New user created:", email);
+      }
+    }
+
+    // 4. Upsert admin role in user_roles (best-effort)
+    if (userId) {
+      const role = metadata.account_type || "admin";
+      const { error: roleErr } = await admin.from("user_roles").upsert({ user_id: userId, role });
+      if (roleErr) console.warn("[ensure-admin] user_roles upsert:", roleErr.message);
+    }
+
+    res.json({ ok: true, userId, action, confirmed: true });
+  } catch (err) {
+    console.error("[ensure-admin]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/create-user — staff-assisted account creation when a user
+// cannot receive the WhatsApp verification code. The service-role key stays
+// on this server; the browser only sends the authenticated staff session.
+app.post("/api/auth/create-user", async (req, res) => {
+  const authorization = String(req.headers.authorization || "");
+  const accessToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (!accessToken) return res.status(401).json({ error: "Staff sign-in required." });
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured on this server." });
+
+  const { fullName, phone, password } = req.body || {};
+  const digits = normalizePhoneDigits(phone);
+  const e164 = phoneToE164(phone);
+  if (!fullName || !digits || !password) {
+    return res.status(400).json({ error: "Full name, phone number, and password are required." });
+  }
+  if (digits.length < 7) return res.status(400).json({ error: "Enter a valid phone number." });
+  if (String(password).length < 8) return res.status(400).json({ error: "Password must be at least 8 characters." });
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const admin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
+    });
+
+    const { data: actorResult, error: actorError } = await admin.auth.getUser(accessToken);
+    if (actorError || !actorResult?.user) return res.status(401).json({ error: "Staff session is invalid or expired." });
+
+    let actorRole = actorResult.user.user_metadata?.account_type || actorResult.user.user_metadata?.role;
+    const { data: roleRow } = await admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", actorResult.user.id)
+      .limit(1)
+      .maybeSingle();
+    if (roleRow?.role) actorRole = roleRow.role;
+    if (actorRole !== "admin" && actorRole !== "agent") {
+      return res.status(403).json({ error: "Only an admin or agent can add users." });
+    }
+
+    const email = `${digits}@vbank.com`;
+    const { data: usersResult, error: listError } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    if (listError) throw new Error(listError.message);
+    const existing = usersResult.users.find((candidate) =>
+      phoneEmailCandidates(phone).includes(candidate.email) ||
+      normalizePhoneDigits(candidate.user_metadata?.phone_number) === digits
+    );
+    if (existing) return res.status(409).json({ error: "An account already exists for this phone number." });
+
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email,
+      password: String(password),
+      email_confirm: true,
+      user_metadata: {
+        full_name: String(fullName).trim(),
+        phone_number: e164,
+        role: "client",
+        account_type: "client",
+        phone_verified: true,
+        verification_method: "staff_manual",
+      },
+    });
+    if (createError || !created.user) throw new Error(createError?.message || "User could not be created.");
+
+    // Triggers normally create these rows. These upserts make staff-created
+    // accounts usable on projects where the trigger was not applied.
+    await admin.from("profiles").upsert({
+      id: created.user.id,
+      full_name: String(fullName).trim(),
+      phone_number: e164,
+      kyc_status: "unverified",
+    });
+    await admin.from("user_roles").upsert(
+      { user_id: created.user.id, role: "client" },
+      { onConflict: "user_id,role" },
+    );
+    await admin.from("whatsapp_verification_requests").insert({
+      user_id: created.user.id,
+      phone_number: e164,
+      verification_code: "MANUAL",
+      status: "verified",
+      admin_notes: `Manually verified by ${actorRole}.`,
+      verified_at: new Date().toISOString(),
+      verified_by: actorResult.user.id,
+    });
+
+    res.json({ ok: true, userId: created.user.id, email, verification: "manual" });
+  } catch (err) {
+    console.error("[create-user]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/register — public registration for customer/vendor accounts.
+// The service-role key stays on the server so email confirmation can be skipped
+// when configured. Never allow a browser request to create an admin account.
+app.post("/api/auth/register", async (req, res) => {
+  const { email, password, metadata = {} } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required." });
+  }
+  if (String(password).length < 6) {
+    return res.status(400).json({ error: "Password must be at least 6 characters." });
+  }
+
+  const safeMetadata = {
+    full_name: String(metadata.full_name || "").trim(),
+    phone_number: String(metadata.phone_number || "").trim(),
+    account_type: metadata.account_type === "vendor" ? "vendor" : "client",
+  };
 
   try {
     const { createClient } = await import("@supabase/supabase-js");
 
-    // Try admin client first (if service role key is available)
-    if (serviceKey) {
-      const adminClient = createClient(supabaseUrl, serviceKey, {
+    if (adminOk()) {
+      const admin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
         auth: { autoRefreshToken: false, persistSession: false },
+        realtime: { transport: WebSocket },
       });
-      const { data, error } = await adminClient.auth.admin.createUser({
-        email,
-        password,
-        user_metadata: metadata,
+      const { data, error } = await admin.auth.admin.createUser({
+        email: String(email).trim().toLowerCase(),
+        password: String(password),
+        user_metadata: safeMetadata,
         email_confirm: true,
       });
       if (error) throw new Error(error.message);
-      const userId = data.user.id;
-      // Insert admin role into user_roles
-      await adminClient.from("user_roles").upsert({ user_id: userId, role: metadata.account_type || "client" });
-      return res.json({ ok: true, userId, method: "admin" });
+
+      // The auth trigger normally creates this row. Upsert keeps registration
+      // working if a deployment has not applied the trigger yet.
+      const { error: roleError } = await admin.from("user_roles").upsert(
+        { user_id: data.user.id, role: safeMetadata.account_type },
+        { onConflict: "user_id,role" },
+      );
+      if (roleError) console.warn("[register] user_roles upsert:", roleError.message);
+
+      return res.json({ ok: true, userId: data.user.id, confirmed: true });
     }
 
-    // Fallback: anon key signup (metadata.account_type will serve as role fallback)
-    const client = createClient(supabaseUrl, anonKey);
-    const { data, error } = await client.auth.signUp({ email, password, options: { data: metadata } });
-    if (error) throw new Error(error.message);
-    const userId = data.user?.id;
-    // Also try inserting into user_roles (may fail if RLS blocks it — metadata fallback handles it)
-    if (userId) {
-      await client.from("user_roles").upsert({ user_id: userId, role: metadata.account_type || "client" }).catch(() => {});
+    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+      return res.status(503).json({ error: "Supabase is not configured on this server." });
     }
-    return res.json({ ok: true, userId, method: "anon", needsConfirmation: !data.session });
+
+    const client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+    const { data, error } = await client.auth.signUp({
+      email: String(email).trim().toLowerCase(),
+      password: String(password),
+      options: { data: safeMetadata },
+    });
+    if (error) throw new Error(error.message);
+
+    return res.json({
+      ok: true,
+      userId: data.user?.id || null,
+      confirmed: Boolean(data.session),
+      needsConfirmation: !data.session,
+    });
   } catch (err) {
-    console.error("[create-user]", err.message);
-    res.status(500).json({ error: err.message });
+    console.error("[register]", err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -1147,27 +1610,54 @@ app.delete("/api/auth/pending-resets/:email", (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /api/auth/all-users — list all Supabase users with profile info (admin only)
-app.get("/api/auth/all-users", async (_req, res) => {
+// GET /api/auth/all-users — list all Supabase users with profile info (staff only)
+app.get("/api/auth/all-users", async (req, res) => {
   if (!adminOk()) return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured" });
   try {
     const { createClient } = await import("@supabase/supabase-js");
     const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
+    const bearer = String(req.headers.authorization || "");
+    const accessToken = bearer.startsWith("Bearer ") ? bearer.slice(7).trim() : "";
+    if (!accessToken) return res.status(401).json({ error: "Staff sign-in required." });
+    const { data: actorResult, error: actorError } = await adminClient.auth.getUser(accessToken);
+    if (actorError || !actorResult?.user) return res.status(401).json({ error: "Staff session is invalid or expired." });
+    let actorRole = actorResult.user.user_metadata?.account_type || actorResult.user.user_metadata?.role;
+    const { data: actorRoleRow } = await adminClient
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", actorResult.user.id)
+      .limit(1)
+      .maybeSingle();
+    if (actorRoleRow?.role) actorRole = actorRoleRow.role;
+    if (actorRole !== "admin" && actorRole !== "agent") {
+      return res.status(403).json({ error: "Only an admin or agent can view users." });
+    }
     const { data: { users }, error } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
     if (error) throw new Error(error.message);
 
     // Fetch profiles for display names
-    const supaAdmin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY);
-    const { data: profiles } = await supaAdmin.from("profiles").select("id, full_name, phone_number");
+    const supaAdmin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      realtime: { transport: WebSocket },
+    });
+    // Older Supabase projects may only have id/timestamps on profiles. Read
+    // the available row shape and fall back to Auth metadata below instead of
+    // failing the entire user list on a missing optional column.
+    const { data: profiles } = await supaAdmin.from("profiles").select("*");
     const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
+    const { data: roleRows } = await supaAdmin.from("user_roles").select("user_id, role");
+    const roleMap = Object.fromEntries((roleRows || []).map((row) => [row.user_id, row.role]));
 
     const list = users.map((u) => ({
       id: u.id,
       email: u.email,
-      fullName: profileMap[u.id]?.full_name || null,
-      phone: profileMap[u.id]?.phone_number || null,
+       fullName: profileMap[u.id]?.full_name || u.user_metadata?.full_name || null,
+       phone: profileMap[u.id]?.phone_number || u.user_metadata?.phone_number || null,
+       walletAddress: profileMap[u.id]?.wallet_address || u.user_metadata?.wallet_address || null,
+       disabled: Boolean(profileMap[u.id]?.disabled),
+      role: roleMap[u.id] || u.user_metadata?.account_type || u.user_metadata?.role || "client",
       createdAt: u.created_at,
       lastSignIn: u.last_sign_in_at,
     }));
@@ -1175,6 +1665,31 @@ app.get("/api/auth/all-users", async (_req, res) => {
   } catch (err) {
     console.error("[reset] all-users error:", err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/auth/phone-availability?phone=... — duplicate-phone guard for signup
+app.get("/api/auth/phone-availability", async (req, res) => {
+  const digits = normalizePhoneDigits(req.query.phone);
+  if (digits.length < 10) return res.status(400).json({ error: "Enter a valid phone number." });
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
+    });
+    const { data: { users }, error } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
+    if (error) throw new Error(error.message);
+    const emails = phoneEmailCandidates(req.query.phone);
+    const duplicate = users.some((candidate) =>
+      emails.includes(candidate.email) ||
+      normalizePhoneDigits(candidate.user_metadata?.phone_number) === digits
+    );
+    res.json({ available: !duplicate });
+  } catch (err) {
+    console.error("[phone-availability]", err.message);
+    res.status(500).json({ error: "Could not check phone availability." });
   }
 });
 
@@ -1188,6 +1703,7 @@ app.post("/api/auth/admin-set-password", async (req, res) => {
     const { createClient } = await import("@supabase/supabase-js");
     const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
 
     const { error } = await adminClient.auth.admin.updateUserById(userId, { password: newPassword });
@@ -1589,7 +2105,8 @@ function writeEnvVars(vars) {
 // GET /api/nodes/config — returns current node configuration
 app.get("/api/nodes/config", (_req, res) => {
   res.json({
-    UPSTREAM_RPC:         process.env.UPSTREAM_RPC         || "https://bsc-dataseed.binance.org",
+    // No public-network default: private ledger infrastructure must fail closed.
+    UPSTREAM_RPC:         process.env.UPSTREAM_RPC         || "",
     BOOTNODE_URL:         process.env.BOOTNODE_URL          || "",
     FULLNODE_RPC_1:       process.env.FULLNODE_RPC_1        || "",
     FULLNODE_RPC_2:       process.env.FULLNODE_RPC_2        || "",
@@ -1649,6 +2166,8 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`[build-server] listening on port ${PORT}`);
   if (twilioOk()) console.log(`[build-server] SMS (Twilio) ✓  from ${TWILIO_FROM}`);
   else            console.log(`[build-server] SMS (Twilio) — not configured (set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER)`);
+  if (whatsappOk()) console.log(`[build-server] WhatsApp OTP (Twilio) ✓`);
+  else               console.log(`[build-server] WhatsApp OTP — not configured (set TWILIO_WHATSAPP_FROM)`);
   if (smtpOk())   console.log(`[build-server] Email (SMTP) ✓  ${SMTP_HOST}:${SMTP_PORT}`);
   else            console.log(`[build-server] Email (SMTP)  — not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS)`);
 });

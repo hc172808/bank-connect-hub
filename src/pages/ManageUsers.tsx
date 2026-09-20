@@ -6,8 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2 } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { CountryPhoneInput } from "@/components/CountryPhoneInput";
+import { useAuth } from "@/hooks/useAuth";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -15,6 +17,7 @@ import {
 
 interface User {
   id: string;
+  email?: string | null;
   full_name: string | null;
   phone_number: string | null;
   wallet_address: string | null;
@@ -31,8 +34,12 @@ const ManageUsers = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
+  const [newUser, setNewUser] = useState({ fullName: "", phone: "", password: "" });
+  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { role: staffRole } = useAuth();
+  const staffHome = staffRole === "agent" ? "/agent" : "/admin";
 
   useEffect(() => {
     fetchUsers();
@@ -52,40 +59,58 @@ const ManageUsers = () => {
 
   const fetchUsers = async () => {
     try {
-      const { data: profiles, error } = await supabase
-        .from("profiles")
-        .select("id, full_name, phone_number, wallet_address, disabled");
-
-      if (error) {
-        console.error("Error fetching profiles:", error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to load users. Make sure you have admin access.",
-        });
-        setLoading(false);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
+      const response = await fetch("/api/auth/all-users", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setUsers((result.users || []).map((item: any) => ({
+          id: item.id,
+          email: item.email || null,
+          full_name: item.fullName || null,
+          phone_number: item.phone || null,
+          wallet_address: item.walletAddress || null,
+          disabled: Boolean(item.disabled),
+          role: item.role || "client",
+        })));
         return;
       }
 
-      if (profiles) {
-        const usersWithRoles = await Promise.all(
-          profiles.map(async (profile) => {
-            const { data: roleData } = await supabase
-              .from("user_roles")
-              .select("role")
-              .eq("user_id", profile.id)
-              .single();
+      // Listing auth.users requires the optional service-role key. Fall back
+      // to the authenticated staff session so the page still works when the
+      // build server is intentionally configured without that secret.
+      const [{ data: profiles, error: profilesError }, { data: roleRows, error: rolesError }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("*")
+          .order("created_at", { ascending: false }),
+        supabase.from("user_roles").select("user_id, role"),
+      ]);
+      if (profilesError) throw profilesError;
+      if (rolesError) throw rolesError;
 
-            return {
-              ...profile,
-              role: roleData?.role || "client"
-            };
-          })
-        );
-        setUsers(usersWithRoles);
+      const rolesByUser = new Map((roleRows || []).map((row) => [row.user_id, row.role]));
+      setUsers((profiles || []).map((profile) => ({
+        id: profile.id,
+        email: null,
+        full_name: profile.full_name || null,
+        phone_number: profile.phone_number || null,
+        wallet_address: profile.wallet_address || null,
+        disabled: Boolean(profile.disabled),
+        role: rolesByUser.get(profile.id) || "client",
+      })));
+      if (result.error) {
+        console.info("Using authenticated profile list for Manage Users:", result.error);
       }
     } catch (error) {
       console.error("Error fetching users:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: (error as Error).message || "Failed to load users.",
+      });
     } finally {
       setLoading(false);
     }
@@ -166,11 +191,40 @@ const ManageUsers = () => {
     fetchUsers();
   };
 
+  const createUser = async () => {
+    if (!newUser.fullName.trim() || !newUser.phone || newUser.password.length < 8) {
+      toast({ title: "Complete all fields", description: "Use a name, a valid phone number, and a password of at least 8 characters.", variant: "destructive" });
+      return;
+    }
+    setCreating(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
+      const response = await fetch("/api/auth/create-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(newUser),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "User could not be created.");
+      toast({ title: "User added", description: "The account was manually verified for the missing-code case. KYC is still required before financial features." });
+      setNewUser({ fullName: "", phone: "", password: "" });
+      void fetchUsers();
+    } catch (error) {
+      toast({ title: "Could not add user", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-primary p-6">
         <div className="flex items-center gap-4">
-          <Button onClick={() => navigate("/admin")} variant="secondary" size="icon">
+          <Button onClick={() => navigate(staffHome)} variant="secondary" size="icon">
             <ArrowLeft size={20} />
           </Button>
           <h1 className="text-2xl font-bold text-foreground">Manage Users</h1>
@@ -178,6 +232,19 @@ const ManageUsers = () => {
       </header>
 
       <main className="p-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><UserPlus className="h-5 w-5" /> Add a user manually</CardTitle>
+            <p className="text-sm text-muted-foreground">Use this when the user cannot receive the WhatsApp code. This creates a client account and marks phone verification as staff-approved; KYC is still required.</p>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <input className="h-10 rounded-md border bg-background px-3 text-sm" placeholder="Full name" value={newUser.fullName} onChange={(e) => setNewUser({ ...newUser, fullName: e.target.value })} />
+            <CountryPhoneInput value={newUser.phone} onChange={(phone) => setNewUser({ ...newUser, phone })} />
+            <input className="h-10 rounded-md border bg-background px-3 text-sm" type="password" placeholder="Temporary password (8+ characters)" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} />
+            <Button onClick={() => void createUser()} disabled={creating} className="gap-2">{creating ? "Adding user…" : <><UserPlus size={16} /> Add user</>}</Button>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">

@@ -23,7 +23,7 @@ type GenesisConfig struct {
 }
 
 var GydsGenesis = &GenesisConfig{
-        ChainID:     13370,
+        ChainID:     198282,
         NetworkName: "GYDS Chain",
         Timestamp:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).Unix(),
         GasLimit:    30_000_000,

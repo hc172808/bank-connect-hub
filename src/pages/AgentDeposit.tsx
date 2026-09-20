@@ -15,11 +15,22 @@ const AgentDeposit = () => {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [pendingDeposits, setPendingDeposits] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [internalFundsEnabled, setInternalFundsEnabled] = useState(false);
+  const [checking, setChecking] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     fetchPendingDeposits();
+    void supabase
+      .from("feature_toggles")
+      .select("is_enabled")
+      .eq("feature_key", "internal_funds")
+      .maybeSingle()
+      .then(({ data }) => {
+        setInternalFundsEnabled(Boolean(data?.is_enabled));
+        setChecking(false);
+      });
   }, []);
 
   const fetchPendingDeposits = async () => {
@@ -52,6 +63,10 @@ const AgentDeposit = () => {
 
   const handleDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!internalFundsEnabled) {
+      toast({ title: "Internal funds disabled", description: "Agent deposits are currently disabled by an administrator.", variant: "destructive" });
+      return;
+    }
     if (!selectedUser) {
       toast({
         title: "Error",
@@ -122,7 +137,12 @@ const AgentDeposit = () => {
         <h1 className="text-2xl font-bold mb-6">Agent Deposit</h1>
 
         <div className="grid md:grid-cols-2 gap-6">
-          <Card className="p-6">
+          {!checking && !internalFundsEnabled ? (
+            <Card className="p-6">
+              <p className="font-medium">Internal funds are currently disabled</p>
+              <p className="text-sm text-muted-foreground mt-2">Agent deposits are unavailable until an administrator enables them.</p>
+            </Card>
+          ) : <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">New Deposit</h2>
             <form onSubmit={handleDeposit} className="space-y-4">
               <div>
@@ -180,7 +200,7 @@ const AgentDeposit = () => {
                 {loading ? "Submitting..." : "Submit for Approval"}
               </Button>
             </form>
-          </Card>
+          </Card>}
 
           <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">Pending Deposits</h2>

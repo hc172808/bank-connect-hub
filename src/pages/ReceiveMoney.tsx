@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Copy, Share2 } from "lucide-react";
@@ -6,7 +6,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { QRCodeSVG } from "qrcode.react";
-import { supabase } from "@/integrations/supabase/client";
 import { useDashboardHome } from "@/hooks/useDashboardHome";
 
 const ReceiveMoney = () => {
@@ -14,30 +13,7 @@ const ReceiveMoney = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const homeRoute = useDashboardHome();
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchWalletAddress = async () => {
-      if (!user) return;
-      
-      const { data } = await supabase
-        .from("user_wallets")
-        .select("wallet_address")
-        .eq("user_id", user.id)
-        .single();
-      
-      if (data) {
-        setWalletAddress(data.wallet_address);
-      }
-      setLoading(false);
-    };
-    
-    fetchWalletAddress();
-  }, [user]);
-
   const userId = user?.id || "";
-  const displayAddress = walletAddress || "No wallet found";
 
   const copyAddress = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -51,22 +27,21 @@ const ReceiveMoney = () => {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: "My GYD Wallet",
-          text: `Send GYD to my wallet:\nUser ID: ${userId}\nWallet Address: ${walletAddress || 'N/A'}`,
+          title: "My private ledger account",
+          text: `Send GYD through the private ledger.\nUser ID: ${userId}`,
         });
       } catch (error) {
-        copyAddress(walletAddress || userId, "Wallet info");
+          copyAddress(userId, "User ID");
       }
     } else {
-      copyAddress(walletAddress || userId, "Wallet info");
+      copyAddress(userId, "User ID");
     }
   };
 
-  // QR data includes both user ID (for internal transfers) and wallet address (for on-chain)
+  // QR data identifies the private-ledger recipient. No public wallet address is exposed.
   const qrData = JSON.stringify({
     userId: userId,
-    walletAddress: walletAddress,
-    type: "gyd_receive"
+    type: "private_ledger_receive"
   });
 
   return (
@@ -96,7 +71,7 @@ const ReceiveMoney = () => {
 
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Wallet Details</CardTitle>
+            <CardTitle>Private Ledger Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* User ID for internal transfers */}
@@ -113,35 +88,13 @@ const ReceiveMoney = () => {
               </Button>
             </div>
 
-            {/* Blockchain wallet address */}
-            <div className="bg-muted p-4 rounded-xl text-center">
-              <p className="text-sm text-muted-foreground mb-1">Blockchain Wallet (GYD)</p>
-              {loading ? (
-                <span className="text-sm text-muted-foreground">Loading...</span>
-              ) : walletAddress ? (
-                <span className="text-xs font-mono break-all">{walletAddress}</span>
-              ) : (
-                <span className="text-sm text-muted-foreground">No wallet created yet</span>
-              )}
-              {walletAddress && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => copyAddress(walletAddress, "Wallet address")}
-                  className="ml-2"
-                >
-                  <Copy size={14} />
-                </Button>
-              )}
-            </div>
-
             <div className="flex gap-2 pt-2">
               <Button onClick={shareAddress} className="flex-1 gap-2">
                 <Share2 size={18} />
                 Share
               </Button>
               <Button 
-                onClick={() => copyAddress(walletAddress || userId, "Wallet")} 
+                onClick={() => copyAddress(userId, "User ID")} 
                 variant="outline" 
                 className="flex-1 gap-2"
               >
@@ -153,7 +106,7 @@ const ReceiveMoney = () => {
         </Card>
 
         <p className="text-sm text-muted-foreground text-center mt-6">
-          Share your QR code or wallet address to receive GYD from others
+          Share your QR code or private ledger ID to receive GYD from others
         </p>
       </div>
     </div>

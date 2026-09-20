@@ -3,8 +3,46 @@ import type { Database } from './types';
 
 // Build-time env vars (baked into the bundle by Vite — safe for the anon/public key).
 // Used as an immediate fallback if /api/config is unreachable (e.g. mobile APK builds).
-const ENV_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const ENV_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+// Values must be safe to place in an HTTP header (Latin-1 / ASCII only).
+// A stray smart quote, en-dash or non-breaking space pasted into the server
+// .env otherwise makes every fetch throw:
+// "String contains non ISO-8859-1 code point".
+function sanitizeCredential(value: string | undefined | null): string {
+  if (!value) return '';
+  // Strip surrounding quotes/whitespace (including non-breaking spaces / BOM).
+  const cleaned = value
+    .replace(/^[\s\u00a0\ufeff"']+|[\s\u00a0\ufeff"']+$/g, '')
+    .replace(/[\r\n\t]/g, '');
+  // Reject anything that cannot be sent as a header value.
+  // eslint-disable-next-line no-control-regex
+  if (!/^[\x20-\x7e]*$/.test(cleaned)) {
+    console.error('[supabase] Credential contains invalid (non-ASCII) characters — ignoring it. Check VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY on the server.');
+    return '';
+  }
+  return cleaned;
+}
+
+type RuntimeEnv = {
+  VITE_SUPABASE_URL?: string;
+  VITE_SUPABASE_PUBLISHABLE_KEY?: string;
+};
+
+const runtimeEnv =
+  typeof window !== 'undefined'
+    ? (window as Window & { __ENV__?: RuntimeEnv }).__ENV__
+    : undefined;
+
+// Runtime env-config.js is used by Docker/nginx and bundled APKs. The Vite
+// values remain the fallback for local development and builds where that file
+// is intentionally absent.
+const ENV_URL = sanitizeCredential(
+  runtimeEnv?.VITE_SUPABASE_URL ||
+    (import.meta.env.VITE_SUPABASE_URL as string | undefined)
+);
+const ENV_KEY = sanitizeCredential(
+  runtimeEnv?.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)
+);
 
 let _supabaseUrl = ENV_URL || '';
 let _supabaseAnonKey = ENV_KEY || '';
@@ -31,10 +69,18 @@ export async function initSupabase(): Promise<void> {
   _initPromise = fetch('/api/config')
     .then(r => r.json())
     .then((cfg: { supabaseUrl: string; supabaseAnonKey: string }) => {
-      if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
-        _supabaseUrl = cfg.supabaseUrl;
-        _supabaseAnonKey = cfg.supabaseAnonKey;
-        _client = makeClient(_supabaseUrl, _supabaseAnonKey);
+      const url = sanitizeCredential(cfg.supabaseUrl);
+      const key = sanitizeCredential(cfg.supabaseAnonKey);
+      if (url && key) {
+        _supabaseUrl = url;
+        _supabaseAnonKey = key;
+        _client = makeClient(url, key);
+      } else if (ENV_URL && ENV_KEY) {
+        // Server config was empty or malformed — keep the build-time values.
+        _supabaseUrl = ENV_URL;
+        _supabaseAnonKey = ENV_KEY;
+        _client = makeClient(ENV_URL, ENV_KEY);
+        console.warn('[supabase] /api/config returned unusable credentials — using build-time env vars');
       }
     })
     .catch(() => {

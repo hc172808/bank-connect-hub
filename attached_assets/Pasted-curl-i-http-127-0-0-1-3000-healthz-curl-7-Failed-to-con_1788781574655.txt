@@ -1,0 +1,52 @@
+curl -i http://127.0.0.1:3000/healthz
+curl: (7) Failed to connect to 127.0.0.1 port 3000 after 0 ms: Connection refused
+root@cash:~# curl -i http://127.0.0.1:3000        
+curl: (7) Failed to connect to 127.0.0.1 port 3000 after 0 ms: Connection refused
+root@cash:~# curl -i http://127.0.0.1:80/healthz
+curl: (7) Failed to connect to 127.0.0.1 port 80 after 0 ms: Connection refused
+root@cash:~# curl -i http://127.0.0.1:8080/healthz
+curl: (7) Failed to connect to 127.0.0.1 port 8080 after 0 ms: Connection refused
+root@cash:~# curl -i http://127.0.0.1:443/healthz
+curl: (7) Failed to connect to 127.0.0.1 port 443 after 0 ms: Connection refused
+root@cash:~# sudo systemctl status nginx --no-pager -l
+sudo nginx -t
+sudo nginx -T 2>/dev/null | grep -nE 'listen|server_name|healthz'
+* nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/lib/systemd/system/nginx.service; enabled; vendor preset: enabled)
+     Active: inactive (dead) since Sun 2026-09-06 19:05:11 UTC; 16h ago
+       Docs: man:nginx(8)
+   Main PID: 646897 (code=exited, status=0/SUCCESS)
+        CPU: 136ms
+
+Sep 06 18:25:05 cash systemd[1]: Starting A high performance web server and a reverse proxy server...
+Sep 06 18:25:06 cash systemd[1]: Started A high performance web server and a reverse proxy server.
+Sep 06 19:05:10 cash systemd[1]: Stopping A high performance web server and a reverse proxy server...
+Sep 06 19:05:11 cash systemd[1]: nginx.service: Deactivated successfully.
+Sep 06 19:05:11 cash systemd[1]: Stopped A high performance web server and a reverse proxy server.
+nginx: [emerg] unexpected "e" in /etc/nginx/conf.d/netlifecash.conf:11
+nginx: configuration file /etc/nginx/nginx.conf test failed
+root@cash:~# sudo systemctl enable --now nginx
+sudo systemctl restart nginx
+curl -i http://127.0.0.1:3000/healthz
+Synchronizing state of nginx.service with SysV service script with /lib/systemd/systemd-sysv-install.
+Executing: /lib/systemd/systemd-sysv-install enable nginx
+Job for nginx.service failed because the control process exited with error code.
+See "systemctl status nginx.service" and "journalctl -xeu nginx.service" for details.
+Job for nginx.service failed because the control process exited with error code.
+See "systemctl status nginx.service" and "journalctl -xeu nginx.service" for details.
+curl: (7) Failed to connect to 127.0.0.1 port 3000 after 0 ms: Connection refused
+root@cash:~# curl -i http://127.0.0.1:80/healthz
+curl: (7) Failed to connect to 127.0.0.1 port 80 after 0 ms: Connection refused
+root@cash:~# sudo grep -nE 'APP_PORT|BUILD_SERVER_PORT' \
+  /root/bank-connect-hub/.env \
+  /opt/netlifecash/.env 2>/dev/null
+
+sudo grep -RIn 'listen ' \
+  /etc/nginx/conf.d \
+  /etc/nginx/sites-enabled 2>/dev/null
+/root/bank-connect-hub/.env:67:APP_PORT=3000
+/opt/netlifecash/.env:29:APP_PORT=3000
+/opt/netlifecash/.env:30:BUILD_SERVER_PORT=3001
+/etc/nginx/conf.d/netlifecash.conf:3:    listen 3000;
+root@cash:~# curl -i http://127.0.0.1:80/healthz
+curl: (7) Failed to connect to 127.0.0.1 port 80 after 0 ms: Connection refused

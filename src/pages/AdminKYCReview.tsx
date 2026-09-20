@@ -18,6 +18,8 @@ interface KYC {
   document_type: string;
   document_number: string;
   document_front_url: string | null;
+  document_back_url: string | null;
+  proof_of_address_url: string | null;
   selfie_url: string | null;
   status: string;
   rejection_reason: string | null;
@@ -43,7 +45,7 @@ const AdminKYCReview = () => {
     setItems(list);
     const map: Record<string, string> = {};
     for (const k of list) {
-      for (const path of [k.document_front_url, k.selfie_url]) {
+      for (const path of [k.document_front_url, k.document_back_url, k.proof_of_address_url, k.selfie_url]) {
         if (path && !map[path]) {
           const { data: s } = await supabase.storage.from("kyc-documents").createSignedUrl(path, 3600);
           if (s) map[path] = s.signedUrl;
@@ -98,12 +100,22 @@ const AdminKYCReview = () => {
               <div className="flex gap-2 my-2">
                 {k.document_front_url && signed[k.document_front_url] && (
                   <a href={signed[k.document_front_url]} target="_blank" rel="noreferrer">
-                    <img src={signed[k.document_front_url]} alt="doc" className="w-24 h-24 object-cover rounded" />
+                    <img src={signed[k.document_front_url]} alt="ID front" className="w-24 h-24 object-cover rounded" />
+                  </a>
+                )}
+                {k.document_back_url && signed[k.document_back_url] && (
+                  <a href={signed[k.document_back_url]} target="_blank" rel="noreferrer">
+                    <img src={signed[k.document_back_url]} alt="ID back" className="w-24 h-24 object-cover rounded" />
+                  </a>
+                )}
+                {k.proof_of_address_url && signed[k.proof_of_address_url] && (
+                  <a href={signed[k.proof_of_address_url]} target="_blank" rel="noreferrer">
+                    <img src={signed[k.proof_of_address_url]} alt="Proof of address" className="w-24 h-24 object-cover rounded" />
                   </a>
                 )}
                 {k.selfie_url && signed[k.selfie_url] && (
                   <a href={signed[k.selfie_url]} target="_blank" rel="noreferrer">
-                    <img src={signed[k.selfie_url]} alt="selfie" className="w-24 h-24 object-cover rounded" />
+                    <img src={signed[k.selfie_url]} alt="Selfie" className="w-24 h-24 object-cover rounded" />
                   </a>
                 )}
               </div>

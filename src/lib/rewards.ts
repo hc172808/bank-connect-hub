@@ -157,7 +157,7 @@ export async function processReferralReward(newUserId: string): Promise<boolean>
 
     await supabase
       .from("profiles")
-      .update({ referral_count: ((profile as any)?.referral_count || 0) + 1 })
+      .update({ referral_count: ((profile as any)?.referral_count || 0) + 1 } as any)
       .eq("id", referrerId);
 
     // Mark this user as having had their referral processed

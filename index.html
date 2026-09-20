@@ -59,6 +59,22 @@
       #app-splash.stuck .retry { display: inline-block; }
       #app-splash.stuck .status { color: #ffd8d8; }
       @keyframes appsplash-spin { to { transform: rotate(360deg); } }
+      #app-splash .net {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 12px; opacity: .8; letter-spacing: .02em;
+      }
+      #app-splash .net .dot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #4ade80; box-shadow: 0 0 0 0 rgba(74,222,128,.6);
+        animation: appsplash-pulse 1.8s ease-out infinite;
+      }
+      #app-splash.offline .net .dot { background: #f87171; box-shadow: 0 0 0 0 rgba(248,113,113,.6); }
+      #app-splash .step { font-size: 11px; opacity: .55; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      @keyframes appsplash-pulse {
+        0% { box-shadow: 0 0 0 0 rgba(255,255,255,.35); }
+        70% { box-shadow: 0 0 0 8px rgba(255,255,255,0); }
+        100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+      }
     </style>
   </head>
 
@@ -69,6 +85,8 @@
       <div class="brand">NETLIFE CASH</div>
       <div class="spinner"></div>
       <div class="status" id="app-splash-status">Starting secure session…</div>
+      <div class="net"><span class="dot"></span><span id="app-splash-net">Online</span></div>
+      <div class="step" id="app-splash-step"></div>
       <button class="retry" id="app-splash-retry" type="button">Reload app</button>
     </div>
     <script>
@@ -76,10 +94,68 @@
         var splash = document.getElementById('app-splash');
         var status = document.getElementById('app-splash-status');
         var retry = document.getElementById('app-splash-retry');
+        var netEl = document.getElementById('app-splash-net');
+        var stepEl = document.getElementById('app-splash-step');
         if (!splash) return;
 
-        retry.addEventListener('click', function () {
+        // ── Persisted bootstrap progress ──────────────────────────────
+        var ATTEMPTS_KEY = 'nlc_boot_attempts';
+        var STEP_KEY = 'nlc_boot_step';
+        var TS_KEY = 'nlc_boot_last_attempt';
+        var LOG_KEY = 'nlc_boot_log';
+        var RETRY_AT_KEY = 'nlc_boot_retry_at';
+        var BACKOFF_KEY = 'nlc_boot_backoff_step';
+        var FIRST_KEY = 'nlc_boot_first_seen';
+        function ls(fn, d) { try { return fn(); } catch (_) { return d; } }
+        var attempts = ls(function () { return parseInt(localStorage.getItem(ATTEMPTS_KEY) || '0', 10) || 0; }, 0);
+        var lastStep = ls(function () { return localStorage.getItem(STEP_KEY); }, null);
+        function bootLog(name, detail) {
+          try {
+            var arr = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+            if (!Array.isArray(arr)) arr = [];
+            arr.push({ t: Date.now(), step: name, detail: detail });
+            localStorage.setItem(LOG_KEY, JSON.stringify(arr.slice(-60)));
+            if (!localStorage.getItem(FIRST_KEY)) localStorage.setItem(FIRST_KEY, String(Date.now()));
+          } catch (_) {}
+        }
+        window.__bootLog = bootLog;
+        window.__bootStep = function (name, detail) {
+          try { localStorage.setItem(STEP_KEY, name); } catch (_) {}
+          bootLog(name, detail);
+          if (stepEl) stepEl.textContent = 'step: ' + name;
+        };
+        window.__bootStep('html-splash');
+        if (attempts > 0 && lastStep) {
+          if (stepEl) stepEl.textContent = 'resuming after retry #' + attempts + ' (last step: ' + lastStep + ')';
+        }
+
+        function backoffStep() {
+          return ls(function () { return parseInt(localStorage.getItem(BACKOFF_KEY) || '0', 10) || 0; }, 0);
+        }
+        function backoffDelay(step) { return Math.min(2000 * Math.pow(2, step), 60000); }
+        function reloadNow() {
+          try {
+            localStorage.setItem(ATTEMPTS_KEY, String(attempts + 1));
+            localStorage.setItem(TS_KEY, String(Date.now()));
+            localStorage.setItem(BACKOFF_KEY, String(backoffStep() + 1));
+            localStorage.removeItem(RETRY_AT_KEY);
+          } catch (_) {}
+          bootLog('retry-reload');
           try { location.reload(); } catch (_) { location.href = location.href; }
+        }
+
+        // ── Live network indicator ────────────────────────────────────
+        function paintNet() {
+          var on = navigator.onLine;
+          splash.classList.toggle('offline', !on);
+          if (netEl) netEl.textContent = on ? 'Online — connected' : 'Offline — waiting for connectivity';
+        }
+        paintNet();
+        window.addEventListener('online', paintNet);
+        window.addEventListener('offline', paintNet);
+
+        retry.addEventListener('click', function () {
+          reloadNow();
         });
 
         // Stuck detector — if React hasn't rendered in 15s, show retry.
@@ -88,9 +164,39 @@
             splash.classList.add('stuck');
             status.textContent = navigator.onLine
               ? "Taking longer than usual. Check your connection and try again."
-              : "You're offline. Reconnect and reload the app.";
+              : "You're offline. We'll retry automatically once you reconnect.";
+            scheduleRetry();
           }
         }, 15000);
+
+        // ── Exponential-backoff auto-retry with visible countdown ─────
+        var countdownTimer = null;
+        function cancelRetry() { if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; } }
+        function scheduleRetry() {
+          if (splash.classList.contains('hide') || !splash.classList.contains('stuck')) return;
+          cancelRetry();
+          if (!navigator.onLine) {
+            status.textContent = "Offline — retry will start automatically once you reconnect.";
+            return;
+          }
+          // Persisted deadline: after an auto-retry reload we resume the exact
+          // remaining wait instead of restarting the countdown.
+          var retryAt = ls(function () { return parseInt(localStorage.getItem(RETRY_AT_KEY) || '0', 10) || 0; }, 0);
+          if (!retryAt || retryAt <= Date.now()) {
+            retryAt = Date.now() + backoffDelay(backoffStep());
+            try { localStorage.setItem(RETRY_AT_KEY, String(retryAt)); } catch (_) {}
+          }
+          function tick() {
+            if (!navigator.onLine) { cancelRetry(); scheduleRetry(); return; }
+            var remaining = Math.ceil((retryAt - Date.now()) / 1000);
+            if (remaining <= 0) { cancelRetry(); reloadNow(); return; }
+            status.textContent = "Reconnecting automatically in " + remaining + "s… (attempt " + (attempts + 1) + ")";
+          }
+          tick();
+          countdownTimer = setInterval(tick, 500);
+        }
+        window.addEventListener('online', function () { if (splash.classList.contains('stuck')) scheduleRetry(); });
+        window.addEventListener('offline', function () { cancelRetry(); if (splash.classList.contains('stuck')) scheduleRetry(); });
 
         // Update copy at 5s to reassure the user something's happening.
         var slowTimer = setTimeout(function () {
@@ -102,7 +208,12 @@
         // Watch for React to mount content into #root.
         var root = document.getElementById('root');
         function hide() {
-          clearTimeout(stuckTimer); clearTimeout(slowTimer);
+          clearTimeout(stuckTimer); clearTimeout(slowTimer); cancelRetry();
+          try {
+            localStorage.removeItem(ATTEMPTS_KEY); localStorage.removeItem(STEP_KEY);
+            localStorage.removeItem(RETRY_AT_KEY); localStorage.removeItem(BACKOFF_KEY);
+            localStorage.removeItem(LOG_KEY); localStorage.removeItem(FIRST_KEY);
+          } catch (_) {}
           splash.classList.add('hide');
           setTimeout(function () { splash.remove(); }, 400);
         }
@@ -125,6 +236,7 @@
           if (e && e.target && e.target.tagName === 'SCRIPT') {
             splash.classList.add('stuck');
             status.textContent = "Couldn't load the app. Please reload.";
+            scheduleRetry();
           }
         }, true);
       })();

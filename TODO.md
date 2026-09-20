@@ -10,7 +10,7 @@
 |---|---------|--------|
 | I-01 | Dockerfile (multi-stage, nginx) | ✅ |
 | I-02 | docker-compose.yml (app + litenode + watchtower + webhook) | ✅ |
-| I-03 | portainer-stack.yml (Portainer-ready one-click stack) | ✅ |
+| I-03 | ~~portainer-stack.yml~~ (removed — Portainer dependency dropped) | ✅ |
 | I-04 | deploy.sh — Quick deploy for Ubuntu 22.04+ | ✅ |
 | I-05 | setup-ubuntu.sh — Full production hardening (nginx, UFW, fail2ban, SSL) | ✅ |
 | I-06 | .env.example with all required fields | ✅ |
@@ -214,6 +214,7 @@
 | SEC-15 | In-app mobile recovery (PWA/APK detection + guidance) | ✅ |
 | SEC-16 | Mobile browser verification popup (prompt to install PWA) | ✅ |
 | SEC-17 | In-app real-time chat (client ↔ agent, client ↔ vendor, realtime via Supabase) | ✅ |
+| SEC-18 | Private ledger-only payments with tamper-evident audit chain | ✅ |
 
 ---
 
@@ -287,6 +288,13 @@
 | AD-17 | App Releases / Force Update | ✅ |
 | AD-18 | Theme Management | ✅ |
 | AD-19 | Financial Reports | ✅ |
+| AD-20 | Bank reserve with admin/founder-only funding controls | ✅ |
+| AD-21 | Admin/founder reserve balance dashboard with configurable low-balance alerts | ✅ |
+| AD-22 | Admin/founder-to-agent funding and agent-to-user distribution workflow | ✅ |
+| AD-23 | Internal funds master switch disabled by default | ✅ |
+| AD-24 | Individual and bulk internal-funds enable/disable controls | ✅ |
+| AD-25 | Founder/admin verification bypass | ✅ |
+| AD-26 | Admin dashboard count and zero-state error handling | ✅ |
 
 ---
 

@@ -31,6 +31,10 @@ const liveUrl = process.env.CAP_SERVER_URL;   // dev hot-reload
 const prodUrl = process.env.CAP_PROD_URL;     // production remote update
 const remote  = liveUrl || prodUrl;
 
+if (prodUrl && !prodUrl.startsWith("https://")) {
+  throw new Error("CAP_PROD_URL must use HTTPS for release builds.");
+}
+
 const config: CapacitorConfig = {
   appId: "app.virtualbank.mobile",
   appName: "Virtual Bank",
@@ -49,7 +53,9 @@ const config: CapacitorConfig = {
         url: remote,
         cleartext: remote.startsWith("http://"),
         // Allow the app to navigate to your domain and any sub-paths.
-        allowNavigation: ["*.replit.app", "*.replit.dev", "localhost"],
+         allowNavigation: liveUrl
+           ? ["*.replit.app", "*.replit.dev", "localhost"]
+           : ["*.replit.app"],
       }
     : {
         androidScheme: "https",

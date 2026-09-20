@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { QRScanner } from "@/components/QRScanner";
 import { ArrowLeft, QrCode, User, Wallet, Info, Fuel, ArrowRightLeft, AlertTriangle, Search, RotateCcw, X } from "lucide-react";
 import { isValidAddress, sendSponsoredTransaction, decryptPrivateKey, estimateGas } from "@/lib/wallet";
+import { processPrivateLedgerTransfer } from "@/lib/privateLedger";
 import { useDashboardHome } from "@/hooks/useDashboardHome";
 import { checkFirewall } from "@/lib/aiFirewall";
 import { sendTransactionSms } from "@/lib/smsAlerts";
@@ -97,9 +98,6 @@ const SendMoney = () => {
   const homeRoute = useDashboardHome();
 
   useEffect(() => {
-    fetchBlockchainSettings();
-    fetchUserWallet();
-    fetchSupportedCoins();
     fetchRecentRecipients();
   }, []);
 
@@ -318,17 +316,13 @@ const SendMoney = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const { data, error } = await supabase.rpc("process_transaction", {
-        _sender_id: user.id,
-        _receiver_id: receiverId,
-        _amount: parseFloat(amount),
-        _transaction_type: "transfer",
-        _description: "Money transfer",
+      const result = await processPrivateLedgerTransfer({
+        senderId: user.id,
+        receiverId,
+        amount: parseFloat(amount),
+        transactionType: "transfer",
+        description: "Money transfer",
       });
-
-      if (error) throw error;
-
-      const result = data as { success: boolean; error?: string; fee?: number; sender_cashback?: number; };
 
       if (result.success) {
         setAnimState("success");
@@ -513,16 +507,9 @@ const SendMoney = () => {
 
         <h1 className="text-2xl font-bold mb-6">Send Money</h1>
 
-        {blockchainSettings?.is_active && (
-          <div className="flex gap-2 mb-4">
-            <Button variant={sendMode === "internal" ? "default" : "outline"} onClick={() => setSendMode("internal")} className="flex-1">
-              <User size={16} className="mr-2" /> Internal
-            </Button>
-            <Button variant={sendMode === "blockchain" ? "default" : "outline"} onClick={() => setSendMode("blockchain")} className="flex-1">
-              <Wallet size={16} className="mr-2" /> Blockchain
-            </Button>
-          </div>
-        )}
+        <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+          Transfers use the private ledger and are settled securely inside the app.
+        </div>
 
         {showScanner ? (
           <QRScanner onScanSuccess={handleScanSuccess} onClose={() => setShowScanner(false)} />

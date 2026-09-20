@@ -6,7 +6,7 @@ pragma solidity ^0.8.24;
  * @notice Testnet GYDS faucet — drips a small amount of GYDS to any address.
  *         The owner can top-up the faucet and adjust the drip amount / cooldown.
  *
- * Deploy on GYDS Chain (Chain ID 13370) then send GYDS to the contract address.
+ * Deploy on GYDS Chain (Chain ID 198282) then send GYDS to the contract address.
  */
 contract GYDSFaucet {
     address public owner;

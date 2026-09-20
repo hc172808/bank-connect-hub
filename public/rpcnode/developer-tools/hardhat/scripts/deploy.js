@@ -13,8 +13,8 @@ async function main() {
   console.log(`  Balance   : ${hre.ethers.formatEther(balance)} GYDS`);
   console.log("");
 
-  if (network.chainId !== 13370n && network.chainId !== 31337n) {
-    console.warn("⚠️  WARNING: Not connected to GYDS Chain (13370) or local hardhat.");
+  if (network.chainId !== 198282n && network.chainId !== 31337n) {
+    console.warn("⚠️  WARNING: Not connected to GYDS Chain (198282) or local hardhat.");
   }
 
   // ── Deploy GYDSFaucet ─────────────────────────────────────

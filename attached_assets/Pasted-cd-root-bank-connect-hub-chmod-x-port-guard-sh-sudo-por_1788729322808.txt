@@ -1,0 +1,90 @@
+cd /root/bank-connect-hub
+chmod +x port-guard.sh
+sudo ./port-guard.sh check
+sudo ./port-guard.sh apply
+sudo ./port-guard.sh check
+[port-guard] Configuration source: /opt/netlifecash/.env
+[port-guard] SSH is protected on 22/tcp
+
+  Frontend             3000/tcp   firewall=NOT_ALLOWED   NOT_LISTENING
+  Build server         3001/tcp   firewall=NOT_ALLOWED   LISTENING
+  Deploy webhook       9000/tcp   firewall=NOT_ALLOWED   NOT_LISTENING
+
+[port-guard] UFW status:
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW IN    Anywhere                   # NETLIFE CASH managed
+8545/tcp                   ALLOW IN    Anywhere                   # GYDS RPC JSON-RPC
+8546/tcp                   ALLOW IN    Anywhere                   # GYDS RPC WebSocket
+30305/tcp                  ALLOW IN    Anywhere                   # GYDS RPC P2P
+30305/udp                  ALLOW IN    Anywhere                   # GYDS RPC P2P (UDP)
+3001/tcp                   DENY IN     Anywhere                   # NETLIFE CASH locked
+9000/tcp                   DENY IN     Anywhere                   # NETLIFE CASH locked
+80/tcp                     DENY IN     Anywhere                   # NETLIFE CASH locked
+443/tcp                    DENY IN     Anywhere                   # NETLIFE CASH locked
+3000/tcp                   DENY IN     Anywhere                   # NETLIFE CASH locked
+22/tcp (v6)                ALLOW IN    Anywhere (v6)              # NETLIFE CASH managed
+8545/tcp (v6)              ALLOW IN    Anywhere (v6)              # GYDS RPC JSON-RPC
+8546/tcp (v6)              ALLOW IN    Anywhere (v6)              # GYDS RPC WebSocket
+30305/tcp (v6)             ALLOW IN    Anywhere (v6)              # GYDS RPC P2P
+30305/udp (v6)             ALLOW IN    Anywhere (v6)              # GYDS RPC P2P (UDP)
+3001/tcp (v6)              DENY IN     Anywhere (v6)              # NETLIFE CASH locked
+9000/tcp (v6)              DENY IN     Anywhere (v6)              # NETLIFE CASH locked
+80/tcp (v6)                DENY IN     Anywhere (v6)              # NETLIFE CASH locked
+443/tcp (v6)               DENY IN     Anywhere (v6)              # NETLIFE CASH locked
+3000/tcp (v6)              DENY IN     Anywhere (v6)              # NETLIFE CASH locked
+
+
+[port-guard] Local checks:
+curl: (7) Failed to connect to 127.0.0.1 port 3000 after 0 ms: Connection refused
+[warn ] Frontend health endpoint did not respond on 3000
+[  ✓  ] Build-server health endpoint responds on 3001
+[  ✓  ] Firewall policy applied. SSH remains open on 22/tcp.
+[port-guard] Public managed ports: 22/tcp 3000/tcp
+[warn ] Build server 3001/tcp and webhook 9000/tcp remain private by default.
+[port-guard] Configuration source: /opt/netlifecash/.env
+[port-guard] SSH is protected on 22/tcp
+
+  Frontend             3000/tcp   firewall=ALLOWED       NOT_LISTENING
+  Build server         3001/tcp   firewall=NOT_ALLOWED   LISTENING
+  Deploy webhook       9000/tcp   firewall=NOT_ALLOWED   NOT_LISTENING
+
+[port-guard] UFW status:
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW IN    Anywhere                   # NETLIFE CASH managed
+8545/tcp                   ALLOW IN    Anywhere                   # GYDS RPC JSON-RPC
+8546/tcp                   ALLOW IN    Anywhere                   # GYDS RPC WebSocket
+30305/tcp                  ALLOW IN    Anywhere                   # GYDS RPC P2P
+30305/udp                  ALLOW IN    Anywhere                   # GYDS RPC P2P (UDP)
+3001/tcp                   DENY IN     Anywhere                   # NETLIFE CASH locked
+9000/tcp                   DENY IN     Anywhere                   # NETLIFE CASH locked
+80/tcp                     DENY IN     Anywhere                   # NETLIFE CASH locked
+443/tcp                    DENY IN     Anywhere                   # NETLIFE CASH locked
+3000/tcp                   ALLOW IN    Anywhere                   # NETLIFE CASH managed
+22/tcp (v6)                ALLOW IN    Anywhere (v6)              # NETLIFE CASH managed
+8545/tcp (v6)              ALLOW IN    Anywhere (v6)              # GYDS RPC JSON-RPC
+8546/tcp (v6)              ALLOW IN    Anywhere (v6)              # GYDS RPC WebSocket
+30305/tcp (v6)             ALLOW IN    Anywhere (v6)              # GYDS RPC P2P
+30305/udp (v6)             ALLOW IN    Anywhere (v6)              # GYDS RPC P2P (UDP)
+3001/tcp (v6)              DENY IN     Anywhere (v6)              # NETLIFE CASH locked
+9000/tcp (v6)              DENY IN     Anywhere (v6)              # NETLIFE CASH locked
+80/tcp (v6)                DENY IN     Anywhere (v6)              # NETLIFE CASH locked
+443/tcp (v6)               DENY IN     Anywhere (v6)              # NETLIFE CASH locked
+3000/tcp (v6)              ALLOW IN    Anywhere (v6)              # NETLIFE CASH managed
+
+
+[port-guard] Local checks:
+curl: (7) Failed to connect to 127.0.0.1 port 3000 after 0 ms: Connection refused
+[warn ] Frontend health endpoint did not respond on 3000
+[  ✓  ] Build-server health endpoint responds on 3001

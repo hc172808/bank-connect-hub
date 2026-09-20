@@ -31,7 +31,7 @@ interface FieldState {
 }
 
 const DEFAULT_CONFIG: NodeConfig = {
-  UPSTREAM_RPC: "https://bsc-dataseed.binance.org",
+  UPSTREAM_RPC: "",
   BOOTNODE_URL: "",
   FULLNODE_RPC_1: "",
   FULLNODE_RPC_2: "",
@@ -43,8 +43,8 @@ const FIELD_META: { key: keyof NodeConfig; label: string; placeholder: string; h
   {
     key: "UPSTREAM_RPC",
     label: "Upstream RPC (litenode target)",
-    placeholder: "https://bsc-dataseed.binance.org",
-    hint: "The litenode proxies all RPC calls to this URL. Changing this and saving with restart will update the running container.",
+    placeholder: "https://private-rpc.yourdomain.com",
+    hint: "Optional private node target for controlled legacy administration. Leave blank to prevent upstream forwarding.",
     isRPC: true,
   },
   {

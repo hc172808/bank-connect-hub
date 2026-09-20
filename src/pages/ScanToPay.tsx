@@ -12,6 +12,7 @@ import { TransactionReceipt } from "@/components/TransactionReceipt";
 import { SetPinDialog } from "@/components/SetPinDialog";
 import { useDashboardHome } from "@/hooks/useDashboardHome";
 import { awardPoints, processReferralReward } from "@/lib/rewards";
+import { processPrivateLedgerTransfer } from "@/lib/privateLedger";
 
 type ActionType = "pay" | "check_balance" | "receive" | null;
 type Step = "scan" | "options" | "pin" | "amount" | "receipt";
@@ -174,17 +175,15 @@ const ScanToPay = () => {
       return;
     }
 
-    const { data, error } = await supabase.rpc("process_transaction", {
-      _sender_id: user.id,
-      _receiver_id: scannedUser.userId,
-      _amount: parseFloat(amount),
-      _transaction_type: "transfer",
-      _description: `QR Payment to ${scannedUser.name}`,
+    const result = await processPrivateLedgerTransfer({
+      senderId: user.id,
+      receiverId: scannedUser.userId,
+      amount: parseFloat(amount),
+      transactionType: "transfer",
+      description: `QR Payment to ${scannedUser.name}`,
     });
 
-    const result = data as { success?: boolean; error?: string } | null;
-
-    if (error || !result?.success) {
+    if (!result.success) {
       setReceiptData({
         success: false,
         type: "payment",
@@ -231,17 +230,15 @@ const ScanToPay = () => {
     }
 
     // The scanner (sender) sends money to the QR owner (receiver)
-    const { data, error } = await supabase.rpc("process_transaction", {
-      _sender_id: user.id,
-      _receiver_id: scannedUser.userId,
-      _amount: parseFloat(amount),
-      _transaction_type: "transfer",
-      _description: `QR Receive from ${user.email}`,
+    const result = await processPrivateLedgerTransfer({
+      senderId: user.id,
+      receiverId: scannedUser.userId,
+      amount: parseFloat(amount),
+      transactionType: "transfer",
+      description: `QR Receive from ${user.email}`,
     });
 
-    const result = data as { success?: boolean; error?: string } | null;
-
-    if (error || !result?.success) {
+    if (!result.success) {
       setReceiptData({
         success: false,
         type: "receive",

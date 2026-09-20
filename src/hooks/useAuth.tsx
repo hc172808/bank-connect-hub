@@ -27,7 +27,7 @@ async function logSessionEvent(
   }
 }
 
-export type UserRole = 'admin' | 'agent' | 'client' | 'vendor';
+export type UserRole = 'admin' | 'founder' | 'agent' | 'client' | 'vendor';
 
 export interface AuthState {
   user: User | null;
@@ -55,17 +55,23 @@ export const useAuth = () => {
       .from('user_roles')
       .select('role')
       .eq('user_id', userId)
-      .single();
+      .limit(1)
+      .maybeSingle();
     if (!error && data?.role) {
       return data.role as UserRole;
     }
     // Fall back to user_metadata.account_type when the user_roles table is
     // unavailable or the row hasn't been created yet (e.g. during initial setup).
-    const validRoles: UserRole[] = ['admin', 'agent', 'client', 'vendor'];
+    const validRoles: UserRole[] = ['admin', 'founder', 'agent', 'client', 'vendor'];
     if (metaFallback && validRoles.includes(metaFallback as UserRole)) {
       return metaFallback as UserRole;
     }
-    return null;
+    // A user can authenticate successfully before the profile/role trigger has
+    // been applied to the Supabase project, especially for accounts created
+    // before deployment. Treat such users as clients only. This avoids
+    // blocking the account while ensuring missing data can never grant admin,
+    // agent, or vendor access.
+    return 'client';
   };
 
   const stopDeviceCheck = useCallback(() => {

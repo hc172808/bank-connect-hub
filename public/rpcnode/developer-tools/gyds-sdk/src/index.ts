@@ -1,5 +1,5 @@
 /**
- * @gydschain/sdk — JavaScript/TypeScript SDK for GYDS Chain (Chain ID 13370)
+ * @gydschain/sdk — JavaScript/TypeScript SDK for GYDS Chain (Chain ID 198282)
  *
  * Usage:
  *   import { GYDSClient } from '@gydschain/sdk';
@@ -25,8 +25,8 @@ import type {
 export * from './types';
 
 // ── Constants ───────────────────────────────────────────────
-export const GYDS_CHAIN_ID     = 13370;
-export const GYDS_CHAIN_ID_HEX = '0x343A';
+export const GYDS_CHAIN_ID     = 198282;
+export const GYDS_CHAIN_ID_HEX = '0x3068a';
 export const GYDS_SYMBOL       = 'GYDS';
 export const GYDS_DECIMALS     = 18;
 

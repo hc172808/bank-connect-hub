@@ -17,18 +17,20 @@
 #  WHAT THIS INSTALLS (source mode — default):
 #    ✓ System packages (curl, git, openssl, jq, ufw, nginx)
 #    ✓ Node.js 22 LTS  (frontend build + build-server.mjs)
-#    ✓ Java 17 + Gradle (APK builder / Capacitor)
+#    ✓ Java 21 + Gradle wrapper (APK builder / Capacitor)
 #    ✓ Android SDK command-line tools (optional, for APK builds)
 #    ✓ npm install + Vite production build
 #    ✓ nginx  — serves the built SPA on APP_PORT
 #    ✓ build-server.mjs — runs as a systemd service on BUILD_SERVER_PORT
-#    ✓ Docker CE + Portainer CE  (optional management UI)
+#    ✓ Docker CE
+#    ✓ Optional local PostgreSQL + pgAdmin stack (DB_MODE=local)
 #    ✓ UFW firewall rules
 #    ✓ Let's Encrypt SSL (optional, requires DOMAIN_NAME + SSL_EMAIL)
 #
 #  WHAT THIS INSTALLS (docker mode — --docker flag):
 #    Same as above except nginx is replaced by a Docker container.
-#    Requires GITHUB_USER, GITHUB_REPO, and GITHUB_PAT in .env.
+#    Uses the public image by default. Set GITHUB_PAT only if the GHCR
+#    package is private.
 #
 #  REQUIREMENTS COVERAGE (all 245 TODO.md features):
 #    Frontend        : Vite + React 18 + Tailwind + shadcn/ui
@@ -36,7 +38,7 @@
 #    SMS alerts      : Twilio (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER)
 #    Email alerts    : SMTP (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS)
 #    Push notifs     : Web Push / VAPID (auto-generated if blank)
-#    APK builder     : Java 17 + Gradle + Android SDK
+#    APK builder     : Java 21 + Gradle + Android SDK
 #    Blockchain      : ethers.js (bundled in frontend)
 #    AI features     : rule-based, no external key needed
 #    NFC payments    : Web NFC API (browser-native, no server-side needed)
@@ -57,6 +59,14 @@ ask()     { echo -e "${CYN}[input ]${NC} $*"; }
 section() { echo -e "\n${MAG}━━━━  $*  ━━━━${NC}"; }
 
 [[ $EUID -eq 0 ]] || err "Run as root:  sudo bash deploy.sh"
+
+# `set -e` otherwise exits with no useful context when a remote command fails.
+on_error() {
+  local exit_code=$?
+  echo -e "${RED}[error ]${NC} Command failed at deploy.sh line ${BASH_LINENO[0]}: ${BASH_COMMAND}" >&2
+  exit "$exit_code"
+}
+trap on_error ERR
 
 # ── Parse flags ────────────────────────────────────────────────────────────────
 DOCKER_MODE=false
@@ -110,13 +120,116 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 if [[ -f "$ENV_FILE" ]]; then
-  log "Sourcing configuration from .env…"
-  set +u
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set -u
+  log "Loading configuration from .env…"
+
+  # Load dotenv assignments as data rather than sourcing the file as Bash.
+  # This keeps ordinary dotenv values such as `Bank (Support)` or URLs with
+  # query strings from being parsed as shell syntax or executed as commands.
+  load_dotenv() {
+    local line key value line_number=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      ((++line_number))
+
+      # Ignore blank lines and comments.
+      [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+
+      # Accept the common optional `export KEY=value` form.
+      line="${line#"${line%%[![:space:]]*}"}"
+      [[ "$line" == export[[:space:]]* ]] && line="${line#export }"
+      if [[ ! "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+        err "Invalid .env entry at line ${line_number}. Expected KEY=value."
+      fi
+
+      key="${BASH_REMATCH[1]}"
+      value="${BASH_REMATCH[2]}"
+      value="${value#"${value%%[![:space:]]*}"}"
+      value="${value%"${value##*[![:space:]]}"}"
+
+      # Remove one matching pair of dotenv quotes. Keep all other characters
+      # literal, including parentheses, dollar signs, and semicolons.
+      if [[ ${#value} -ge 2 &&
+            ( "${value:0:1}" == '"' && "${value: -1}" == '"' ||
+              "${value:0:1}" == "'" && "${value: -1}" == "'" ) ]]; then
+        value="${value:1:${#value}-2}"
+      fi
+
+      printf -v "$key" '%s' "$value"
+      export "$key"
+    done < "${1:-$ENV_FILE}"
+  }
+
+  load_dotenv
   ok ".env loaded"
 fi
+
+# Accept the shorter names commonly used when Supabase credentials are stored
+# on an external server. Keep the VITE_ names as the canonical values because
+# Vite and the browser config endpoint use those names.
+VITE_SUPABASE_URL="${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}"
+VITE_SUPABASE_PUBLISHABLE_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}"
+VITE_SUPABASE_PROJECT_ID="${VITE_SUPABASE_PROJECT_ID:-${SUPABASE_PROJECT_ID:-}}"
+SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-${SUPABASE_SECRET_KEY:-}}"
+export VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY VITE_SUPABASE_PROJECT_ID
+export SUPABASE_SERVICE_ROLE_KEY
+
+# The production repository is fixed so an old server .env or Git remote
+# cannot redirect deployment to a placeholder or stale project.
+GITHUB_USER="hc172808"
+GITHUB_REPO="bank-connect-hub"
+GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
+GITHUB_URL="https://github.com/hc172808/bank-connect-hub.git"
+
+# Production servers must not use Replit's internal package mirror. The
+# repository lockfile may contain mirror URLs from an install performed inside
+# Replit, so npm_ci_production temporarily normalizes those URLs while npm ci
+# runs and restores the tracked lockfile immediately afterward.
+NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org/}"
+npm_ci_production() {
+  local lockfile="${PWD}/package-lock.json"
+  local lock_backup=""
+  local install_log
+  local install_status
+
+  if [[ -f "$lockfile" ]] &&
+     grep -Eq 'http://package-firewall\.replit\.(local|internal)/npm/' "$lockfile"; then
+    lock_backup="$(mktemp)"
+    cp "$lockfile" "$lock_backup"
+    sed -i \
+      -e 's#http://package-firewall\.replit\.local/npm/#https://registry.npmjs.org/#g' \
+      -e 's#http://package-firewall\.replit\.internal/npm/#https://registry.npmjs.org/#g' \
+      "$lockfile"
+  fi
+
+  install_log="$(mktemp)"
+  # Newer npm versions can keep install scripts in a pending approval state.
+  # Vite needs esbuild's postinstall script to install its native binary.
+  if npm install-scripts --help >/dev/null 2>&1; then
+    npm install-scripts approve esbuild >/dev/null 2>&1 || true
+  fi
+
+  if npm ci \
+      --registry="$NPM_REGISTRY" \
+      --include=dev \
+      --prefer-offline --no-fund --no-audit >"$install_log" 2>&1; then
+    install_status=0
+  else
+    install_status=$?
+  fi
+
+  if [[ -n "$lock_backup" ]]; then
+    cp "$lock_backup" "$lockfile"
+    rm -f "$lock_backup"
+  fi
+
+  if (( install_status != 0 )); then
+    tail -30 "$install_log" >&2 || true
+    rm -f "$install_log"
+    return "$install_status"
+  fi
+
+  tail -3 "$install_log"
+  rm -f "$install_log"
+}
 
 # =============================================================================
 # STEP 1 — Gather required values interactively
@@ -124,7 +237,11 @@ fi
 section "STEP 1 — Configuration"
 
 # ── Database backend choice ───────────────────────────────────────────────────
-DB_MODE="${DB_MODE:-}"
+DB_MODE="${DB_MODE:-${DATABASE_MODE:-}}"
+case "$DB_MODE" in
+  remote|remote-postgres) DB_MODE="remote-dsn" ;;
+  replit|cloud)           DB_MODE="cloud" ;;
+esac
 if [[ -z "$DB_MODE" ]]; then
   echo ""
   echo -e "${CYN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -133,11 +250,13 @@ if [[ -z "$DB_MODE" ]]; then
   echo "  1) Supabase Cloud   — use your existing https://xxxx.supabase.co project"
   echo "  2) Self-hosted      — install the full Supabase stack on THIS server"
   echo "  3) Remote DSN       — connect to an existing PostgreSQL server (DSN/URL)"
+  echo "  4) Local PostgreSQL  — install PostgreSQL + pgAdmin on this server"
   echo ""
   ask "Choose database mode [1/2/3]:"; read -r _DB_CHOICE
   case "${_DB_CHOICE:-1}" in
     2) DB_MODE="self-hosted" ;;
     3) DB_MODE="remote-dsn"  ;;
+    4) DB_MODE="local"      ;;
     *) DB_MODE="cloud"       ;;
   esac
 fi
@@ -176,6 +295,32 @@ if [[ "$DB_MODE" == "self-hosted" ]]; then
   VITE_SUPABASE_PUBLISHABLE_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-}"
 fi
 
+# ── Local PostgreSQL + pgAdmin credentials ────────────────────────────────────
+# These are generated once and written to the protected application .env.
+# PostgreSQL and pgAdmin are bound to localhost by the Compose stack.
+if [[ "$DB_MODE" == "local" ]]; then
+  LOCAL_DB_DIR="${LOCAL_DB_DIR:-/opt/netlifecash-db}"
+  # Reuse the database stack's credentials on subsequent deployments. Changing
+  # the app URL/password while the existing volume is running would disconnect
+  # the application from PostgreSQL.
+  if [[ -f "${LOCAL_DB_DIR}/.env" ]]; then
+    load_dotenv "${LOCAL_DB_DIR}/.env"
+  fi
+  POSTGRES_USER="${POSTGRES_USER:-postgres}"
+  POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -hex 24)}"
+  POSTGRES_DB="${POSTGRES_DB:-netlifecash}"
+  POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+  PGADMIN_EMAIL="${PGADMIN_EMAIL:-admin@netlifecash.com}"
+  PGADMIN_PASSWORD="${PGADMIN_PASSWORD:-$(openssl rand -hex 20)}"
+  PGADMIN_PORT="${PGADMIN_PORT:-5050}"
+  DATABASE_URL="${DATABASE_URL:-postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}}"
+  LOCAL_DB_HOST="${LOCAL_DB_HOST:-127.0.0.1}"
+  LOCAL_DB_NAME="${LOCAL_DB_NAME:-$POSTGRES_DB}"
+  LOCAL_DB_USER="${LOCAL_DB_USER:-$POSTGRES_USER}"
+  LOCAL_DB_PASSWORD="${LOCAL_DB_PASSWORD:-$POSTGRES_PASSWORD}"
+  LOCAL_DB_PORT="${LOCAL_DB_PORT:-$POSTGRES_PORT}"
+fi
+
 # Required for all modes
 if [[ -z "${VITE_SUPABASE_URL:-}" ]]; then
   ask "Supabase URL (https://xxxx.supabase.co):"; read -r VITE_SUPABASE_URL
@@ -184,17 +329,10 @@ if [[ -z "${VITE_SUPABASE_PUBLISHABLE_KEY:-}" ]]; then
   ask "Supabase anon/public key:"; read -r VITE_SUPABASE_PUBLISHABLE_KEY
 fi
 
-# Required only for Docker mode
+# Docker mode uses the public GHCR image by default. A PAT is only needed
+# when the package has been made private.
 if $DOCKER_MODE; then
-  if [[ -z "${GITHUB_USER:-}" ]]; then
-    ask "GitHub username:"; read -r GITHUB_USER
-  fi
-  if [[ -z "${GITHUB_REPO:-}" ]]; then
-    ask "GitHub repository name:"; read -r GITHUB_REPO
-  fi
-  if [[ -z "${GITHUB_PAT:-}" ]]; then
-    ask "GitHub PAT (read:packages scope):"; read -rs GITHUB_PAT; echo ""
-  fi
+  :
 else
   # Source mode — need git repo URL if source not already here
   if ! $SOURCE_AVAILABLE; then
@@ -302,13 +440,15 @@ case "$PKG" in
     apt-get update -qq
     apt-get install -y -qq \
       curl wget git ca-certificates gnupg lsb-release \
-      ufw openssl jq net-tools unzip zip \
+      ufw openssl jq net-tools unzip zip rsync cron \
+      build-essential python3 python3-pip apt-transport-https \
       nginx software-properties-common
     ;;
   dnf|yum)
     $PKG update -y -q
     $PKG install -y -q \
-      curl wget git ca-certificates gnupg openssl jq net-tools unzip zip \
+      curl wget git ca-certificates gnupg openssl jq net-tools unzip zip rsync cronie \
+      gcc gcc-c++ make python3 python3-pip \
       nginx firewalld
     ;;
 esac
@@ -333,8 +473,11 @@ install_node() {
       $PKG install -y -q nodejs
       ;;
   esac
-  # Install latest npm
-  npm install -g npm@latest --quiet
+  # Keep npm on the stable major supported by this deployment. npm 11 can
+  # block native postinstall scripts (including esbuild) until manually
+  # approved, which prevents Vite from building on a fresh server.
+  npm install --registry="${NPM_REGISTRY:-https://registry.npmjs.org/}" \
+    -g npm@10 --quiet
 }
 
 if command -v node &>/dev/null; then
@@ -348,36 +491,73 @@ if command -v node &>/dev/null; then
 else
   install_node
 fi
+
+NPM_REQUIRED_MAJOR=10
+NPM_MAJOR="$(npm --version | cut -d. -f1)"
+if [[ "$NPM_MAJOR" != "$NPM_REQUIRED_MAJOR" ]]; then
+  log "Selecting npm ${NPM_REQUIRED_MAJOR}.x for reproducible installs…"
+  npm install --registry="${NPM_REGISTRY:-https://registry.npmjs.org/}" \
+    -g "npm@${NPM_REQUIRED_MAJOR}" --quiet
+fi
 ok "Node.js $(node --version) / npm $(npm --version)"
 
 # =============================================================================
-# STEP 4 — Install Java 17 (required for APK builder / Capacitor / Gradle)
+# STEP 4 — Install Java 21 (required for APK builder / Capacitor / Gradle)
 # =============================================================================
-section "STEP 4 — Java 17 (APK Builder)"
+section "STEP 4 — Java 21 (APK Builder)"
 
 install_java() {
-  log "Installing OpenJDK 17…"
+  log "Installing OpenJDK 21…"
   case "$PKG" in
     apt)
-      apt-get install -y -qq openjdk-17-jdk
+      # Ubuntu 22.04 (Jammy) does not always expose OpenJDK 21 in its
+      # default repositories. Prefer the package when available, then fall
+      # back to the official Eclipse Temurin 21 binary.
+      if apt-get install -y -qq openjdk-21-jdk; then
+        :
+      else
+        warn "openjdk-21-jdk is unavailable from the configured apt repositories; installing Temurin 21…"
+        local java_arch java_tarball java_dir
+        case "$(dpkg --print-architecture)" in
+          amd64) java_arch="x64" ;;
+          arm64) java_arch="aarch64" ;;
+          *) err "Unsupported Ubuntu architecture for Java 21: $(dpkg --print-architecture)" ;;
+        esac
+        java_tarball="/tmp/temurin-21-${java_arch}.tar.gz"
+        java_dir="/opt/temurin-21"
+        curl -fsSL \
+          "https://api.adoptium.net/v3/binary/latest/21/ga/linux/${java_arch}/jdk/hotspot/normal/eclipse" \
+          -o "$java_tarball"
+        rm -rf "$java_dir"
+        mkdir -p "$java_dir"
+        tar -xzf "$java_tarball" -C "$java_dir" --strip-components=1
+        rm -f "$java_tarball"
+        update-alternatives --install /usr/bin/java java "${java_dir}/bin/java" 2121
+        update-alternatives --install /usr/bin/javac javac "${java_dir}/bin/javac" 2121
+        update-alternatives --set java "${java_dir}/bin/java"
+        update-alternatives --set javac "${java_dir}/bin/javac"
+      fi
       ;;
     dnf|yum)
-      $PKG install -y -q java-17-openjdk java-17-openjdk-devel
+      $PKG install -y -q java-21-openjdk java-21-openjdk-devel
       ;;
   esac
 }
 
 if command -v java &>/dev/null; then
   JAVA_VER=$(java -version 2>&1 | grep -oP '(?<=version ")[0-9]+' | head -1)
-  if [[ "${JAVA_VER:-0}" -ge 17 ]]; then
+  if [[ "${JAVA_VER:-0}" -ge 21 ]]; then
     ok "Java $(java -version 2>&1 | head -1) already installed"
   else
-    warn "Java ${JAVA_VER} is too old — installing Java 17…"
+    warn "Java ${JAVA_VER} is too old — installing Java 21…"
     install_java
   fi
 else
   install_java
 fi
+
+JAVA_VER="$(java -version 2>&1 | grep -oP '(?<=version ")[0-9]+' | head -1)"
+[[ "${JAVA_VER:-0}" -ge 21 ]] || err "Java 21 or newer is required, but Java ${JAVA_VER:-unknown} is active"
 
 # Set JAVA_HOME system-wide
 JAVA_HOME_PATH=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
@@ -393,7 +573,7 @@ ok "JAVA_HOME=${JAVA_HOME}"
 # =============================================================================
 section "STEP 5 — Gradle (APK Builder)"
 
-GRADLE_VERSION="8.7"
+GRADLE_VERSION="8.11.1"
 if ! command -v gradle &>/dev/null; then
   log "Installing Gradle ${GRADLE_VERSION}…"
   GRADLE_TMP="/tmp/gradle-${GRADLE_VERSION}-bin.zip"
@@ -434,12 +614,12 @@ else
   SDKMANAGER="${ANDROID_HOME_PATH}/cmdline-tools/latest/bin/sdkmanager"
   yes | "$SDKMANAGER" --sdk_root="${ANDROID_HOME_PATH}" --licenses &>/dev/null || true
   "$SDKMANAGER" --sdk_root="${ANDROID_HOME_PATH}" \
-    "platforms;android-34" \
+    "platforms;android-35" \
     "build-tools;34.0.0" \
     "platform-tools" \
     "extras;android;m2repository" \
     "extras;google;m2repository" &>/dev/null
-  ok "Android SDK installed (platform 34, build-tools 34.0.0)"
+  ok "Android SDK installed (platform 35, build-tools 34.0.0)"
 fi
 
 # Set ANDROID_HOME system-wide
@@ -451,7 +631,7 @@ fi
 export ANDROID_HOME="${ANDROID_HOME_PATH}"
 
 # =============================================================================
-# STEP 7 — Install Docker CE (for Portainer management UI)
+# STEP 7 — Install Docker CE
 # =============================================================================
 section "STEP 7 — Docker CE"
 
@@ -460,6 +640,7 @@ if ! command -v docker &>/dev/null; then
   case "$PKG" in
     apt)
       install -m 0755 -d /etc/apt/keyrings
+      rm -f /etc/apt/keyrings/docker.gpg
       curl -fsSL "https://download.docker.com/linux/$(. /etc/os-release; echo "$ID")/gpg" \
         | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
       chmod a+r /etc/apt/keyrings/docker.gpg
@@ -609,30 +790,43 @@ section "STEP 8 — Firewall"
 
 if command -v ufw &>/dev/null; then
   log "Configuring UFW…"
-  ufw --force reset     &>/dev/null
-  ufw default deny incoming  &>/dev/null
-  ufw default allow outgoing &>/dev/null
+  # Do not reset UFW here: reset can drop an active SSH session before the
+  # replacement SSH rule is installed. These rules are safe to re-run.
+  ufw default deny incoming
+  ufw default allow outgoing
 
-  SSH_PORT=$(ss -tlnp 2>/dev/null | grep sshd | awk '{print $4}' | cut -d: -f2 | head -1)
-  SSH_PORT="${SSH_PORT:-22}"
-
-  ufw allow "${SSH_PORT}/tcp"              comment "SSH"             &>/dev/null
-  ufw allow "${APP_PORT}/tcp"              comment "NETLIFECASH app" &>/dev/null
-  ufw allow "${BUILD_SERVER_PORT}/tcp"     comment "Build server"    &>/dev/null
-  ufw allow 9000/tcp                       comment "Deploy webhook"  &>/dev/null
-  ufw allow 9443/tcp                       comment "Portainer"       &>/dev/null
-  if [[ -n "${DOMAIN_NAME:-}" ]]; then
-    ufw allow 80/tcp  comment "HTTP"  &>/dev/null
-    ufw allow 443/tcp comment "HTTPS" &>/dev/null
+  # Prefer an explicitly configured SSH_PORT. The old pipeline could return
+  # an IPv6 address fragment such as "[::]" instead of a numeric port.
+  SSH_PORT="${SSH_PORT:-}"
+  if [[ -z "$SSH_PORT" ]]; then
+    SSH_PORT="$(ss -H -ltnp 2>/dev/null | awk '
+      /sshd/ {
+        n = split($4, address, ":")
+        port = address[n]
+        gsub(/[^0-9].*/, "", port)
+        if (port != "") { print port; exit }
+      }')"
   fi
-  ufw --force enable &>/dev/null
+  SSH_PORT="${SSH_PORT:-22}"
+  [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || err "Invalid SSH_PORT: ${SSH_PORT}"
+  [[ "$APP_PORT" =~ ^[0-9]+$ ]] || err "Invalid APP_PORT: ${APP_PORT}"
+  [[ "$BUILD_SERVER_PORT" =~ ^[0-9]+$ ]] || err "Invalid BUILD_SERVER_PORT: ${BUILD_SERVER_PORT}"
+
+  ufw allow "${SSH_PORT}/tcp"              comment "SSH"
+  ufw allow "${APP_PORT}/tcp"              comment "NETLIFECASH app"
+  ufw allow "${BUILD_SERVER_PORT}/tcp"     comment "Build server"
+  ufw allow 9000/tcp                       comment "Deploy webhook"
+  if [[ -n "${DOMAIN_NAME:-}" ]]; then
+    ufw allow 80/tcp  comment "HTTP"
+    ufw allow 443/tcp comment "HTTPS"
+  fi
+  ufw --force enable
 
   ok "UFW enabled — ports open:"
   printf "     %-8s  %s\n"  "${SSH_PORT}/tcp"             "SSH"
   printf "     %-8s  %s\n"  "${APP_PORT}/tcp"             "NETLIFECASH frontend"
   printf "     %-8s  %s\n"  "${BUILD_SERVER_PORT}/tcp"    "Build server (APK / push / SMS)"
   printf "     %-8s  %s\n"  "9000/tcp"                    "Deploy webhook"
-  printf "     %-8s  %s\n"  "9443/tcp"                    "Portainer dashboard"
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     printf "     %-8s  %s\n"  "80/tcp"   "HTTP  (→ redirects to HTTPS)"
     printf "     %-8s  %s\n"  "443/tcp"  "HTTPS (SSL termination)"
@@ -641,9 +835,13 @@ if command -v ufw &>/dev/null; then
 elif command -v firewall-cmd &>/dev/null; then
   log "Configuring firewalld…"
   systemctl enable --now firewalld
+  SSH_PORT="${SSH_PORT:-22}"
+  [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || err "Invalid SSH_PORT: ${SSH_PORT}"
+  [[ "$APP_PORT" =~ ^[0-9]+$ ]] || err "Invalid APP_PORT: ${APP_PORT}"
+  [[ "$BUILD_SERVER_PORT" =~ ^[0-9]+$ ]] || err "Invalid BUILD_SERVER_PORT: ${BUILD_SERVER_PORT}"
+  firewall-cmd --permanent --add-port="${SSH_PORT}/tcp"
   firewall-cmd --permanent --add-port="${APP_PORT}/tcp"           &>/dev/null
   firewall-cmd --permanent --add-port="${BUILD_SERVER_PORT}/tcp"  &>/dev/null
-  firewall-cmd --permanent --add-port="9443/tcp"                  &>/dev/null
   firewall-cmd --permanent --add-port="9000/tcp"                  &>/dev/null
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     firewall-cmd --permanent --add-service=http  &>/dev/null
@@ -655,11 +853,12 @@ elif command -v firewall-cmd &>/dev/null; then
   printf "     %-8s  %s\n"  "${APP_PORT}/tcp"             "NETLIFECASH frontend"
   printf "     %-8s  %s\n"  "${BUILD_SERVER_PORT}/tcp"    "Build server (APK / push / SMS)"
   printf "     %-8s  %s\n"  "9000/tcp"                    "Deploy webhook"
-  printf "     %-8s  %s\n"  "9443/tcp"                    "Portainer dashboard"
   if [[ -n "${DOMAIN_NAME:-}" ]]; then
     printf "     %-8s  %s\n"  "80/tcp"   "HTTP"
     printf "     %-8s  %s\n"  "443/tcp"  "HTTPS"
   fi
+else
+  warn "No supported firewall service found (ufw or firewalld); skipping firewall configuration."
 fi
 
 # =============================================================================
@@ -669,32 +868,109 @@ section "STEP 9 — Application Source"
 
 APP_DIR="/opt/netlifecash"
 
-if $SOURCE_AVAILABLE; then
-  # Running from inside the repo — copy to APP_DIR if different
-  if [[ "$SCRIPT_DIR" != "$APP_DIR" ]]; then
-    log "Copying source from ${SCRIPT_DIR} to ${APP_DIR}…"
-    rsync -a --exclude='.git' --exclude='node_modules' --exclude='dist' \
-      "${SCRIPT_DIR}/" "${APP_DIR}/"
-  else
-    log "Running from ${APP_DIR} — no copy needed"
-  fi
-elif $DOCKER_MODE; then
+if $DOCKER_MODE; then
   # Docker mode — source not needed for nginx, just create app dir for config files
   mkdir -p "$APP_DIR"
 else
-  # Source mode — clone from GitHub
+  # Source mode always refreshes the deployment checkout from GitHub. A
+  # fast-forward-only update preserves local .env and generated data while
+  # refusing to deploy a stale or diverged checkout.
   if [[ -d "${APP_DIR}/.git" ]]; then
     log "Updating existing repo in ${APP_DIR}…"
     cd "$APP_DIR"
-    git pull origin "${GITHUB_BRANCH:-main}"
+    if git remote get-url origin &>/dev/null; then
+      git remote set-url origin "$GITHUB_URL"
+    else
+      git remote add origin "$GITHUB_URL"
+    fi
+    log "Git remote set to ${GITHUB_URL}"
+    git fetch --prune origin
+    git checkout "${GITHUB_BRANCH}"
+    git pull --ff-only origin "${GITHUB_BRANCH}" \
+      || err "Cannot fast-forward ${APP_DIR}; resolve local changes before deploying."
+  elif $SOURCE_AVAILABLE && [[ -d "${SCRIPT_DIR}/.git" ]]; then
+    log "Updating source checkout from ${GITHUB_URL}…"
+    git -C "$SCRIPT_DIR" remote set-url origin "$GITHUB_URL"
+    git -C "$SCRIPT_DIR" fetch --prune origin
+    git -C "$SCRIPT_DIR" checkout "${GITHUB_BRANCH}"
+    git -C "$SCRIPT_DIR" pull --ff-only origin "${GITHUB_BRANCH}" \
+      || err "Cannot fast-forward ${SCRIPT_DIR}; resolve local changes before deploying."
+    mkdir -p "$APP_DIR"
+    log "Copying the updated source to ${APP_DIR}…"
+    rsync -a \
+      --exclude='.git' --exclude='.env' --exclude='node_modules' --exclude='dist' \
+      "${SCRIPT_DIR}/" "${APP_DIR}/"
   else
-    log "Cloning ${GITHUB_USER}/${GITHUB_REPO}…"
-    git clone "https://github.com/${GITHUB_USER}/${GITHUB_REPO}.git" "$APP_DIR"
+    log "Cloning ${GITHUB_URL}…"
+    git clone --branch "${GITHUB_BRANCH}" "${GITHUB_URL}" "$APP_DIR"
     cd "$APP_DIR"
-    git checkout "${GITHUB_BRANCH:-main}"
   fi
 fi
 cd "$APP_DIR"
+
+# =============================================================================
+# STEP 9.5 — Local PostgreSQL + pgAdmin
+# =============================================================================
+# This runs after the application source is available so the same deployment
+# command works whether deploy.sh was run from a checkout or cloned the repo.
+if [[ "${DB_MODE:-cloud}" == "local" ]]; then
+  section "STEP 9.5 — Local PostgreSQL + pgAdmin"
+
+  [[ -f "${APP_DIR}/db-server/docker-compose.yml" ]] || \
+    err "Local database mode requires db-server/docker-compose.yml in the application source"
+  [[ -f "${APP_DIR}/database/local-bootstrap.sql" ]] || \
+    err "Local database mode requires database/local-bootstrap.sql in the application source"
+
+  mkdir -p "${LOCAL_DB_DIR}/database"
+  cp "${APP_DIR}/db-server/docker-compose.yml" "${LOCAL_DB_DIR}/docker-compose.yml"
+  cp "${APP_DIR}/database/local-bootstrap.sql" "${LOCAL_DB_DIR}/database/local-bootstrap.sql"
+  [[ -f "${APP_DIR}/all_migrations.sql" ]] && \
+    cp "${APP_DIR}/all_migrations.sql" "${LOCAL_DB_DIR}/all_migrations.sql"
+
+  # The checked-in Compose file uses a repo-relative bootstrap path. The
+  # server copy lives in /opt/netlifecash-db, so make that path local.
+  sed -i 's#\.\./database/local-bootstrap\.sql#\./database/local-bootstrap.sql#' \
+    "${LOCAL_DB_DIR}/docker-compose.yml"
+
+  cat > "${LOCAL_DB_DIR}/.env" << DBENV
+POSTGRES_USER=${POSTGRES_USER}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+POSTGRES_DB=${POSTGRES_DB}
+POSTGRES_PORT=${POSTGRES_PORT}
+PGADMIN_EMAIL=${PGADMIN_EMAIL}
+PGADMIN_PASSWORD=${PGADMIN_PASSWORD}
+PGADMIN_PORT=${PGADMIN_PORT}
+DBENV
+  chmod 600 "${LOCAL_DB_DIR}/.env"
+
+  DB_COMPOSE=(docker compose --project-name netlifecash-db \
+    --env-file "${LOCAL_DB_DIR}/.env" -f "${LOCAL_DB_DIR}/docker-compose.yml")
+  "${DB_COMPOSE[@]}" up -d
+
+  log "Waiting for PostgreSQL to become ready…"
+  for _ in $(seq 1 60); do
+    if "${DB_COMPOSE[@]}" exec -T postgres \
+      pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" &>/dev/null; then
+      break
+    fi
+    sleep 2
+  done
+  "${DB_COMPOSE[@]}" exec -T postgres \
+    pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" &>/dev/null || \
+    err "PostgreSQL did not become ready. Check: ${DB_COMPOSE[*]} logs postgres"
+  ok "PostgreSQL ready on 127.0.0.1:${POSTGRES_PORT}"
+
+  if [[ -s "${LOCAL_DB_DIR}/all_migrations.sql" ]]; then
+    log "Loading application database migrations…"
+    "${DB_COMPOSE[@]}" exec -T postgres \
+      psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
+      < "${LOCAL_DB_DIR}/all_migrations.sql" \
+      && ok "Application migrations loaded" \
+      || warn "Migration import reported errors; inspect PostgreSQL logs before production use"
+  fi
+
+  ok "pgAdmin available privately on 127.0.0.1:${PGADMIN_PORT}"
+fi
 
 # Write (or refresh) .env in the app directory
 # NOTE: VAPID keys are filled in after npm install (requires web-push package)
@@ -707,10 +983,25 @@ VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
 VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}
 VITE_SUPABASE_PROJECT_ID=${VITE_SUPABASE_PROJECT_ID:-}
 VITE_WHATSAPP_SUPPORT_NUMBER=${VITE_WHATSAPP_SUPPORT_NUMBER:-}
+SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
 
 # ── Database ──────────────────────────────────────────────────────────────────
 DB_MODE=${DB_MODE:-cloud}
+DATABASE_MODE=${DB_MODE}
 DATABASE_URL=${DATABASE_URL:-}
+LOCAL_DB_HOST=${LOCAL_DB_HOST:-}
+LOCAL_DB_PORT=${LOCAL_DB_PORT:-}
+LOCAL_DB_NAME=${LOCAL_DB_NAME:-}
+LOCAL_DB_USER=${LOCAL_DB_USER:-}
+LOCAL_DB_PASSWORD=${LOCAL_DB_PASSWORD:-}
+POSTGRES_USER=${POSTGRES_USER:-}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+POSTGRES_DB=${POSTGRES_DB:-}
+POSTGRES_PORT=${POSTGRES_PORT:-}
+PGADMIN_EMAIL=${PGADMIN_EMAIL:-}
+PGADMIN_PASSWORD=${PGADMIN_PASSWORD:-}
+PGADMIN_PORT=${PGADMIN_PORT:-}
+LOCAL_DB_DIR=${LOCAL_DB_DIR:-}
 
 # ── Server ────────────────────────────────────────────────────────────────────
 APP_PORT=${APP_PORT}
@@ -759,11 +1050,13 @@ ok ".env written to ${APP_DIR}"
 # STEP 10 — Install npm dependencies + build frontend (source mode only)
 # =============================================================================
 if ! $DOCKER_MODE; then
-  section "STEP 10 — npm install + Vite build"
+  section "STEP 10 — npm install + push keys"
   cd "$APP_DIR"
 
   log "Installing npm dependencies…"
-  npm ci --prefer-offline --no-fund --no-audit 2>&1 | tail -3
+  if ! npm_ci_production; then
+    err "npm ci failed. Check the npm output above and verify NPM_REGISTRY or package connectivity."
+  fi
   ok "npm packages installed ($(npm list --depth=0 2>/dev/null | wc -l) packages)"
 
   # ── Auto-generate VAPID keys if not already set ────────────────────────────
@@ -788,17 +1081,16 @@ NODEEOF
   sed -i "s|^VAPID_PRIVATE_KEY=.*|VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}|" "${APP_DIR}/.env"
   ok "VAPID keys written to .env"
 
-  log "Building frontend (Vite production build)…"
-  # Export Vite env vars for the build
-  export VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY
-  export VITE_SUPABASE_PROJECT_ID VITE_WHATSAPP_SUPPORT_NUMBER
-  npm run build 2>&1 | tail -5
-  ok "Frontend built → ${APP_DIR}/dist"
+  ok "Dependencies ready — the app itself is built last (STEP 13.9)"
 else
   section "STEP 10 — Docker image pull (--docker mode)"
-  log "Authenticating with GHCR…"
-  echo "${GITHUB_PAT}" | docker login ghcr.io -u "${GITHUB_USER}" --password-stdin
-  ok "GHCR authenticated"
+  if [[ -n "${GITHUB_PAT:-}" ]]; then
+    log "Authenticating with GHCR using the optional GitHub token…"
+    echo "${GITHUB_PAT}" | docker login ghcr.io -u "${GITHUB_USER}" --password-stdin
+    ok "GHCR authenticated"
+  else
+    log "Using the public GHCR image; GitHub authentication is not required."
+  fi
 fi
 
 # =============================================================================
@@ -820,12 +1112,13 @@ server {
     root ${APP_DIR}/dist;
     index index.html;
 
-    # Serve env-config.js from a custom script
+    # Serve the generated runtime config file. Keeping JavaScript out of this
+    # nginx template prevents quotes, semicolons, or special dotenv characters
+    # from breaking nginx parsing.
     location = /env-config.js {
-        alias ${APP_DIR}/docker/generate-env.sh;
-        return 200 "window.__ENV__={VITE_SUPABASE_URL:'${VITE_SUPABASE_URL}',VITE_SUPABASE_PUBLISHABLE_KEY:'${VITE_SUPABASE_PUBLISHABLE_KEY}',VITE_SUPABASE_PROJECT_ID:'${VITE_SUPABASE_PROJECT_ID:-}',VITE_WHATSAPP_SUPPORT_NUMBER:'${VITE_WHATSAPP_SUPPORT_NUMBER:-}'};";
-        add_header Content-Type "application/javascript";
-        expires -1;
+        alias ${APP_DIR}/dist/env-config.js;
+        default_type application/javascript;
+        add_header Cache-Control "no-store";
     }
 
     # Health check endpoint
@@ -944,8 +1237,9 @@ if ! $DOCKER_MODE; then
 else
   log "Installing build-server dependencies in ${APP_DIR}…"
   cd "$APP_DIR"
-  npm ci --prefer-offline --no-fund --no-audit &>/dev/null || \
-    npm install --no-fund --no-audit &>/dev/null
+  if ! npm_ci_production; then
+    err "npm ci failed while preparing the Docker build-server dependencies."
+  fi
 fi
 
 log "Creating systemd service: netlifecash-server…"
@@ -962,9 +1256,9 @@ WorkingDirectory=${APP_DIR}
 EnvironmentFile=${APP_DIR}/.env
 Environment=NODE_ENV=production
 Environment=PORT=${BUILD_SERVER_PORT}
-Environment=JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}
+Environment=JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}
 Environment=ANDROID_HOME=${ANDROID_HOME:-/opt/android-sdk}
-Environment=PATH=/usr/local/bin:/usr/bin:/bin:${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}/bin:${ANDROID_HOME:-/opt/android-sdk}/platform-tools
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}/bin:${ANDROID_HOME:-/opt/android-sdk}/platform-tools
 ExecStart=$(which node) ${APP_DIR}/build-server.mjs
 Restart=on-failure
 RestartSec=10
@@ -990,27 +1284,7 @@ else
 fi
 
 # =============================================================================
-# STEP 13 — Portainer CE (management UI)
-# =============================================================================
-section "STEP 13 — Portainer CE"
-
-docker volume create portainer_data &>/dev/null || true
-if ! docker ps -a --format '{{.Names}}' | grep -q '^portainer$'; then
-  docker run -d \
-    --name portainer \
-    --restart=unless-stopped \
-    -p 9443:9443 \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    -v portainer_data:/data \
-    portainer/portainer-ce:latest &>/dev/null
-  ok "Portainer installed at https://${SERVER_IP}:9443"
-else
-  docker start portainer &>/dev/null || true
-  ok "Portainer already running at https://${SERVER_IP}:9443"
-fi
-
-# =============================================================================
-# STEP 13.5 — GYDS RPC Node (public/rpcnode) + Docker socket wiring
+# STEP 13 — GYDS RPC Node (public/rpcnode) + Docker socket wiring
 # =============================================================================
 section "STEP 13.5 — GYDS RPC Node"
 
@@ -1079,6 +1353,61 @@ else
 fi
 
 # =============================================================================
+# STEP 13.9 — Build the application (runs LAST, after every service is set up)
+# =============================================================================
+if ! $DOCKER_MODE; then
+  section "STEP 13.9 — Build Application (final step)"
+  cd "$APP_DIR"
+
+  log "Refreshing source from git (if this is a git checkout)…"
+  if [[ -d "${APP_DIR}/.git" ]]; then
+    git pull --ff-only origin "${GITHUB_BRANCH:-main}" || warn "git pull skipped (local changes or offline)"
+  fi
+
+  log "Ensuring dependencies are up to date…"
+  if ! npm_ci_production; then
+    err "npm ci failed before the frontend build. Check the npm output above."
+  fi
+
+  log "Building frontend (Vite production build)…"
+  export VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY
+  export VITE_SUPABASE_PROJECT_ID VITE_WHATSAPP_SUPPORT_NUMBER
+  BUILD_LOG="$(mktemp)"
+  if npm run build >"$BUILD_LOG" 2>&1; then
+    tail -5 "$BUILD_LOG"
+    rm -f "$BUILD_LOG"
+  else
+    cat "$BUILD_LOG" >&2
+    rm -f "$BUILD_LOG"
+    err "Vite production build failed. Review the error above."
+  fi
+  [[ -f "${APP_DIR}/dist/index.html" ]] || err "Build failed — ${APP_DIR}/dist/index.html not found"
+  node --input-type=module <<'NODEEOF'
+import fs from "node:fs";
+
+const runtimeConfig = {
+  VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL || "",
+  VITE_SUPABASE_PUBLISHABLE_KEY: process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "",
+  VITE_SUPABASE_PROJECT_ID: process.env.VITE_SUPABASE_PROJECT_ID || "",
+  VITE_WHATSAPP_SUPPORT_NUMBER: process.env.VITE_WHATSAPP_SUPPORT_NUMBER || "",
+};
+
+fs.writeFileSync(
+  "dist/env-config.js",
+  `window.__ENV__=${JSON.stringify(runtimeConfig)};`,
+  "utf8",
+);
+NODEEOF
+  ok "Runtime frontend configuration written"
+  ok "Frontend built → ${APP_DIR}/dist"
+
+  log "Reloading web server + app services…"
+  nginx -t && systemctl reload nginx || warn "nginx reload failed — check 'nginx -t'"
+  systemctl restart netlifecash-server 2>/dev/null || warn "netlifecash-server not restarted"
+  ok "Application is live"
+fi
+
+# =============================================================================
 # STEP 14 — Optional SSL with Certbot
 # =============================================================================
 if [[ -n "${DOMAIN_NAME:-}" && -n "${SSL_EMAIL:-}" ]]; then
@@ -1127,8 +1456,6 @@ cat > "$INFO_FILE" << INFO
 
 APP_URL=${APP_URL}
 BUILD_SERVER_URL=http://${SERVER_IP}:${BUILD_SERVER_PORT}
-PORTAINER_URL=https://${SERVER_IP}:9443
-
 # ── Auto-Generated Secrets (save these somewhere safe!) ───────────────────────
 WEBHOOK_SECRET=${WEBHOOK_SECRET}
 JWT_SECRET=${JWT_SECRET}
@@ -1155,7 +1482,7 @@ VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
 #   ✓ Currency Converter (44 currencies)
 #   ✓ Push Notifications / SMS / Email / WhatsApp
 #   ✓ PWA (installable, offline caching)
-#   ✓ APK Builder (Java ${JAVA_HOME:-17} + Gradle + Android SDK)
+#   ✓ APK Builder (Java ${JAVA_HOME:-21} + Gradle + Android SDK)
 #   ✓ App Lock (idle PIN timeout)
 #   ✓ Role System (18 roles)
 INFO
@@ -1170,7 +1497,10 @@ HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
 if [[ "$HTTP_CODE" == "200" ]]; then
   ok "App health check passed (HTTP ${HTTP_CODE})"
 else
-  warn "Health check returned HTTP ${HTTP_CODE} — nginx may still be starting"
+  warn "Health check returned HTTP ${HTTP_CODE} — nginx is not serving APP_PORT=${APP_PORT}"
+  systemctl status nginx --no-pager -l >&2 || true
+  nginx -t >&2 || true
+  err "Frontend health check failed. Start/fix nginx, then rerun deploy.sh."
 fi
 
 BUILD_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
@@ -1191,7 +1521,6 @@ echo -e "${GRN}╠════════════════════�
 echo -e "${GRN}║                                                               ║${NC}"
 printf "${GRN}║  🌐 App URL:        %-42s║${NC}\n" "${APP_URL}"
 printf "${GRN}║  🔧 Build Server:   %-42s║${NC}\n" "http://${SERVER_IP}:${BUILD_SERVER_PORT}"
-printf "${GRN}║  🐳 Portainer:      %-42s║${NC}\n" "https://${SERVER_IP}:9443"
 printf "${GRN}║  ☕ Java Home:      %-42s║${NC}\n" "${JAVA_HOME}"
 if ! $SKIP_ANDROID; then
 printf "${GRN}║  🤖 Android SDK:    %-42s║${NC}\n" "${ANDROID_HOME}"

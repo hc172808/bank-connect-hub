@@ -5,3 +5,13 @@
 - [App Lock](applock.md) — useAppLock() in AppRoutes (App.tsx); AppLockScreen component; settings via useAppLockSettings(); localStorage vbank_applock_v1; PIN validated against profiles.transaction_pin SHA-256
 - [In-app chat system](chat.md) — uses notifications table (type=chat_message/chat_outbox); no schema changes; thread_id=[id1,id2].sort().join("_"); Supabase Realtime subscription per thread; routes /chat + /chat/:peerId
 - [Replit migration](replit-migration.md) — Supabase kept (too deep to replace); lucide-react + date-fns had corrupted dist on import; secrets in Replit Secret store
+- [Private ledger](private-ledger.md) — customer payments use the authenticated database ledger; public RPC fallbacks are disabled; hash-chain migration must be applied to Supabase
+- [Local database stack](local-database-stack.md) — Replit Docker needs host-side PostgreSQL checks and IPv4-only pgAdmin binding
+- [Remote firewall deployment](deployment-firewall.md) — deploy scripts must preserve SSH access and surface firewall errors instead of resetting silently
+- [Centralized software updates](software-updates.md) — scoped updater keeps project, OS, Android, and Docker updates explicit
+- [WhatsApp verification workflow](whatsapp-verification.md) — click-to-chat requests are database-backed and admin-reviewed
+- [Dependency recovery](dependency-recovery.md) — package-manager installs can refresh caret ranges; preserve manifests when restoring missing node_modules
+- [Nginx runtime config](nginx-runtime-config.md) — generate JavaScript separately; never interpolate dotenv values into nginx directives
+- [Supabase schema rollout](supabase-schema-rollout.md) — app builds do not apply Supabase migrations; remote schema and storage policies need an explicit rollout
+- [Bank reserve controls](bank-reserve.md) — reserve funding and internal-funds writes are database RPCs; apply the dedicated migration before enabling the feature
+- [Supabase runtime configuration](supabase-runtime-config.md) — server-side SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must override stale VITE/project-id values

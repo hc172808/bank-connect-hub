@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, initSupabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, Fingerprint, Store, Users, ScanFace } from "lucide-react";
+import { Eye, EyeOff, Fingerprint, Store, Users, ScanFace, MessageCircle, ShieldCheck } from "lucide-react";
 import { CountryPhoneInput } from "@/components/CountryPhoneInput";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { buildWhatsAppLink, fetchWhatsAppSettings } from "@/lib/whatsapp";
 import {
   isBiometricAvailable,
   authenticateWithBiometric,
@@ -17,8 +18,20 @@ import {
 
 type AuthMode = "signin" | "signup";
 type AccountType = "client" | "vendor";
+type LoginStep = "credentials" | "otp";
 
 const phoneToEmail = (e164: string) => `${e164.replace("+", "")}@vbank.com`;
+const phoneEmailCandidates = (value: string) => {
+  const raw = value.replace(/\D/g, "");
+  const normalized = raw.length === 7 ? `592${raw}` : raw;
+  return [...new Set([
+    `${normalized}@vbank.com`,
+    `${raw}@vbank.com`,
+    `${raw.replace(/^592/, "")}@vbank.com`,
+    `${normalized}@virtualbank.app`,
+    `${raw}@virtualbank.app`,
+  ].filter((email) => !email.startsWith("@")))];
+};
 
 const Auth = () => {
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -28,13 +41,70 @@ const Auth = () => {
   const [accountType, setAccountType] = useState<AccountType>("client");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loginStep, setLoginStep] = useState<LoginStep>("credentials");
+  const [loginChallenge, setLoginChallenge] = useState("");
+  const [loginOtp, setLoginOtp] = useState("");
+  const [loginMaskedPhone, setLoginMaskedPhone] = useState("");
+  const [supportWhatsapp, setSupportWhatsapp] = useState("");
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     isBiometricAvailable().then(setBiometricAvailable);
+    fetch("/api/config")
+      .then((response) => response.json())
+      .then((config: { whatsappNumber?: string }) => setSupportWhatsapp(config.whatsappNumber || ""))
+      .catch(() => {});
+    fetchWhatsAppSettings()
+      .then((settings) => setSupportWhatsapp(settings.supportNumber))
+      .catch(() => {});
   }, []);
+
+  const requestLoginOtp = async (phone: string, secret: string) => {
+    await initSupabase();
+    const response = await fetch("/api/auth/request-login-otp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, password: secret }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Could not send the WhatsApp code.");
+    setLoginChallenge(result.challengeId);
+    setLoginMaskedPhone(result.masked || phone);
+    setLoginOtp("");
+    setLoginStep("otp");
+    toast({ title: "Code sent to WhatsApp", description: `Enter the code sent to ${result.masked || "your phone"}.` });
+  };
+
+  const handleVerifyLoginOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loginOtp.trim().length !== 6) {
+      toast({ variant: "destructive", title: "Enter the 6-digit code" });
+      return;
+    }
+    setLoading(true);
+    try {
+      await initSupabase();
+      const response = await fetch("/api/auth/verify-login-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challengeId: loginChallenge, code: loginOtp.trim() }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.session) throw new Error(result.error || "The verification code is invalid.");
+      const { error } = await supabase.auth.setSession({
+        access_token: result.session.access_token,
+        refresh_token: result.session.refresh_token,
+      });
+      if (error) throw error;
+      toast({ title: "Welcome back!", description: "Your login was verified." });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Verification failed", description: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleBiometricLogin = async (type: "fingerprint" | "face") => {
     const storedCredential = hasStoredBiometric();
@@ -63,13 +133,8 @@ const Auth = () => {
         return;
       }
 
-      const { error } = await supabase.auth.signInWithPassword({
-        email: phoneToEmail(authData.phone),
-        password: authData.password,
-      });
-
-      if (error) throw error;
-      toast({ title: "Welcome back!", description: `Signed in with ${type === "face" ? "Face ID" : "Fingerprint"}` });
+      await requestLoginOtp(authData.phone, authData.password);
+      toast({ title: `${type === "face" ? "Face ID" : "Fingerprint"} accepted`, description: "Confirm the WhatsApp code to finish signing in." });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message });
     } finally {
@@ -82,12 +147,34 @@ const Auth = () => {
     setLoading(true);
 
     try {
+      // The page can render before the runtime Supabase config request
+      // completes. Wait here so an immediate login never uses the temporary
+      // localhost client and produces a misleading "Failed to fetch" error.
+      await initSupabase();
+
       if (mode === "signup") {
         if (!phoneNumber) {
           toast({ variant: "destructive", title: "Invalid phone", description: "Please enter a valid phone number." });
           setLoading(false);
           return;
         }
+        // Duplicate checking is a helpful server-side guard, but registration
+        // must not depend on the optional service-role key. Supabase Auth still
+        // enforces the unique login email when signUp() runs below.
+        try {
+          const availability = await fetch(`/api/auth/phone-availability?phone=${encodeURIComponent(phoneNumber)}`);
+          const availabilityResult = await availability.json().catch(() => ({}));
+          if (availability.ok && availabilityResult.available === false) {
+            throw new Error("That phone number is already registered. Use another number or sign in.");
+          }
+          if (!availability.ok) {
+            console.warn("[auth] Phone availability check skipped:", availabilityResult.error || availability.statusText);
+          }
+        } catch (availabilityError: any) {
+          if (availabilityError?.message?.includes("already registered")) throw availabilityError;
+          console.warn("[auth] Phone availability check unavailable; continuing signup.", availabilityError);
+        }
+
         const { error } = await supabase.auth.signUp({
           email: phoneToEmail(phoneNumber),
           password,
@@ -105,8 +192,17 @@ const Auth = () => {
 
         toast({
           title: "Account created!",
-          description: "You can create or import a blockchain wallet later from Profile → Blockchain Wallet.",
+          description: "Your account is ready. Complete WhatsApp verification next.",
         });
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          navigate("/verify-whatsapp?new=1");
+        } else {
+          toast({
+            title: "Sign in to continue",
+            description: "After confirming your account, sign in and open WhatsApp Verification from your Profile.",
+          });
+        }
       } else {
         if (!phoneNumber) {
           toast({ variant: "destructive", title: "Invalid phone", description: "Please enter a valid phone number." });
@@ -114,36 +210,23 @@ const Auth = () => {
           return;
         }
 
-        const digits = phoneNumber.replace(/\D+/g, "");
-        const emailCandidates = [
-          phoneToEmail(phoneNumber),
-          `${digits}@vbank.com`,
-          `${digits}@virtualbank.app`,
-        ].filter((x, i, arr) => arr.indexOf(x) === i);
-
-        let signedIn = false;
-        let lastError: any = null;
-        for (const email of emailCandidates) {
-          const { error } = await supabase.auth.signInWithPassword({ email, password });
-          if (!error) { signedIn = true; break; }
-          lastError = error;
-        }
-        if (!signedIn) throw lastError ?? new Error("Sign-in failed");
-
-        // N-06: notify user of new device login
-        try {
-          const { data: { user: u } } = await supabase.auth.getUser();
-          if (u) {
-            await supabase.from("notifications").insert({
-              user_id: u.id,
-              title: "🔐 New Login Detected",
-              message: `A login to your account was recorded on ${new Date().toLocaleString()}. If this wasn't you, secure your account immediately.`,
-              type: "security_alert",
-            } as never);
+        const whatsappSettings = await fetchWhatsAppSettings();
+        if (!whatsappSettings.loginEnabled) {
+          let lastError: { message?: string } | null = null;
+          let signedIn = false;
+          for (const email of phoneEmailCandidates(phoneNumber)) {
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            if (!error && data.session) {
+              signedIn = true;
+              break;
+            }
+            lastError = error;
           }
-        } catch { /* non-blocking */ }
-
-        toast({ title: "Welcome back!", description: "Signed in successfully" });
+          if (!signedIn) throw new Error(lastError?.message || "Invalid phone number or password.");
+          toast({ title: "Welcome back!", description: "WhatsApp login verification is currently disabled." });
+        } else {
+          await requestLoginOtp(phoneNumber, password);
+        }
         return;
       }
     } catch (error: any) {
@@ -182,7 +265,44 @@ const Auth = () => {
               </p>
             </div>
 
-            <form onSubmit={handleAuth} className="space-y-6">
+            <form onSubmit={mode === "signin" && loginStep === "otp" ? handleVerifyLoginOtp : handleAuth} className="space-y-6">
+              {mode === "signin" && loginStep === "otp" ? (
+                <div className="space-y-5">
+                  <div className="rounded-2xl bg-primary/10 p-5 text-center">
+                    <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-primary" />
+                    <h2 className="font-semibold text-lg">Confirm your login</h2>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      We sent a one-time code to WhatsApp {loginMaskedPhone || "on your phone"}.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="login-otp">WhatsApp verification code</Label>
+                    <Input
+                      id="login-otp"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      placeholder="Enter 6-digit code"
+                      value={loginOtp}
+                      onChange={(e) => setLoginOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      className="h-14 rounded-xl text-center text-2xl tracking-[0.35em]"
+                      autoFocus
+                    />
+                  </div>
+                  <Button type="submit" disabled={loading || loginOtp.length !== 6} className="w-full h-14 rounded-xl font-semibold">
+                    {loading ? "Verifying…" : "Confirm and sign in"}
+                  </Button>
+                  <div className="flex items-center justify-between text-sm">
+                    <button type="button" className="text-primary underline" onClick={() => { setLoginStep("credentials"); setLoginChallenge(""); }}>
+                      Use different details
+                    </button>
+                    <button type="button" className="text-primary underline" disabled={loading} onClick={() => { setLoading(true); requestLoginOtp(phoneNumber, password).catch((error) => toast({ variant: "destructive", title: "Could not resend code", description: error.message })).finally(() => setLoading(false)); }}>
+                      Resend code
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
               {mode === "signup" && (
                 <>
                   <div className="space-y-3">
@@ -315,6 +435,8 @@ const Auth = () => {
                   </div>
                 </div>
               )}
+                </>
+              )}
             </form>
 
             <div className="mt-8 text-center space-y-3">
@@ -324,11 +446,32 @@ const Auth = () => {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+                onClick={() => {
+                  setMode(mode === "signin" ? "signup" : "signin");
+                  setLoginStep("credentials");
+                  setLoginChallenge("");
+                  setLoginOtp("");
+                }}
                 className="w-full h-12 rounded-xl font-semibold"
               >
                 {mode === "signin" ? "Register Now" : "Sign In"}
               </Button>
+              {mode === "signin" && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full gap-2 text-primary"
+                  onClick={() => {
+                    if (!supportWhatsapp) {
+                      toast({ variant: "destructive", title: "Agent chat is not configured", description: "Ask an administrator to configure the WhatsApp support number." });
+                      return;
+                    }
+                    window.open(buildWhatsAppLink(supportWhatsapp, "Hello, I need help signing in to NETLIFE CASH."), "_blank", "noopener,noreferrer");
+                  }}
+                >
+                  <MessageCircle size={18} /> Chat with an agent
+                </Button>
+              )}
             </div>
           </div>
         </div>

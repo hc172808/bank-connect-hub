@@ -101,9 +101,9 @@ const AdminRPCNode = () => {
     if (logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
   }, [logs]);
 
-  const action = async (act: "start" | "stop" | "restart") => {
+  const action = async (act: "start" | "stop" | "restart" | "create") => {
     setLoading(true);
-    const labels = { start: "Starting", stop: "Stopping", restart: "Restarting" };
+    const labels = { start: "Starting", stop: "Stopping", restart: "Restarting", create: "Creating" };
     toast({ title: `${labels[act]} RPC node…` });
     try {
       const res = await apiFetch(act, "POST");
@@ -277,7 +277,7 @@ const AdminRPCNode = () => {
             <CardContent className="space-y-3 text-sm">
               {[
                 { label: "Upstream RPC",  value: "GYDS RPC (rpc.netlifegy.com:8545)" },
-                { label: "Chain",         value: "GYDS Chain (Chain ID 13370)" },
+                { label: "Chain",         value: "GYDS Chain (Chain ID 198282)" },
                 { label: "Symbol",        value: "GYDS · 18 decimals" },
                 { label: "Container port", value: ":8545 (internal)" },
                 { label: "Public URL",    value: "/rpc  (via nginx proxy)" },

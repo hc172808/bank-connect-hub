@@ -4,19 +4,18 @@
 #  Supports: Ubuntu 20.04, 22.04, 24.04 | Debian 11, 12
 #
 #  One-command install:
-#    curl -fsSL https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/setup-ubuntu.sh | sudo bash
+#    curl -fsSL https://raw.githubusercontent.com/hc172808/bank-connect-hub/main/setup-ubuntu.sh | sudo bash
 #  Or clone and run:
 #    chmod +x setup-ubuntu.sh && sudo ./setup-ubuntu.sh
 #
 #  What this installs:
 #    ✓ Docker CE + Docker Compose v2 plugin
-#    ✓ Portainer CE (Docker web UI on port 9443)
 #    ✓ Virtual Bank app stack (app + litenode + watchtower + webhook)
 #    ✓ nginx reverse proxy with rate-limiting and WAF rules
 #    ✓ ModSecurity WAF for nginx (optional, Debian/Ubuntu)
 #    ✓ Let's Encrypt SSL via certbot
 #    ✓ UFW firewall (deny-all default, allow only needed ports)
-#    ✓ Fail2ban with custom jails for SSH, nginx, litenode, Portainer
+#    ✓ Fail2ban with custom jails for SSH, nginx, and litenode
 #    ✓ Sysctl kernel hardening (IP forwarding controls, SYN cookies, etc.)
 #    ✓ Unattended-upgrades (automatic security patches)
 #    ✓ Log rotation for app and nginx logs
@@ -78,23 +77,12 @@ fi
 log "Verifying configuration…"
 echo ""
 
+# The application repository is public, so direct installs can use these
+# defaults without asking for a GitHub username, repository name, or password.
+GITHUB_USER="${GITHUB_USER:-hc172808}"
+GITHUB_REPO="${GITHUB_REPO:-bank-connect-hub}"
+
 # Prompt only for values still missing after .env sourcing
-if [[ -z "${GITHUB_USER:-}" ]]; then
-  ask "GitHub username (lowercase):"
-  read -r GITHUB_USER
-fi
-
-if [[ -z "${GITHUB_REPO:-}" ]]; then
-  ask "GitHub repository name (lowercase):"
-  read -r GITHUB_REPO
-fi
-
-if [[ -z "${GITHUB_PAT:-}" ]]; then
-  ask "GitHub Personal Access Token (PAT) with 'read:packages' scope"
-  ask "  (create at https://github.com/settings/tokens):"
-  read -rs GITHUB_PAT; echo ""
-fi
-
 if [[ -z "${UPSTREAM_RPC:-}" ]]; then
   ask "Upstream Ethereum RPC URL (leave blank for BSC mainnet):"
   read -r UPSTREAM_RPC
@@ -154,8 +142,12 @@ fi
 case "$PKG_MGR" in
   apt)
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get upgrade -y -qq
+    # Refresh package metadata and install all available normal/security
+    # updates.  A transient mirror or lock should not make setup fail.
+    apt-get -o DPkg::Lock::Timeout=120 update -qq \
+      || { warn "First apt metadata refresh failed; retrying…"; sleep 5; apt-get -o DPkg::Lock::Timeout=120 update -qq; }
+    apt-get -o DPkg::Lock::Timeout=120 upgrade -y -qq
+    apt-get -o DPkg::Lock::Timeout=120 dist-upgrade -y -qq
     apt-get install -y -qq \
       curl wget git unzip gnupg lsb-release ca-certificates \
       ufw fail2ban software-properties-common apt-transport-https \
@@ -185,7 +177,7 @@ if ! command -v docker &>/dev/null; then
         https://download.docker.com/linux/$(. /etc/os-release; echo "$ID") \
         $(lsb_release -cs) stable" \
         > /etc/apt/sources.list.d/docker.list
-      apt-get update -qq
+      apt-get -o DPkg::Lock::Timeout=120 update -qq
       apt-get install -y -qq \
         docker-ce docker-ce-cli containerd.io \
         docker-buildx-plugin docker-compose-plugin
@@ -221,11 +213,15 @@ else
 fi
 
 # =============================================================================
-# STEP 5 — GHCR authentication
+# STEP 5 — GHCR authentication (optional for the public image)
 # =============================================================================
-log "Authenticating with GitHub Container Registry…"
-echo "${GITHUB_PAT}" | docker login ghcr.io -u "${GITHUB_USER}" --password-stdin
-log "GHCR login saved ✓"
+if [[ -n "${GITHUB_PAT:-}" ]]; then
+  log "Authenticating with GitHub Container Registry using the optional token…"
+  echo "${GITHUB_PAT}" | docker login ghcr.io -u "${GITHUB_USER}" --password-stdin
+  log "GHCR login saved ✓"
+else
+  log "Using the public GHCR image; GitHub authentication is not required."
+fi
 
 # =============================================================================
 # STEP 6 — Kernel hardening (sysctl)
@@ -304,9 +300,6 @@ if command -v ufw &>/dev/null; then
     ufw allow 443/tcp comment "HTTPS"
   fi
 
-  # Portainer
-  ufw allow 9443/tcp comment "Portainer"
-
   ufw --force enable
   log "UFW firewall enabled ✓"
 fi
@@ -324,7 +317,6 @@ if [[ -d "$SECURITY_DIR" ]]; then
   cp "$SECURITY_DIR/fail2ban-jail.local"                /etc/fail2ban/jail.local
   cp "$SECURITY_DIR/fail2ban-virtualbank-api.conf"      /etc/fail2ban/filter.d/virtualbank-api.conf
   cp "$SECURITY_DIR/fail2ban-virtualbank-litenode.conf" /etc/fail2ban/filter.d/virtualbank-litenode.conf
-  cp "$SECURITY_DIR/fail2ban-portainer.conf"            /etc/fail2ban/filter.d/portainer.conf
   cp "$SECURITY_DIR/fail2ban-nginx-req-limit.conf"      /etc/fail2ban/filter.d/nginx-req-limit.conf
 else
   # Write inline if security/ dir not present
@@ -405,8 +397,16 @@ F
 fi
 
 systemctl enable fail2ban
-systemctl restart fail2ban
-log "Fail2ban configured and running ✓"
+# A distro may not have every log file/jail used by the optional filters.
+# Validate first and do not abort the complete server setup if Fail2ban needs
+# a local adjustment.
+if fail2ban-client -t >/tmp/virtualbank-fail2ban-check.log 2>&1 &&
+   systemctl restart fail2ban; then
+  log "Fail2ban configured and running ✓"
+else
+  warn "Fail2ban could not start; setup will continue."
+  warn "Review /tmp/virtualbank-fail2ban-check.log and run: fail2ban-client -t"
+fi
 
 # =============================================================================
 # STEP 9 — Unattended security upgrades
@@ -704,6 +704,7 @@ HOOKS
 cat > .env << ENV
 GITHUB_USER=${GITHUB_USER}
 GITHUB_REPO=${GITHUB_REPO}
+GITHUB_URL=https://github.com/hc172808/bank-connect-hub.git
 APP_PORT=${APP_PORT}
 UPSTREAM_RPC=${UPSTREAM_RPC}
 WEBHOOK_SECRET=${WEBHOOK_SECRET}
@@ -751,24 +752,7 @@ for i in {1..30}; do
 done
 
 # =============================================================================
-# STEP 15 — Portainer CE
-# =============================================================================
-log "Installing Portainer CE…"
-docker volume create portainer_data &>/dev/null || true
-docker run -d \
-  --name portainer \
-  --restart=unless-stopped \
-  -p 9443:9443 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v portainer_data:/data \
-  portainer/portainer-ce:latest \
-  --sslcert /data/certs/cert.pem \
-  --sslkey  /data/certs/key.pem \
-  2>/dev/null || docker start portainer 2>/dev/null || true
-log "Portainer running on port 9443 ✓"
-
-# =============================================================================
-# STEP 16 — SSL with Let's Encrypt (if domain + email provided)
+# STEP 15 — SSL with Let's Encrypt (if domain + email provided)
 # =============================================================================
 if [[ -n "$DOMAIN_NAME" && -n "$SSL_EMAIL" ]]; then
   log "Installing Certbot and obtaining SSL certificate…"
@@ -863,7 +847,7 @@ if [[ -f "$SCRIPT_DIR/Dockerfile.build-server" ]]; then
     -f "$SCRIPT_DIR/Dockerfile.build-server" \
     -t virtualbank-build-server:local \
     "$SCRIPT_DIR/"
-  ok "Build-server image ready (virtualbank-build-server:local)"
+  log "Build-server image ready (virtualbank-build-server:local)"
 else
   warn "Dockerfile.build-server not found — APK/PWA builder will not be available"
   warn "Clone the full repo to $SCRIPT_DIR to enable builds"
@@ -891,8 +875,6 @@ if [[ -n "$DOMAIN_NAME" && -n "$SSL_EMAIL" ]]; then
 else
   echo -e "    ${CYN}http://${SERVER_IP}:${APP_PORT}${NC}"
 fi
-echo ""
-echo -e "${BLU}  Portainer:${NC}    ${CYN}https://${SERVER_IP}:9443${NC}"
 echo ""
 echo -e "${BLU}  Litenode RPC (via nginx proxy):${NC}"
 echo -e "    ${CYN}http://${SERVER_IP}:${APP_PORT}/rpc${NC}   (set as VITE_RPC_URL)"
