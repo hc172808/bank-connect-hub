@@ -1203,9 +1203,8 @@ pre{background:#1e293b;color:#e2e8f0;padding:16px;border-radius:8px;white-space:
 <script type="module">
 const SUPABASE_URL = ${JSON.stringify(supabaseUrl)};
 const ANON_KEY     = ${JSON.stringify(anonKey)};
-const EMAIL        = "6421651@vbank.com";
-const PASSWORD     = "Zaq12wsx";
-const METADATA     = { full_name: "Admin", phone_number: "6421651", account_type: "admin" };
+// The legacy setup page was removed. Use the protected /api/auth/ensure-admin
+// endpoint instead; it receives credentials from the admin setup flow.
 const out = document.getElementById("out");
 const log = (msg, cls) => { const s = document.createElement("span"); s.className = cls||""; s.textContent = msg + "\\n"; out.appendChild(s); };
 out.textContent = "";
