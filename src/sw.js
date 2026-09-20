@@ -4,15 +4,26 @@
 // This file is processed by VitePWA (injectManifest strategy).
 // self.__WB_MANIFEST is replaced at build time with the precache asset list.
 
-const CACHE_VERSION = "vb-v3";
-const SHELL_CACHE = `${CACHE_VERSION}-shell`;
-const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
-
 const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg", "/favicon.ico"];
 
 // VitePWA injects the precache manifest here at build time.
 // We capture it so the list is available; the actual precaching is handled below.
 const _precache = self.__WB_MANIFEST || [];
+
+// Every production build gets a new cache namespace from the generated asset
+// revisions. This removes old frontend caches automatically without touching
+// user data stored in Supabase or localStorage.
+function shortHash(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
+const CACHE_VERSION = `vb-${shortHash(JSON.stringify(_precache))}`;
+const SHELL_CACHE = `${CACHE_VERSION}-shell`;
+const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
 // ── Install ───────────────────────────────────────────────────────────────────
 self.addEventListener("install", (event) => {
@@ -59,6 +70,12 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/") || url.hostname.includes("supabase")) return;
+
+  // These files control update discovery. Never serve an older cached copy.
+  if (url.pathname === "/sw.js" || url.pathname === "/manifest.webmanifest") {
+    event.respondWith(fetch(req, { cache: "no-store" }));
+    return;
+  }
 
   if (req.mode === "navigate") {
     event.respondWith(

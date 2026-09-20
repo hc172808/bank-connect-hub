@@ -3,7 +3,7 @@
 //
 // Bump CACHE_VERSION whenever the build output materially changes so the
 // service worker installs a fresh cache on next visit.
-const CACHE_VERSION = "vb-v2";
+const CACHE_VERSION = "vb-v4";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 

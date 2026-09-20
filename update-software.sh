@@ -4,10 +4,11 @@
 #
 # Usage:
 #   sudo bash update-software.sh                 # system + project + Android
-#   sudo bash update-software.sh --project       # npm dependencies + build
+#   sudo bash update-software.sh --project       # pull source, npm dependencies + build
 #   sudo bash update-software.sh --system        # OS packages only
 #   sudo bash update-software.sh --android       # Android SDK packages only
 #   sudo bash update-software.sh --docker        # pull and restart compose apps
+#   sudo bash update-software.sh --source        # pull latest source only
 #   sudo bash update-software.sh --all --reboot  # include an optional reboot
 #
 # The script updates installed packages and versions already supported by the
@@ -29,12 +30,14 @@ DO_PROJECT=false
 DO_ANDROID=false
 DO_DOCKER=false
 REBOOT=false
+DO_SOURCE=false
 
 for arg in "$@"; do
   case "$arg" in
-    --all)     DO_SYSTEM=true; DO_PROJECT=true; DO_ANDROID=true; DO_DOCKER=true ;;
+    --all)     DO_SYSTEM=true; DO_PROJECT=true; DO_ANDROID=true; DO_DOCKER=true; DO_SOURCE=true ;;
     --system)  DO_SYSTEM=true ;;
-    --project) DO_PROJECT=true ;;
+    --project) DO_PROJECT=true; DO_SOURCE=true ;;
+    --source)  DO_SOURCE=true ;;
     --android) DO_ANDROID=true ;;
     --docker)  DO_DOCKER=true ;;
     --reboot)  REBOOT=true ;;
@@ -43,12 +46,50 @@ for arg in "$@"; do
   esac
 done
 
-if [[ "$DO_SYSTEM$DO_PROJECT$DO_ANDROID$DO_DOCKER" == "falsefalsefalsefalse" ]]; then
-  DO_SYSTEM=true; DO_PROJECT=true; DO_ANDROID=true
+if [[ "$DO_SYSTEM$DO_PROJECT$DO_ANDROID$DO_DOCKER$DO_SOURCE" == "falsefalsefalsefalsefalse" ]]; then
+  DO_SYSTEM=true; DO_PROJECT=true; DO_ANDROID=true; DO_SOURCE=true
 fi
 
 if [[ "$DO_SYSTEM" == true && "$EUID" -ne 0 ]]; then
   die "--system requires root. Re-run with sudo."
+fi
+
+if [[ "$DO_SOURCE" == true ]]; then
+  command -v git >/dev/null 2>&1 || die "git is required for source updates."
+  git_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+  [[ -n "$git_root" ]] || die "$SCRIPT_DIR is not inside a Git repository."
+
+  source_branch="${GITHUB_BRANCH:-$(git -C "$git_root" branch --show-current 2>/dev/null || true)}"
+  source_branch="${source_branch:-main}"
+  source_remote="$(git -C "$git_root" remote get-url origin 2>/dev/null || true)"
+  [[ -n "$source_remote" ]] || die "Git remote 'origin' is not configured."
+
+  # Use the configured GitHub token without writing it into .git/config or the
+  # remote URL. The helper is removed when this script exits.
+  askpass_file="$(mktemp)"
+  chmod 700 "$askpass_file"
+  cat >"$askpass_file" <<'ASKPASS'
+#!/usr/bin/env bash
+prompt="${*,,}"
+if [[ "$prompt" == *username* ]]; then
+  printf '%s\n' "x-access-token"
+else
+  printf '%s\n' "${GIT_ASKPASS_VALUE:-}"
+fi
+ASKPASS
+  trap 'rm -f "$askpass_file"' EXIT
+
+  export GIT_TERMINAL_PROMPT=0
+  if [[ "$source_remote" =~ github\.com ]] && [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    export GIT_ASKPASS="$askpass_file"
+    export GIT_ASKPASS_VALUE="$GITHUB_TOKEN"
+    export GIT_USERNAME="x-access-token"
+  fi
+
+  log "Pulling source from origin/$source_branch…"
+  git -C "$git_root" fetch --prune origin "$source_branch"
+  git -C "$git_root" pull --ff-only origin "$source_branch"
+  log "Source update complete."
 fi
 
 on_error() {
