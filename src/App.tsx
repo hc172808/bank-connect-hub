@@ -374,10 +374,12 @@ const ProtectedRoute = ({
 };
 
 const InternalFundsGate = ({ children }: { children: React.ReactNode }) => {
+  const { role, loading: authLoading } = useAuth();
   const [enabled, setEnabled] = useState(false);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
     let active = true;
     void isFeatureEnabled("internal_funds")
       .catch(() => false)
@@ -387,10 +389,11 @@ const InternalFundsGate = ({ children }: { children: React.ReactNode }) => {
         setChecking(false);
       });
     return () => { active = false; };
-  }, []);
+  }, [authLoading]);
 
-  if (checking) return <FullScreenLoader />;
-  if (!enabled) {
+  if (authLoading || checking) return <FullScreenLoader />;
+  const staffOverride = role === "admin" || role === "founder";
+  if (!enabled && !staffOverride) {
     return (
       <div className="min-h-screen bg-background p-6 flex items-center justify-center">
         <div className="max-w-md text-center">

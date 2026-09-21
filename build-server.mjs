@@ -578,6 +578,11 @@ app.get("/api/update/stream", (req, res) => {
   }
 
   if (updateJob.status !== "running") {
+    const alreadySentDone = updateJob.logs.some((event) => event.type === "done");
+    if (alreadySentDone) {
+      res.end();
+      return;
+    }
     sseSend(res, { type: "done", status: updateJob.status });
     res.end();
     return;

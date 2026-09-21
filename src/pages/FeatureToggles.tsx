@@ -28,8 +28,9 @@ const FeatureToggles = () => {
   }, [role, authLoading, navigate]);
 
   useEffect(() => {
+    if (authLoading || (role !== "admin" && role !== "founder")) return;
     void fetchFeatures();
-  }, []);
+  }, [authLoading, role]);
 
   const fetchFeatures = async () => {
     try {

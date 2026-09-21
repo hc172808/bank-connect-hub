@@ -17,9 +17,22 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 export async function fetchFeatureToggles(): Promise<FeatureToggle[]> {
-  const response = await fetch("/api/feature-toggles", { cache: "no-store" });
-  const body = await readJson<{ features?: FeatureToggle[] }>(response);
-  return body.features || [];
+  try {
+    const response = await fetch("/api/feature-toggles", { cache: "no-store" });
+    const body = await readJson<{ features?: FeatureToggle[] }>(response);
+    return body.features || [];
+  } catch (proxyError) {
+    // The server proxy uses the service key, but a direct read keeps public
+    // feature gates usable if the backend is restarting or not configured.
+    const { data, error } = await supabase
+      .from("feature_toggles")
+      .select("id, feature_key, feature_name, is_enabled, updated_at")
+      .order("feature_name");
+    if (error) {
+      throw new Error(error.message || (proxyError instanceof Error ? proxyError.message : "Feature toggles are unavailable."));
+    }
+    return (data || []) as FeatureToggle[];
+  }
 }
 
 export async function ensureFeatureToggles(): Promise<void> {
@@ -35,17 +48,30 @@ export async function ensureFeatureToggles(): Promise<void> {
 }
 
 export async function updateFeatureToggle(id: string, isEnabled: boolean): Promise<FeatureToggle> {
-  const { data: { session } } = await supabase.auth.getSession();
-  const response = await fetch(`/api/feature-toggles/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-    },
-    body: JSON.stringify({ is_enabled: isEnabled }),
-  });
-  const body = await readJson<{ feature: FeatureToggle }>(response);
-  return body.feature;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch(`/api/feature-toggles/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
+      body: JSON.stringify({ is_enabled: isEnabled }),
+    });
+    const body = await readJson<{ feature: FeatureToggle }>(response);
+    return body.feature;
+  } catch (proxyError) {
+    const { data, error } = await supabase
+      .from("feature_toggles")
+      .update({ is_enabled: isEnabled })
+      .eq("id", id)
+      .select("id, feature_key, feature_name, is_enabled, updated_at")
+      .single();
+    if (error) {
+      throw new Error(error.message || (proxyError instanceof Error ? proxyError.message : "Feature toggle update failed."));
+    }
+    return data as FeatureToggle;
+  }
 }
 
 export async function isFeatureEnabled(featureKey: string): Promise<boolean> {

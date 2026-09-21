@@ -278,9 +278,10 @@ export default function Profile() {
     }
 
     if (data) {
+      const metadata = user.user_metadata || {};
       setProfile({
-        full_name: data.full_name || '',
-        phone_number: data.phone_number || '',
+        full_name: data.full_name || metadata.full_name || '',
+        phone_number: data.phone_number || metadata.phone_number || '',
         avatar_url: data.avatar_url || '',
         address: data.address || '',
         city: data.city || '',
