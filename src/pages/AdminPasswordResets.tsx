@@ -78,10 +78,19 @@ export default function AdminPasswordResets() {
   const [showPass, setShowPass] = useState(false);
   const [resetting, setResetting] = useState(false);
 
+  const getStaffToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
+    return session.access_token;
+  };
+
   const fetchPending = useCallback(async () => {
     setLoadingPending(true);
     try {
-      const r = await fetch("/api/auth/pending-resets");
+      const token = await getStaffToken();
+      const r = await fetch("/api/auth/pending-resets", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await r.json();
       setPending(data.requests || []);
     } catch {
@@ -94,7 +103,10 @@ export default function AdminPasswordResets() {
   const fetchUsers = useCallback(async () => {
     setLoadingUsers(true);
     try {
-      const r = await fetch("/api/auth/all-users");
+      const token = await getStaffToken();
+      const r = await fetch("/api/auth/all-users", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (r.status === 503) {
         setAdminAvailable(false);
         return;
@@ -117,7 +129,11 @@ export default function AdminPasswordResets() {
   }, [fetchPending, fetchUsers]);
 
   const deletePending = async (email: string) => {
-    await fetch(`/api/auth/pending-resets/${encodeURIComponent(email)}`, { method: "DELETE" });
+    const token = await getStaffToken();
+    await fetch(`/api/auth/pending-resets/${encodeURIComponent(email)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
     setPending((p) => p.filter((x) => x.email !== email));
     toast({ title: "Request dismissed" });
   };
@@ -137,13 +153,13 @@ export default function AdminPasswordResets() {
     }
     setResetting(true);
     try {
+      const token = await getStaffToken();
       const r = await fetch("/api/auth/admin-set-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           userId: resetTarget.id,
           newPassword,
-          notifyPhone: sendSms ? (resetTarget.phone || null) : null,
         }),
       });
       const data = await r.json();
@@ -151,9 +167,10 @@ export default function AdminPasswordResets() {
 
       toast({
         title: "Password reset!",
-        description: sendSms && resetTarget.phone
-          ? `New password sent to ${resetTarget.phone} via SMS.`
-          : "Password updated. Share the new password with the user securely.",
+        description: data.warning || (sendSms && resetTarget.phone
+          ? `New password sent to ${resetTarget.phone} via business WhatsApp.`
+          : "Password updated. Share the new password with the user securely."),
+        variant: data.warning ? "destructive" : "default",
       });
 
       // Remove any pending OTP request for this user
@@ -211,7 +228,7 @@ export default function AdminPasswordResets() {
                 )}
               </CardTitle>
               <CardDescription className="text-xs mt-0.5">
-                Users who requested a reset via the app — OTP sent via SMS
+                Users who requested a reset via the app — code sent via WhatsApp
               </CardDescription>
             </div>
             <Button variant="ghost" size="icon" onClick={fetchPending} disabled={loadingPending}>
@@ -307,7 +324,7 @@ export default function AdminPasswordResets() {
               <CardDescription className="text-xs mt-0.5">
                 {adminAvailable === false
                   ? "Add SUPABASE_SERVICE_ROLE_KEY to Replit Secrets to enable manual resets"
-                  : "Manually reset any user's password and notify them via SMS"}
+                  : "Manually reset any user's password and notify them via business WhatsApp"}
               </CardDescription>
             </div>
             <Button variant="ghost" size="icon" onClick={fetchUsers} disabled={loadingUsers}>
@@ -470,9 +487,9 @@ export default function AdminPasswordResets() {
                     {sendSms && <CheckCircle2 className="h-3 w-3 text-primary-foreground" />}
                   </div>
                   <div>
-                    <p className="text-sm font-medium">Send password via SMS</p>
+                    <p className="text-sm font-medium">Send password via business WhatsApp</p>
                     <p className="text-xs text-muted-foreground">
-                      Text the new password to {resetTarget.phone}
+                      Send the new password to {resetTarget.phone}
                     </p>
                   </div>
                 </div>

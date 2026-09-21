@@ -987,6 +987,33 @@ async function getSupabaseAdminClient() {
   });
 }
 
+async function requireStaffActor(req, admin, allowedRoles = ["admin", "founder", "agent"]) {
+  const authorization = String(req.headers.authorization || "");
+  const accessToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (!accessToken) return { status: 401, error: "Staff sign-in required." };
+
+  const { data: actorResult, error: actorError } = await admin.auth.getUser(accessToken);
+  if (actorError || !actorResult?.user) {
+    return { status: 401, error: "Staff session is invalid or expired." };
+  }
+
+  let actorRole = actorResult.user.user_metadata?.account_type || actorResult.user.user_metadata?.role;
+  const { data: roleRow } = await admin
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", actorResult.user.id)
+    .limit(1)
+    .maybeSingle();
+  if (roleRow?.role) actorRole = roleRow.role;
+
+  if (!allowedRoles.includes(actorRole)) {
+    return { status: 403, error: `Only ${allowedRoles.join(", ")} can perform this action.` };
+  }
+  return { user: actorResult.user, role: actorRole, accessToken };
+}
+
 async function requireFeatureAdmin(req, admin) {
   const authorization = String(req.headers.authorization || "");
   const accessToken = authorization.startsWith("Bearer ")
@@ -1101,6 +1128,10 @@ function phoneToE164(value) {
   return digits ? `+${digits}` : "";
 }
 
+function normalizeDocumentNumber(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function hashOtp(otp) {
   return crypto.createHash("sha256").update(otp).digest("hex");
 }
@@ -1212,7 +1243,7 @@ app.post("/api/auth/verify-login-otp", (req, res) => {
 app.post("/api/auth/request-reset", async (req, res) => {
   const { phone, countryCode = "" } = req.body || {};
   if (!phone) return res.status(400).json({ error: "phone required" });
-  if (!twilioOk()) return res.status(503).json({ error: "SMS not configured — contact support." });
+  if (!whatsappOk()) return res.status(503).json({ error: "Business WhatsApp delivery is not configured — contact an agent." });
 
   const e164 = phone.startsWith("+") ? phone : `${countryCode}${phone.replace(/^0/, "")}`;
   const email = `${phone.replace(/\D/g, "")}@vbank.com`;
@@ -1222,21 +1253,23 @@ app.post("/api/auth/request-reset", async (req, res) => {
   resetOtpStore.set(email, { otpHash, expiresAt: Date.now() + 5 * 60 * 1000, attempts: 0, e164 });
 
   try {
-    await sendSms(e164, `NETLIFE CASH: Your password reset code is ${otp}. Valid 5 min. Do not share.`);
+    await sendWhatsApp(e164, `NETLIFE CASH: Your password reset code is ${otp}. Valid for 5 minutes. Do not share this code.`);
     const masked = e164.slice(0, -4).replace(/\d/g, "*") + e164.slice(-4);
     res.json({ ok: true, masked });
   } catch (err) {
     resetOtpStore.delete(email);
-    console.error("[reset] SMS error:", err.message);
+    console.error("[reset] WhatsApp error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/auth/verify-reset  { phone, otp, newPassword }
+// POST /api/auth/verify-reset  { phone, otp, idCardNumber, newPassword }
 app.post("/api/auth/verify-reset", async (req, res) => {
-  const { phone, otp, newPassword } = req.body || {};
-  if (!phone || !otp || !newPassword) return res.status(400).json({ error: "phone, otp, newPassword required" });
-  if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+  const { phone, otp, idCardNumber, newPassword } = req.body || {};
+  if (!phone || !otp || !idCardNumber || !newPassword) {
+    return res.status(400).json({ error: "phone, otp, idCardNumber, and newPassword are required" });
+  }
+  if (String(newPassword).length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
 
   const email = `${phone.replace(/\D/g, "")}@vbank.com`;
   const entry = resetOtpStore.get(email);
@@ -1255,12 +1288,8 @@ app.post("/api/auth/verify-reset", async (req, res) => {
     return res.status(400).json({ error: `Incorrect code. ${5 - entry.attempts} attempt(s) remaining.` });
   }
 
-  // OTP valid — now reset the password
-  if (!adminOk()) {
-    // Can't reset via admin API — mark as verified so frontend can handle
-    resetOtpStore.set(email, { ...entry, verified: true });
-    return res.json({ ok: true, adminReset: false, message: "OTP verified. Contact admin to complete reset." });
-  }
+  // OTP and identity document must both be verified before changing auth.
+  if (!adminOk()) return res.status(503).json({ error: "Password recovery is not fully configured. Contact an agent." });
 
   try {
     const { createClient } = await import("@supabase/supabase-js");
@@ -1276,16 +1305,30 @@ app.post("/api/auth/verify-reset", async (req, res) => {
     const target = users.find((u) => u.email === email);
     if (!target) return res.status(404).json({ error: "No account found for this phone number." });
 
+    const { data: kycRows, error: kycError } = await adminClient
+      .from("kyc_submissions")
+      .select("document_number, status")
+      .eq("user_id", target.id)
+      .neq("status", "rejected");
+    if (kycError) throw new Error(kycError.message);
+    const suppliedDocument = normalizeDocumentNumber(idCardNumber);
+    const documentMatches = (kycRows || []).some((row) =>
+      normalizeDocumentNumber(row.document_number) === suppliedDocument
+    );
+    if (!documentMatches) {
+      return res.status(403).json({ error: "The ID card number does not match the identity record." });
+    }
+
     const { error: updateErr } = await adminClient.auth.admin.updateUserById(target.id, { password: newPassword });
     if (updateErr) throw new Error(updateErr.message);
 
     resetOtpStore.delete(email);
     console.log(`[reset] Password reset for ${email.slice(0, 6)}***`);
 
-    // Optionally notify user via SMS
-    if (twilioOk() && entry.e164) {
-      sendSms(entry.e164, "NETLIFE CASH: Your password has been reset successfully. Please sign in with your new password.").catch(() => {});
-    }
+    sendWhatsApp(
+      entry.e164,
+      "NETLIFE CASH: Your password has been reset successfully. Please sign in with your new password.",
+    ).catch(() => {});
 
     res.json({ ok: true, adminReset: true });
   } catch (err) {
@@ -1703,8 +1746,12 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-// GET /api/auth/pending-resets — list pending OTP reset requests (in-memory)
-app.get("/api/auth/pending-resets", (_req, res) => {
+// GET /api/auth/pending-resets — staff-only legacy reset queue
+app.get("/api/auth/pending-resets", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+  const admin = await getSupabaseAdminClient();
+  const actor = await requireStaffActor(req, admin);
+  if (actor.error) return res.status(actor.status).json({ error: actor.error });
   const now = Date.now();
   const list = [];
   for (const [email, entry] of resetOtpStore.entries()) {
@@ -1721,7 +1768,11 @@ app.get("/api/auth/pending-resets", (_req, res) => {
 });
 
 // DELETE /api/auth/pending-resets/:email — remove a pending request
-app.delete("/api/auth/pending-resets/:email", (req, res) => {
+app.delete("/api/auth/pending-resets/:email", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+  const admin = await getSupabaseAdminClient();
+  const actor = await requireStaffActor(req, admin);
+  if (actor.error) return res.status(actor.status).json({ error: actor.error });
   const email = decodeURIComponent(req.params.email);
   resetOtpStore.delete(email);
   res.json({ ok: true });
@@ -1810,28 +1861,179 @@ app.get("/api/auth/phone-availability", async (req, res) => {
   }
 });
 
-// POST /api/auth/admin-set-password  { userId, newPassword }  — admin only
-app.post("/api/auth/admin-set-password", async (req, res) => {
-  const { userId, newPassword, notifyPhone } = req.body || {};
-  if (!userId || !newPassword) return res.status(400).json({ error: "userId and newPassword required" });
-  if (!adminOk()) return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured" });
+// POST /api/auth/staff-password-reset/request — send an agent-assisted
+// recovery code to the user's WhatsApp number.
+app.post("/api/auth/staff-password-reset/request", async (req, res) => {
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ error: "userId is required." });
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+  if (!whatsappOk()) return res.status(503).json({ error: "Business WhatsApp delivery is not configured." });
 
   try {
-    const { createClient } = await import("@supabase/supabase-js");
-    const adminClient = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      realtime: { transport: WebSocket },
-    });
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
 
-    const { error } = await adminClient.auth.admin.updateUserById(userId, { password: newPassword });
-    if (error) throw new Error(error.message);
+    const { data: targetResult, error: targetError } = await admin.auth.admin.getUserById(userId);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
 
-    if (notifyPhone && twilioOk()) {
-      sendSms(notifyPhone, `NETLIFE CASH: Admin has reset your password. Temporary password: ${newPassword}. Change it after sign-in.`).catch(() => {});
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("phone_number")
+      .eq("id", userId)
+      .maybeSingle();
+    const e164 = phoneToE164(targetResult.user.user_metadata?.phone_number || profile?.phone_number);
+    if (!e164) return res.status(400).json({ error: "This user does not have a valid WhatsApp phone number." });
+
+    const code = generateOtp();
+    const { data: challenge, error: challengeError } = await admin
+      .from("password_reset_challenges")
+      .insert({
+        user_id: userId,
+        requested_by: actor.user.id,
+        phone_number: e164,
+        code_hash: hashOtp(code),
+        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      })
+      .select("id, expires_at")
+      .single();
+    if (challengeError || !challenge) throw new Error(challengeError?.message || "Could not create reset challenge.");
+
+    try {
+      await sendWhatsApp(
+        e164,
+        `NETLIFE CASH: Your password recovery code is ${code}. It expires in 10 minutes. Give this code only to an authorized NETLIFE CASH agent.`,
+      );
+    } catch (deliveryError) {
+      await admin.from("password_reset_challenges").delete().eq("id", challenge.id);
+      throw deliveryError;
     }
 
-    console.log(`[reset] Admin set password for userId=${userId.slice(0, 8)}***`);
-    res.json({ ok: true });
+    const masked = `${e164.slice(0, 3)}${"*".repeat(Math.max(0, e164.length - 7))}${e164.slice(-4)}`;
+    res.json({ ok: true, challengeId: challenge.id, masked, expiresAt: challenge.expires_at });
+  } catch (err) {
+    console.error("[staff-reset] request error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/staff-password-reset/confirm — require the code and a
+// normalized match against a non-rejected KYC document number.
+app.post("/api/auth/staff-password-reset/confirm", async (req, res) => {
+  const { challengeId, idCardNumber, otp, newPassword } = req.body || {};
+  if (!challengeId || !idCardNumber || !otp || !newPassword) {
+    return res.status(400).json({ error: "challengeId, idCardNumber, otp, and newPassword are required." });
+  }
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters." });
+  }
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { data: challenge, error: challengeError } = await admin
+      .from("password_reset_challenges")
+      .select("*")
+      .eq("id", challengeId)
+      .maybeSingle();
+    if (challengeError) throw new Error(challengeError.message);
+    if (!challenge || challenge.consumed_at) return res.status(400).json({ error: "This reset request is no longer valid." });
+    if (new Date(challenge.expires_at).getTime() <= Date.now()) {
+      return res.status(400).json({ error: "The WhatsApp code has expired. Request a new code." });
+    }
+
+    const attempts = Number(challenge.attempts || 0) + 1;
+    await admin.from("password_reset_challenges").update({ attempts }).eq("id", challenge.id);
+    if (attempts > 5) return res.status(429).json({ error: "Too many attempts. Request a new code." });
+    if (hashOtp(String(otp).trim()) !== challenge.code_hash) {
+      return res.status(400).json({ error: `Incorrect WhatsApp code. ${5 - attempts} attempt(s) remaining.` });
+    }
+
+    const { data: kycRows, error: kycError } = await admin
+      .from("kyc_submissions")
+      .select("document_number, status")
+      .eq("user_id", challenge.user_id)
+      .neq("status", "rejected");
+    if (kycError) throw new Error(kycError.message);
+    const suppliedDocument = normalizeDocumentNumber(idCardNumber);
+    const documentMatches = (kycRows || []).some((row) =>
+      normalizeDocumentNumber(row.document_number) === suppliedDocument
+    );
+    if (!documentMatches) {
+      return res.status(403).json({ error: "The ID card number does not match the user's identity record." });
+    }
+
+    const { error: updateError } = await admin.auth.admin.updateUserById(challenge.user_id, {
+      password: String(newPassword),
+      user_metadata: { must_change_password: false },
+    });
+    if (updateError) throw new Error(updateError.message);
+
+    await admin
+      .from("password_reset_challenges")
+      .update({ verified_at: new Date().toISOString(), consumed_at: new Date().toISOString() })
+      .eq("id", challenge.id);
+    sendWhatsApp(
+      challenge.phone_number,
+      "NETLIFE CASH: Your password has been reset by an authorized agent. If you did not request this, contact support immediately.",
+    ).catch(() => {});
+
+    res.json({ ok: true, message: "Password reset successfully." });
+  } catch (err) {
+    console.error("[staff-reset] confirm error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/admin-set-password { userId, newPassword } — admin/founder
+// reset from User Manager. The server owns the target phone number and sends
+// the notification through the configured business WhatsApp account.
+app.post("/api/auth/admin-set-password", async (req, res) => {
+  const { userId, newPassword } = req.body || {};
+  if (!userId || !newPassword) return res.status(400).json({ error: "userId and newPassword are required." });
+  if (String(newPassword).length < 8) return res.status(400).json({ error: "Password must be at least 8 characters." });
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { data: targetResult, error: targetError } = await admin.auth.admin.getUserById(userId);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("phone_number")
+      .eq("id", userId)
+      .maybeSingle();
+    const e164 = phoneToE164(targetResult.user.user_metadata?.phone_number || profile?.phone_number);
+    if (!e164) return res.status(400).json({ error: "This user does not have a valid WhatsApp phone number." });
+    if (!whatsappOk()) return res.status(503).json({ error: "Business WhatsApp delivery is not configured." });
+
+    const { error: updateError } = await admin.auth.admin.updateUserById(userId, {
+      password: String(newPassword),
+      user_metadata: { must_change_password: true },
+    });
+    if (updateError) throw new Error(updateError.message);
+
+    let whatsappSent = true;
+    let warning = null;
+    try {
+      await sendWhatsApp(
+        e164,
+        `NETLIFE CASH: An administrator reset your password. Your temporary password is ${newPassword}. Sign in and change it immediately. If you did not request this, contact support.`,
+      );
+    } catch (deliveryError) {
+      whatsappSent = false;
+      warning = "Password changed, but the business WhatsApp notification could not be delivered.";
+      console.error("[reset] admin WhatsApp notification error:", deliveryError.message);
+    }
+
+    console.log(`[reset] Admin set password for userId=${userId.slice(0, 8)}*** by ${actor.role}`);
+    res.json({ ok: true, whatsappSent, warning });
   } catch (err) {
     console.error("[reset] admin-set-password error:", err.message);
     res.status(500).json({ error: err.message });

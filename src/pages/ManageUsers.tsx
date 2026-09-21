@@ -6,10 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus, KeyRound, Eye, EyeOff, MessageCircle, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { CountryPhoneInput } from "@/components/CountryPhoneInput";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -30,6 +33,11 @@ interface BlockchainSettings {
   is_active: boolean;
 }
 
+function generateTemporaryPassword(length = 12) {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!@#$";
+  return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
+
 const ManageUsers = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +48,16 @@ const ManageUsers = () => {
   const { toast } = useToast();
   const { role: staffRole } = useAuth();
   const staffHome = staffRole === "agent" ? "/agent" : "/admin";
+  const isAdmin = staffRole === "admin" || staffRole === "founder";
+  const [passwordTarget, setPasswordTarget] = useState<User | null>(null);
+  const [passwordStep, setPasswordStep] = useState<"admin" | "agent-request" | "agent-confirm">("admin");
+  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [showTemporaryPassword, setShowTemporaryPassword] = useState(false);
+  const [challengeId, setChallengeId] = useState("");
+  const [maskedResetPhone, setMaskedResetPhone] = useState("");
+  const [idCardNumber, setIdCardNumber] = useState("");
+  const [whatsappCode, setWhatsappCode] = useState("");
+  const [passwordResetting, setPasswordResetting] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -143,6 +161,98 @@ const ManageUsers = () => {
     } catch (error) {
       console.error("Error updating role:", error);
       toast({ title: "Failed to update role", variant: "destructive" });
+    }
+  };
+
+  const openPasswordReset = (user: User) => {
+    setPasswordTarget(user);
+    setTemporaryPassword(generateTemporaryPassword());
+    setShowTemporaryPassword(false);
+    setChallengeId("");
+    setMaskedResetPhone("");
+    setIdCardNumber("");
+    setWhatsappCode("");
+    setPasswordStep(isAdmin ? "admin" : "agent-request");
+  };
+
+  const closePasswordReset = () => {
+    if (passwordResetting) return;
+    setPasswordTarget(null);
+    setChallengeId("");
+    setMaskedResetPhone("");
+    setIdCardNumber("");
+    setWhatsappCode("");
+  };
+
+  const getStaffSession = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
+    return session.access_token;
+  };
+
+  const requestAgentPasswordReset = async () => {
+    if (!passwordTarget) return;
+    setPasswordResetting(true);
+    try {
+      const token = await getStaffSession();
+      const response = await fetch("/api/auth/staff-password-reset/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId: passwordTarget.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Could not send the WhatsApp code.");
+      setChallengeId(result.challengeId);
+      setMaskedResetPhone(result.masked || passwordTarget.phone_number || "");
+      setPasswordStep("agent-confirm");
+      toast({ title: "WhatsApp code sent", description: `Ask the user for the code sent to ${result.masked || "their WhatsApp number"}.` });
+    } catch (error) {
+      toast({ title: "Could not send recovery code", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      setPasswordResetting(false);
+    }
+  };
+
+  const submitPasswordReset = async () => {
+    if (!passwordTarget) return;
+    if (temporaryPassword.length < 8) {
+      toast({ title: "Password too short", description: "Use at least 8 characters.", variant: "destructive" });
+      return;
+    }
+    setPasswordResetting(true);
+    try {
+      const token = await getStaffSession();
+      const endpoint = passwordStep === "admin"
+        ? "/api/auth/admin-set-password"
+        : "/api/auth/staff-password-reset/confirm";
+      const body = passwordStep === "admin"
+        ? { userId: passwordTarget.id, newPassword: temporaryPassword }
+        : {
+            challengeId,
+            idCardNumber: idCardNumber.trim(),
+            otp: whatsappCode.trim(),
+            newPassword: temporaryPassword,
+          };
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Password reset failed.");
+
+      toast({
+        title: "Password changed",
+        description: result.warning || (passwordStep === "admin"
+          ? "The temporary password was sent through business WhatsApp."
+          : "The user's password was reset after matching the ID card and WhatsApp code."),
+        variant: result.warning ? "destructive" : "default",
+      });
+      closePasswordReset();
+    } catch (error) {
+      toast({ title: "Password reset failed", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      setPasswordResetting(false);
     }
   };
 
@@ -341,6 +451,14 @@ const ManageUsers = () => {
                             <Button
                               size="icon"
                               variant="ghost"
+                              onClick={() => openPasswordReset(user)}
+                              title={isAdmin ? "Change password and notify via WhatsApp" : "Start ID and WhatsApp password recovery"}
+                            >
+                              <KeyRound className="w-4 h-4 text-primary" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
                               onClick={() => toggleDisabled(user)}
                               title={user.disabled ? "Re-enable user" : "Disable user"}
                             >
@@ -378,6 +496,80 @@ const ManageUsers = () => {
           </CardContent>
         </Card>
       </main>
+
+      <Dialog open={!!passwordTarget} onOpenChange={(open) => { if (!open) closePasswordReset(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-primary" />
+              {isAdmin ? "Change user password" : "Agent password recovery"}
+            </DialogTitle>
+            <DialogDescription>
+              {passwordTarget?.full_name || passwordTarget?.phone_number || "Selected user"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {passwordStep === "agent-request" ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <p className="font-medium">Send a verification code</p>
+                <p className="mt-1 text-muted-foreground">
+                  A one-time code will be sent to the user's WhatsApp number. The user must give you that code and their ID card number.
+                </p>
+              </div>
+              <Button className="w-full" onClick={() => void requestAgentPasswordReset()} disabled={passwordResetting}>
+                {passwordResetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
+                Send code to user WhatsApp
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {passwordStep === "agent-confirm" && (
+                <>
+                  <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3 text-sm">
+                    <p className="font-medium flex items-center gap-2"><MessageCircle className="h-4 w-4 text-green-600" /> Code sent to {maskedResetPhone}</p>
+                    <p className="mt-1 text-muted-foreground">Do not accept a code from anyone other than the account holder.</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">ID card number</label>
+                    <Input value={idCardNumber} onChange={(event) => setIdCardNumber(event.target.value)} placeholder="Enter the number from the user's submitted ID card" autoComplete="off" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">WhatsApp code</label>
+                    <Input value={whatsappCode} onChange={(event) => setWhatsappCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit code" inputMode="numeric" autoComplete="one-time-code" />
+                  </div>
+                </>
+              )}
+              <div>
+                <label className="text-sm font-medium">{isAdmin ? "Temporary password" : "New password"}</label>
+                <div className="relative">
+                  <Input
+                    type={showTemporaryPassword ? "text" : "password"}
+                    value={temporaryPassword}
+                    onChange={(event) => setTemporaryPassword(event.target.value)}
+                    className="pr-10 font-mono"
+                    autoComplete="new-password"
+                  />
+                  <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" onClick={() => setShowTemporaryPassword((visible) => !visible)}>
+                    {showTemporaryPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">Use at least 8 characters.</p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closePasswordReset} disabled={passwordResetting}>Cancel</Button>
+            {passwordStep === "agent-confirm" || passwordStep === "admin" ? (
+              <Button onClick={() => void submitPasswordReset()} disabled={passwordResetting || (passwordStep === "agent-confirm" && (!idCardNumber.trim() || whatsappCode.length !== 6))}>
+                {passwordResetting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Change password
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
