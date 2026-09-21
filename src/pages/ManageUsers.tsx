@@ -6,10 +6,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus, KeyRound, Eye, EyeOff, MessageCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus, KeyRound, Eye, EyeOff, MessageCircle, Loader2, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { CountryPhoneInput } from "@/components/CountryPhoneInput";
 import { useAuth } from "@/hooks/useAuth";
+import { CLIENT_MENU_FEATURES } from "@/lib/clientMenuFeatures";
+import {
+  fetchAdminUserFeatureAccess,
+  updateAdminUserFeatureAccess,
+} from "@/lib/userFeatureAccess";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -58,6 +64,10 @@ const ManageUsers = () => {
   const [idCardNumber, setIdCardNumber] = useState("");
   const [whatsappCode, setWhatsappCode] = useState("");
   const [passwordResetting, setPasswordResetting] = useState(false);
+  const [featureTarget, setFeatureTarget] = useState<User | null>(null);
+  const [featureAccess, setFeatureAccess] = useState<Record<string, boolean>>({});
+  const [featureLoading, setFeatureLoading] = useState(false);
+  const [featureUpdating, setFeatureUpdating] = useState<string | null>(null);
 
   useEffect(() => {
     fetchUsers();
@@ -175,6 +185,47 @@ const ManageUsers = () => {
     setMaskedResetPhone("");
     setIdCardNumber("");
     setWhatsappCode("");
+  };
+
+  const openFeatureAccess = async (user: User) => {
+    if (user.role === "admin" || user.role === "founder") return;
+    setFeatureTarget(user);
+    setFeatureAccess({});
+    setFeatureLoading(true);
+    try {
+      setFeatureAccess(await fetchAdminUserFeatureAccess(user.id));
+    } catch (error) {
+      setFeatureTarget(null);
+      toast({
+        title: "Could not load feature access",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
+
+  const toggleUserFeature = async (featureKey: string) => {
+    if (!featureTarget) return;
+    const nextValue = featureAccess[featureKey] === false;
+    setFeatureUpdating(featureKey);
+    try {
+      await updateAdminUserFeatureAccess(featureTarget.id, featureKey, nextValue);
+      setFeatureAccess((current) => ({ ...current, [featureKey]: nextValue }));
+      toast({
+        title: nextValue ? "Feature enabled" : "Feature disabled",
+        description: `${CLIENT_MENU_FEATURES.find((feature) => feature.featureKey === featureKey)?.label || "Feature"} updated for ${featureTarget.full_name || "this user"}.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Could not update feature",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setFeatureUpdating(null);
+    }
   };
 
   const getStaffSession = async () => {
@@ -325,16 +376,19 @@ const ManageUsers = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="bg-primary p-6">
-        <div className="flex items-center gap-4">
+      <header className="bg-primary p-4 sm:p-6">
+        <div className="flex items-center gap-3 sm:gap-4">
           <Button onClick={() => navigate(staffHome)} variant="secondary" size="icon">
             <ArrowLeft size={20} />
           </Button>
-          <h1 className="text-2xl font-bold text-foreground">Manage Users</h1>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground">Manage Users</h1>
+            <p className="text-xs sm:text-sm text-foreground/70">Roles, recovery, account status, and client feature access</p>
+          </div>
         </div>
       </header>
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6 space-y-4">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><UserPlus className="h-5 w-5" /> Add a user manually</CardTitle>
@@ -364,7 +418,7 @@ const ManageUsers = () => {
               <p className="text-center py-8 text-muted-foreground">No users found</p>
             ) : (
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="min-w-[1040px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
@@ -446,6 +500,15 @@ const ManageUsers = () => {
                             <Button
                               size="icon"
                               variant="ghost"
+                              onClick={() => void openFeatureAccess(user)}
+                              disabled={user.role === "admin" || user.role === "founder"}
+                              title={user.role === "admin" || user.role === "founder" ? "Admin and founder features are always enabled" : "Manage client menu features"}
+                            >
+                              <SlidersHorizontal className="w-4 h-4 text-primary" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
                               onClick={() => openPasswordReset(user)}
                               title={isAdmin ? "Change password and notify via WhatsApp" : "Start ID and WhatsApp password recovery"}
                             >
@@ -491,6 +554,61 @@ const ManageUsers = () => {
           </CardContent>
         </Card>
       </main>
+
+      <Dialog open={!!featureTarget} onOpenChange={(open) => { if (!open && !featureUpdating) setFeatureTarget(null); }}>
+        <DialogContent className="max-w-2xl max-h-[88vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <SlidersHorizontal className="h-5 w-5 text-primary" />
+              Client menu access
+            </DialogTitle>
+            <DialogDescription>
+              {featureTarget?.full_name || featureTarget?.phone_number || "Selected user"} · Turn individual menu features on or off.
+            </DialogDescription>
+          </DialogHeader>
+
+          {featureLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : (
+            <div className="overflow-y-auto pr-1 space-y-5">
+              {(["Account", "Financial Tools", "Dashboard Services", "Other"] as const).map((section) => (
+                <section key={section} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">{section}</h3>
+                    <span className="text-xs text-muted-foreground">
+                      {CLIENT_MENU_FEATURES.filter((feature) => feature.section === section && featureAccess[feature.featureKey] !== false).length} enabled
+                    </span>
+                  </div>
+                  <div className="rounded-lg border divide-y">
+                    {CLIENT_MENU_FEATURES.filter((feature) => feature.section === section).map((feature) => {
+                      const enabled = featureAccess[feature.featureKey] !== false;
+                      return (
+                        <div key={feature.featureKey} className="flex items-center justify-between gap-4 p-3">
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm">{feature.label}</p>
+                            <p className="text-xs text-muted-foreground truncate">{feature.path}</p>
+                          </div>
+                          <Switch
+                            checked={enabled}
+                            onCheckedChange={() => void toggleUserFeature(feature.featureKey)}
+                            disabled={featureUpdating === feature.featureKey}
+                            aria-label={`${enabled ? "Disable" : "Enable"} ${feature.label}`}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFeatureTarget(null)} disabled={!!featureUpdating}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!passwordTarget} onOpenChange={(open) => { if (!open) closePasswordReset(); }}>
         <DialogContent className="max-w-md">

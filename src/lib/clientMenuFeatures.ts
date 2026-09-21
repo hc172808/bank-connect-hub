@@ -1,0 +1,50 @@
+export interface ClientMenuFeature {
+  featureKey: string;
+  label: string;
+  section: "Account" | "Financial Tools" | "Dashboard Services" | "Other";
+  path: string;
+}
+
+export const CLIENT_MENU_FEATURES: ClientMenuFeature[] = [
+  { featureKey: "client_menu_profile", label: "My Profile", section: "Account", path: "/profile" },
+  { featureKey: "client_menu_change_password", label: "Change Password", section: "Account", path: "/change-password" },
+  { featureKey: "client_menu_security", label: "Security & 2FA", section: "Account", path: "/security" },
+  { featureKey: "client_menu_kyc", label: "Identity Verification (KYC)", section: "Account", path: "/kyc" },
+  { featureKey: "client_menu_insights", label: "Financial Insights", section: "Financial Tools", path: "/insights" },
+  { featureKey: "client_menu_budget", label: "Budget Planner", section: "Financial Tools", path: "/budget" },
+  { featureKey: "client_menu_savings", label: "Savings Goals", section: "Financial Tools", path: "/savings" },
+  { featureKey: "client_menu_savings_accounts", label: "Savings Accounts", section: "Financial Tools", path: "/savings-accounts" },
+  { featureKey: "client_menu_loans", label: "Loans", section: "Financial Tools", path: "/loans" },
+  { featureKey: "client_menu_credit_builder", label: "Credit Builder", section: "Financial Tools", path: "/credit-builder" },
+  { featureKey: "client_menu_scheduled_payments", label: "Scheduled Payments", section: "Financial Tools", path: "/scheduled-payments" },
+  { featureKey: "client_menu_international_transfers", label: "International Transfer", section: "Financial Tools", path: "/international-transfers" },
+  { featureKey: "client_menu_group_payments", label: "Group Payments", section: "Financial Tools", path: "/group-payments" },
+  { featureKey: "client_menu_split_bills", label: "Split Bills", section: "Financial Tools", path: "/split-bills" },
+  { featureKey: "client_menu_currency_converter", label: "Currency Converter", section: "Financial Tools", path: "/currency-converter" },
+  { featureKey: "client_menu_ai_assistant", label: "AI Financial Assistant", section: "Financial Tools", path: "/ai-assistant" },
+  { featureKey: "client_menu_recommendations", label: "Personalized Recommendations", section: "Financial Tools", path: "/recommendations" },
+  { featureKey: "client_menu_nfc_payment", label: "NFC Tap Payments", section: "Financial Tools", path: "/nfc-payment" },
+  { featureKey: "client_menu_open_banking", label: "Open Banking", section: "Financial Tools", path: "/open-banking" },
+  { featureKey: "client_menu_beneficiaries", label: "Beneficiaries", section: "Financial Tools", path: "/beneficiaries" },
+  { featureKey: "client_menu_virtual_cards", label: "Virtual Cards", section: "Financial Tools", path: "/virtual-cards" },
+  { featureKey: "client_menu_multi_wallet", label: "All Wallets", section: "Financial Tools", path: "/multi-wallet" },
+  { featureKey: "client_menu_investments", label: "Investments", section: "Financial Tools", path: "/investments" },
+  { featureKey: "client_menu_business_banking", label: "Business Banking", section: "Financial Tools", path: "/business-banking" },
+  { featureKey: "client_menu_rewards", label: "Rewards", section: "Financial Tools", path: "/rewards" },
+  { featureKey: "client_menu_pay_bills", label: "Pay Bills", section: "Dashboard Services", path: "/pay-bills" },
+  { featureKey: "client_menu_send_money", label: "Send Money", section: "Dashboard Services", path: "/send-money" },
+  { featureKey: "client_menu_request_funds", label: "Request Funds", section: "Dashboard Services", path: "/request-funds" },
+  { featureKey: "client_menu_top_up", label: "Top-up", section: "Dashboard Services", path: "/top-up" },
+  { featureKey: "client_menu_pay_merchant", label: "Pay Merchant", section: "Dashboard Services", path: "/pay-merchant" },
+  { featureKey: "client_menu_shop", label: "Shop", section: "Dashboard Services", path: "/vendors" },
+  { featureKey: "client_menu_refer", label: "Refer & Earn", section: "Dashboard Services", path: "/refer" },
+  { featureKey: "client_menu_transactions", label: "Transactions", section: "Dashboard Services", path: "/transactions" },
+  { featureKey: "client_menu_download_app", label: "Download App", section: "Other", path: "/download-app" },
+  { featureKey: "client_menu_whats_new", label: "What's New", section: "Other", path: "/whats-new" },
+  { featureKey: "client_menu_notifications", label: "Notifications", section: "Other", path: "/notifications" },
+  { featureKey: "client_menu_messages", label: "Messages", section: "Other", path: "/chat" },
+  { featureKey: "client_menu_support_center", label: "Support Center", section: "Other", path: "/support" },
+  { featureKey: "client_menu_achievements", label: "Achievements", section: "Other", path: "/gamification" },
+  { featureKey: "client_menu_help_support", label: "Help & Support", section: "Other", path: "/feedback" },
+  { featureKey: "client_menu_feedback", label: "Feedback", section: "Other", path: "/feedback" },
+];

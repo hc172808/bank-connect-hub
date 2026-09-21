@@ -38,6 +38,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useState } from "react";
+import { fetchCurrentUserFeatureAccess } from "@/lib/userFeatureAccess";
 
 interface ProfileData {
   full_name: string | null;
@@ -48,49 +49,49 @@ const menuSections = [
   {
     title: "Account",
     items: [
-      { icon: User, label: "My Profile", path: "/profile" },
-      { icon: Lock, label: "Change Password", path: "/change-password" },
-      { icon: Shield, label: "Security & 2FA", path: "/security" },
-      { icon: FileCheck, label: "Identity Verification (KYC)", path: "/kyc" },
+      { icon: User, label: "My Profile", path: "/profile", featureKey: "client_menu_profile" },
+      { icon: Lock, label: "Change Password", path: "/change-password", featureKey: "client_menu_change_password" },
+      { icon: Shield, label: "Security & 2FA", path: "/security", featureKey: "client_menu_security" },
+      { icon: FileCheck, label: "Identity Verification (KYC)", path: "/kyc", featureKey: "client_menu_kyc" },
     ],
   },
   {
     title: "Financial Tools",
     items: [
-      { icon: TrendingUp,    label: "Financial Insights",    path: "/insights" },
-      { icon: BarChart3,     label: "Budget Planner",        path: "/budget" },
-      { icon: PiggyBank,     label: "Savings Goals",         path: "/savings" },
-      { icon: PiggyBank,     label: "Savings Accounts",      path: "/savings-accounts" },
-      { icon: CreditCard,    label: "Loans",                  path: "/loans" },
-      { icon: Star,          label: "Credit Builder",         path: "/credit-builder" },
-      { icon: CalendarClock, label: "Scheduled Payments",     path: "/scheduled-payments" },
-      { icon: Globe,         label: "International Transfer", path: "/international-transfers" },
-      { icon: UsersRound,    label: "Group Payments",         path: "/group-payments" },
-      { icon: Receipt,       label: "Split Bills",            path: "/split-bills" },
-      { icon: ArrowLeftRight, label: "Currency Converter",        path: "/currency-converter" },
-      { icon: Sparkles,      label: "AI Financial Assistant",     path: "/ai-assistant" },
-      { icon: Lightbulb,     label: "Personalized Recommendations", path: "/recommendations" },
-      { icon: Wifi,          label: "NFC Tap Payments",           path: "/nfc-payment" },
-      { icon: Building2,     label: "Open Banking",               path: "/open-banking" },
-      { icon: Users,         label: "Beneficiaries",              path: "/beneficiaries" },
-      { icon: CreditCard,    label: "Virtual Cards",              path: "/virtual-cards" },
-      { icon: Wallet,        label: "All Wallets",                path: "/multi-wallet" },
-      { icon: TrendingUp,    label: "Investments",                path: "/investments" },
-      { icon: Briefcase,     label: "Business Banking",           path: "/business-banking" },
-      { icon: Star,          label: "Rewards",                    path: "/rewards" },
+      { icon: TrendingUp,    label: "Financial Insights",    path: "/insights", featureKey: "client_menu_insights" },
+      { icon: BarChart3,     label: "Budget Planner",        path: "/budget", featureKey: "client_menu_budget" },
+      { icon: PiggyBank,     label: "Savings Goals",         path: "/savings", featureKey: "client_menu_savings" },
+      { icon: PiggyBank,     label: "Savings Accounts",      path: "/savings-accounts", featureKey: "client_menu_savings_accounts" },
+      { icon: CreditCard,    label: "Loans",                  path: "/loans", featureKey: "client_menu_loans" },
+      { icon: Star,          label: "Credit Builder",         path: "/credit-builder", featureKey: "client_menu_credit_builder" },
+      { icon: CalendarClock, label: "Scheduled Payments",     path: "/scheduled-payments", featureKey: "client_menu_scheduled_payments" },
+      { icon: Globe,         label: "International Transfer", path: "/international-transfers", featureKey: "client_menu_international_transfers" },
+      { icon: UsersRound,    label: "Group Payments",         path: "/group-payments", featureKey: "client_menu_group_payments" },
+      { icon: Receipt,       label: "Split Bills",            path: "/split-bills", featureKey: "client_menu_split_bills" },
+      { icon: ArrowLeftRight, label: "Currency Converter",        path: "/currency-converter", featureKey: "client_menu_currency_converter" },
+      { icon: Sparkles,      label: "AI Financial Assistant",     path: "/ai-assistant", featureKey: "client_menu_ai_assistant" },
+      { icon: Lightbulb,     label: "Personalized Recommendations", path: "/recommendations", featureKey: "client_menu_recommendations" },
+      { icon: Wifi,          label: "NFC Tap Payments",           path: "/nfc-payment", featureKey: "client_menu_nfc_payment" },
+      { icon: Building2,     label: "Open Banking",               path: "/open-banking", featureKey: "client_menu_open_banking" },
+      { icon: Users,         label: "Beneficiaries",              path: "/beneficiaries", featureKey: "client_menu_beneficiaries" },
+      { icon: CreditCard,    label: "Virtual Cards",              path: "/virtual-cards", featureKey: "client_menu_virtual_cards" },
+      { icon: Wallet,        label: "All Wallets",                path: "/multi-wallet", featureKey: "client_menu_multi_wallet" },
+      { icon: TrendingUp,    label: "Investments",                path: "/investments", featureKey: "client_menu_investments" },
+      { icon: Briefcase,     label: "Business Banking",           path: "/business-banking", featureKey: "client_menu_business_banking" },
+      { icon: Star,          label: "Rewards",                    path: "/rewards", featureKey: "client_menu_rewards" },
     ],
   },
   {
     title: "Other",
     items: [
-      { icon: Smartphone,      label: "Download App",     path: "/download-app" },
-      { icon: Newspaper,       label: "What's New",       path: "/whats-new" },
-      { icon: Bell,            label: "Notifications",    path: "/notifications" },
-      { icon: MessageSquare,   label: "Messages",         path: "/chat" },
-      { icon: HeadphonesIcon,  label: "Support Center",   path: "/support" },
-      { icon: Trophy,          label: "Achievements",     path: "/gamification" },
-      { icon: HelpCircle,      label: "Help & Support",   path: "/feedback" },
-      { icon: MessageSquare,   label: "Feedback",         path: "/feedback" },
+       { icon: Smartphone,      label: "Download App",     path: "/download-app", featureKey: "client_menu_download_app" },
+       { icon: Newspaper,       label: "What's New",       path: "/whats-new", featureKey: "client_menu_whats_new" },
+       { icon: Bell,            label: "Notifications",    path: "/notifications", featureKey: "client_menu_notifications" },
+       { icon: MessageSquare,   label: "Messages",         path: "/chat", featureKey: "client_menu_messages" },
+       { icon: HeadphonesIcon,  label: "Support Center",   path: "/support", featureKey: "client_menu_support_center" },
+       { icon: Trophy,          label: "Achievements",     path: "/gamification", featureKey: "client_menu_achievements" },
+       { icon: HelpCircle,      label: "Help & Support",   path: "/feedback", featureKey: "client_menu_help_support" },
+       { icon: MessageSquare,   label: "Feedback",         path: "/feedback", featureKey: "client_menu_feedback" },
     ],
   },
 ];
@@ -99,9 +100,15 @@ const Menu = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [featureAccess, setFeatureAccess] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    fetchProfile();
+    void Promise.all([fetchProfile(), fetchCurrentUserFeatureAccess()])
+      .then(([, access]) => setFeatureAccess(access))
+      .catch(() => {
+        // Missing access rows or an unavailable optional endpoint should not
+        // hide the existing menu.
+      });
   }, []);
 
   const fetchProfile = async () => {
@@ -158,7 +165,7 @@ const Menu = () => {
                 <p className="text-xs font-semibold text-muted-foreground px-4 pt-2 pb-1 uppercase tracking-wide">
                   {section.title}
                 </p>
-                {section.items.map((item, index) => (
+                {section.items.filter((item) => featureAccess[item.featureKey] !== false).map((item, index) => (
                   <button
                     key={index}
                     onClick={() => navigate(item.path)}

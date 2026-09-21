@@ -978,6 +978,63 @@ const DEFAULT_FEATURE_TOGGLES = [
   { feature_key: "bank_reserve", feature_name: "Bank Reserve Controls", is_enabled: false },
 ];
 
+const CLIENT_MENU_FEATURES = [
+  ["client_menu_profile", "My Profile"],
+  ["client_menu_change_password", "Change Password"],
+  ["client_menu_security", "Security & 2FA"],
+  ["client_menu_kyc", "Identity Verification (KYC)"],
+  ["client_menu_insights", "Financial Insights"],
+  ["client_menu_budget", "Budget Planner"],
+  ["client_menu_savings", "Savings Goals"],
+  ["client_menu_savings_accounts", "Savings Accounts"],
+  ["client_menu_loans", "Loans"],
+  ["client_menu_credit_builder", "Credit Builder"],
+  ["client_menu_scheduled_payments", "Scheduled Payments"],
+  ["client_menu_international_transfers", "International Transfer"],
+  ["client_menu_group_payments", "Group Payments"],
+  ["client_menu_split_bills", "Split Bills"],
+  ["client_menu_currency_converter", "Currency Converter"],
+  ["client_menu_ai_assistant", "AI Financial Assistant"],
+  ["client_menu_recommendations", "Personalized Recommendations"],
+  ["client_menu_nfc_payment", "NFC Tap Payments"],
+  ["client_menu_open_banking", "Open Banking"],
+  ["client_menu_beneficiaries", "Beneficiaries"],
+  ["client_menu_virtual_cards", "Virtual Cards"],
+  ["client_menu_multi_wallet", "All Wallets"],
+  ["client_menu_investments", "Investments"],
+  ["client_menu_business_banking", "Business Banking"],
+  ["client_menu_rewards", "Rewards"],
+  ["client_menu_pay_bills", "Pay Bills"],
+  ["client_menu_send_money", "Send Money"],
+  ["client_menu_request_funds", "Request Funds"],
+  ["client_menu_top_up", "Top-up"],
+  ["client_menu_pay_merchant", "Pay Merchant"],
+  ["client_menu_shop", "Shop"],
+  ["client_menu_refer", "Refer & Earn"],
+  ["client_menu_transactions", "Transactions"],
+  ["client_menu_download_app", "Download App"],
+  ["client_menu_whats_new", "What's New"],
+  ["client_menu_notifications", "Notifications"],
+  ["client_menu_messages", "Messages"],
+  ["client_menu_support_center", "Support Center"],
+  ["client_menu_achievements", "Achievements"],
+  ["client_menu_help_support", "Help & Support"],
+  ["client_menu_feedback", "Feedback"],
+];
+const CLIENT_MENU_FEATURE_KEYS = new Set(CLIENT_MENU_FEATURES.map(([key]) => key));
+
+function defaultClientMenuAccess() {
+  return Object.fromEntries(CLIENT_MENU_FEATURES.map(([key]) => [key, true]));
+}
+
+function mergeClientMenuAccess(rows = []) {
+  const access = defaultClientMenuAccess();
+  for (const row of rows) {
+    if (CLIENT_MENU_FEATURE_KEYS.has(row.feature_key)) access[row.feature_key] = Boolean(row.is_enabled);
+  }
+  return access;
+}
+
 async function getSupabaseAdminClient() {
   if (!adminOk()) throw new Error("Supabase service role is not configured on this server.");
   const { createClient } = await import("@supabase/supabase-js");
@@ -1041,6 +1098,27 @@ async function requireFeatureAdmin(req, admin) {
   return { user: actorResult.user };
 }
 
+async function requireBearerUser(req, admin) {
+  const authorization = String(req.headers.authorization || "");
+  const accessToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (!accessToken) return { status: 401, error: "Sign-in required." };
+  const { data, error } = await admin.auth.getUser(accessToken);
+  if (error || !data?.user) return { status: 401, error: "Session is invalid or expired." };
+  return { user: data.user, accessToken };
+}
+
+async function getUserRole(admin, userId, user = null) {
+  const { data: roleRow } = await admin
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  return roleRow?.role || user?.user_metadata?.account_type || user?.user_metadata?.role || "client";
+}
+
 // Feature toggles are public configuration, but some Supabase projects have
 // missing/stale anonymous SELECT policies. Read them through the server-held
 // service key so feature gates cannot silently treat every feature as absent.
@@ -1098,6 +1176,93 @@ app.patch("/api/feature-toggles/:id", async (req, res) => {
     res.json({ feature: data });
   } catch (err) {
     console.error("[feature-toggles] update error:", err.message);
+    res.status(503).json({ error: err.message });
+  }
+});
+
+// Per-user client-menu access. Missing rows mean enabled, which keeps access
+// backwards-compatible until an admin explicitly changes a user's settings.
+app.get("/api/feature-access/me", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireBearerUser(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { data: rows, error } = await admin
+      .from("user_feature_access")
+      .select("feature_key, is_enabled")
+      .eq("user_id", actor.user.id);
+    if (error) throw new Error(error.message);
+    res.json({ access: mergeClientMenuAccess(rows || []) });
+  } catch (err) {
+    console.error("[feature-access] current-user read error:", err.message);
+    res.status(503).json({ error: err.message });
+  }
+});
+
+app.get("/api/admin/users/:userId/features", async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) return res.status(400).json({ error: "userId is required." });
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireFeatureAdmin(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { data: targetResult, error: targetError } = await admin.auth.admin.getUserById(userId);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
+    const targetRole = await getUserRole(admin, userId, targetResult.user);
+    if (targetRole === "admin" || targetRole === "founder") {
+      return res.status(403).json({ error: "Admin and founder accounts cannot be managed here." });
+    }
+
+    const { data: rows, error } = await admin
+      .from("user_feature_access")
+      .select("feature_key, is_enabled")
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    res.json({
+      userId,
+      targetRole,
+      features: CLIENT_MENU_FEATURES.map(([featureKey, featureName]) => ({ featureKey, featureName })),
+      access: mergeClientMenuAccess(rows || []),
+    });
+  } catch (err) {
+    console.error("[feature-access] admin read error:", err.message);
+    res.status(503).json({ error: err.message });
+  }
+});
+
+app.patch("/api/admin/users/:userId/features/:featureKey", async (req, res) => {
+  const { userId, featureKey } = req.params;
+  const { is_enabled } = req.body || {};
+  if (!userId || !CLIENT_MENU_FEATURE_KEYS.has(featureKey) || typeof is_enabled !== "boolean") {
+    return res.status(400).json({ error: "A valid featureKey and boolean is_enabled are required." });
+  }
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireFeatureAdmin(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { data: targetResult, error: targetError } = await admin.auth.admin.getUserById(userId);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
+    const targetRole = await getUserRole(admin, userId, targetResult.user);
+    if (targetRole === "admin" || targetRole === "founder") {
+      return res.status(403).json({ error: "Admin and founder accounts cannot be managed here." });
+    }
+
+    const { error } = await admin
+      .from("user_feature_access")
+      .upsert({
+        user_id: userId,
+        feature_key: featureKey,
+        is_enabled,
+        updated_by: actor.user.id,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,feature_key" });
+    if (error) throw new Error(error.message);
+    res.json({ ok: true, userId, featureKey, is_enabled });
+  } catch (err) {
+    console.error("[feature-access] admin update error:", err.message);
     res.status(503).json({ error: err.message });
   }
 });

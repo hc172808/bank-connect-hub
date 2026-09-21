@@ -37,6 +37,7 @@ import { format, startOfMonth } from "date-fns";
 import { requestNotificationPermission, subscribeToTransactionNotifications, subscribeToChatNotifications } from "@/lib/pushNotifications";
 import { PiggyBank, CalendarClock, Target } from "lucide-react";
 import { fetchFeatureToggles } from "@/lib/featureToggles";
+import { fetchCurrentUserFeatureAccess } from "@/lib/userFeatureAccess";
 
 interface SavingsGoal { id: string; name: string; target: number; saved: number; }
 interface ScheduledPayment { id: string; label: string; amount: number; nextDate: string; }
@@ -64,6 +65,7 @@ const ClientDashboard = () => {
   const [showBalance, setShowBalance] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [featureToggles, setFeatureToggles] = useState<FeatureToggle[]>([]);
+  const [userFeatureAccess, setUserFeatureAccess] = useState<Record<string, boolean>>({});
   const [monthIn, setMonthIn] = useState(0);
   const [monthOut, setMonthOut] = useState(0);
   const [monthCount, setMonthCount] = useState(0);
@@ -143,11 +145,15 @@ const ClientDashboard = () => {
       supabase.from("wallets").select("*").eq("user_id", user.id).single(),
       supabase.from("profiles").select("full_name, wallet_address").eq("id", user.id).single(),
     ]);
-    const features = await fetchFeatureToggles().catch(() => []);
+    const [features, access] = await Promise.all([
+      fetchFeatureToggles().catch(() => []),
+      fetchCurrentUserFeatureAccess().catch(() => ({})),
+    ]);
 
     if (walletRes.data) setWallet(walletRes.data);
     if (profileRes.data) setProfile(profileRes.data);
     setFeatureToggles(features);
+    setUserFeatureAccess(access);
 
     // This-month income/spending + recent + top payees
     const monthStart = startOfMonth(new Date()).toISOString();
@@ -241,21 +247,22 @@ const ClientDashboard = () => {
 
   const services = useMemo(() => {
     const allServices = [
-      { icon: Receipt, label: "Pay Bills", path: "/pay-bills", featureKey: "pay_bills" },
-      { icon: Send, label: "Send Money", path: "/send-money", featureKey: null },
-      { icon: Gift, label: "Request Funds", path: "/request-funds", featureKey: "internal_funds" },
-      { icon: RotateCcw, label: "Reverse Funds", path: "/request-reversal", featureKey: null },
-      { icon: ArrowUpFromLine, label: "Top-up", path: "/top-up", featureKey: "top_up" },
-      { icon: Store, label: "Pay Merchant", path: "/pay-merchant", featureKey: "pay_merchant" },
-      { icon: Store, label: "Shop", path: "/vendors", featureKey: null },
-      { icon: UserPlus, label: "Refer & Earn", path: "/refer", featureKey: null },
-      { icon: Ticket, label: "Transactions", path: "/transactions", featureKey: null },
+      { icon: Receipt, label: "Pay Bills", path: "/pay-bills", featureKey: "pay_bills", accessKey: "client_menu_pay_bills" },
+      { icon: Send, label: "Send Money", path: "/send-money", featureKey: null, accessKey: "client_menu_send_money" },
+      { icon: Gift, label: "Request Funds", path: "/request-funds", featureKey: "internal_funds", accessKey: "client_menu_request_funds" },
+      { icon: RotateCcw, label: "Reverse Funds", path: "/request-reversal", featureKey: null, accessKey: "client_menu_request_funds" },
+      { icon: ArrowUpFromLine, label: "Top-up", path: "/top-up", featureKey: "top_up", accessKey: "client_menu_top_up" },
+      { icon: Store, label: "Pay Merchant", path: "/pay-merchant", featureKey: "pay_merchant", accessKey: "client_menu_pay_merchant" },
+      { icon: Store, label: "Shop", path: "/vendors", featureKey: null, accessKey: "client_menu_shop" },
+      { icon: UserPlus, label: "Refer & Earn", path: "/refer", featureKey: null, accessKey: "client_menu_refer" },
+      { icon: Ticket, label: "Transactions", path: "/transactions", featureKey: null, accessKey: "client_menu_transactions" },
     ];
 
     return allServices.filter(service => 
-      service.featureKey === null || isFeatureEnabled(service.featureKey)
+      (service.featureKey === null || isFeatureEnabled(service.featureKey)) &&
+      userFeatureAccess[service.accessKey] !== false
     );
-  }, [featureToggles]);
+  }, [featureToggles, userFeatureAccess]);
 
   return (
     <div className="min-h-screen bg-primary/10">
