@@ -17,6 +17,12 @@ const AdminDeposit = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const getStaffSession = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("Your admin session has expired. Sign in again.");
+    return session.access_token;
+  };
+
   const searchUsers = async () => {
     const term = userSearch.trim();
     if (!term) return;
@@ -57,15 +63,23 @@ const AdminDeposit = () => {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.rpc("admin_add_funds", {
-        _user_id: selectedUser.id,
-        _amount: parseFloat(amount),
+      const token = await getStaffSession();
+      const response = await fetch("/api/admin/funds", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          userId: selectedUser.id,
+          amount: parseFloat(amount),
+        }),
       });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Could not add funds.");
+      }
 
-      if (error) throw error;
-
-      const result = data as { success: boolean; error?: string };
-      
       if (result.success) {
         toast({
           title: "Deposit Successful",

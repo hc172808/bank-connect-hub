@@ -641,6 +641,8 @@ const AppRoutes = () => {
         <Route path="/admin/vendor-fees" element={<ProtectedRoute allowedRoles={["admin"]}><VendorRegistrationFees /></ProtectedRoute>} />
         <Route path="/admin/print-qr" element={<ProtectedRoute allowedRoles={["admin"]}><AdminPrintQRCodes /></ProtectedRoute>} />
         <Route path="/admin/notifications" element={<ProtectedRoute allowedRoles={["admin"]}><AdminNotifications /></ProtectedRoute>} />
+        <Route path="/send-money" element={<SendMoney />} />
+        <Route path="/receive-money" element={<ReceiveMoney />} />
         <Route path="/admin/reversals" element={<ProtectedRoute allowedRoles={["admin"]}><ManageReversals /></ProtectedRoute>} />
         <Route path="/admin/mobile-providers" element={<ProtectedRoute allowedRoles={["admin"]}><ManageMobileProviders /></ProtectedRoute>} />
         <Route path="/admin/changelog" element={<ProtectedRoute allowedRoles={["admin"]}><ManageChangelog /></ProtectedRoute>} />

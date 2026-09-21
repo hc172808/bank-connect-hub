@@ -1800,8 +1800,8 @@ app.get("/api/auth/all-users", async (req, res) => {
       .limit(1)
       .maybeSingle();
     if (actorRoleRow?.role) actorRole = actorRoleRow.role;
-    if (actorRole !== "admin" && actorRole !== "agent") {
-      return res.status(403).json({ error: "Only an admin or agent can view users." });
+    if (actorRole !== "admin" && actorRole !== "founder" && actorRole !== "agent") {
+      return res.status(403).json({ error: "Only an admin, founder, or agent can view users." });
     }
     const { data: { users }, error } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
     if (error) throw new Error(error.message);
@@ -1832,6 +1832,101 @@ app.get("/api/auth/all-users", async (req, res) => {
     res.json({ users: list });
   } catch (err) {
     console.error("[reset] all-users error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/auth/users/:userId/role — role changes must use the server-held
+// service key because user_roles intentionally has no browser UPDATE policy.
+app.patch("/api/auth/users/:userId/role", async (req, res) => {
+  const { userId } = req.params;
+  const { role } = req.body || {};
+  const allowedRoles = ["client", "vendor", "agent", "admin", "founder"];
+  if (!userId || !allowedRoles.includes(role)) {
+    return res.status(400).json({ error: `role must be one of: ${allowedRoles.join(", ")}.` });
+  }
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { data: targetResult, error: targetError } = await admin.auth.admin.getUserById(userId);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
+
+    // user_roles historically has a unique (user_id, role) pair rather than
+    // a unique user_id constraint. Replace all old role rows so a user cannot
+    // retain a stale role after the change.
+    const { error: deleteRoleError } = await admin
+      .from("user_roles")
+      .delete()
+      .eq("user_id", userId);
+    if (deleteRoleError) throw new Error(deleteRoleError.message);
+    const { error: roleError } = await admin
+      .from("user_roles")
+      .insert({ user_id: userId, role });
+    if (roleError) throw new Error(roleError.message);
+
+    const metadata = {
+      ...(targetResult.user.user_metadata || {}),
+      account_type: role,
+      role,
+    };
+    const { error: metadataError } = await admin.auth.admin.updateUserById(userId, {
+      user_metadata: metadata,
+    });
+    if (metadataError) throw new Error(metadataError.message);
+
+    console.log(`[users] role=${role} userId=${userId.slice(0, 8)}*** by ${actor.role}`);
+    res.json({ ok: true, userId, role });
+  } catch (err) {
+    console.error("[users] role update error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/funds — use the caller's authenticated RPC context so
+// auth.uid() remains the real staff member inside the security-definer ledger
+// function. This avoids browser RLS inconsistencies while keeping the balance
+// update and transaction record atomic.
+app.post("/api/admin/funds", async (req, res) => {
+  const { userId, amount } = req.body || {};
+  const numericAmount = Number(amount);
+  if (!userId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+    return res.status(400).json({ error: "userId and a positive amount are required." });
+  }
+  if (!adminOk() || !SUPABASE_PUBLISHABLE_KEY) {
+    return res.status(503).json({ error: "Supabase is not fully configured on this server." });
+  }
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { createClient } = await import("@supabase/supabase-js");
+    const userClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${actor.accessToken}`,
+        },
+      },
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data, error } = await userClient.rpc("admin_add_funds", {
+      _user_id: userId,
+      _amount: numericAmount,
+    });
+    if (error) throw new Error(error.message);
+
+    const result = data && typeof data === "object" ? data : {};
+    if (!result.success) {
+      return res.status(403).json({ error: result.error || "The fund operation was rejected." });
+    }
+    res.json({ success: true, transactionId: result.transaction_id || null });
+  } catch (err) {
+    console.error("[admin-funds] error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1867,12 +1962,12 @@ app.post("/api/auth/staff-password-reset/request", async (req, res) => {
   const { userId } = req.body || {};
   if (!userId) return res.status(400).json({ error: "userId is required." });
   if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
-  if (!whatsappOk()) return res.status(503).json({ error: "Business WhatsApp delivery is not configured." });
 
   try {
     const admin = await getSupabaseAdminClient();
     const actor = await requireStaffActor(req, admin);
     if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (!whatsappOk()) return res.status(503).json({ error: "Business WhatsApp delivery is not configured." });
 
     const { data: targetResult, error: targetError } = await admin.auth.admin.getUserById(userId);
     if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });

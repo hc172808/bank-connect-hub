@@ -134,33 +134,26 @@ const ManageUsers = () => {
     }
   };
 
-  const updateUserRole = async (userId: string, newRole: "admin" | "agent" | "client" | "vendor") => {
+  const updateUserRole = async (userId: string, newRole: "admin" | "agent" | "client" | "vendor" | "founder") => {
     try {
-      // Check if user has a role entry
-      const { data: existingRole } = await supabase
-        .from("user_roles")
-        .select("id")
-        .eq("user_id", userId)
-        .single();
-
-      if (existingRole) {
-        const { error } = await supabase
-          .from("user_roles")
-          .update({ role: newRole })
-          .eq("user_id", userId);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from("user_roles")
-          .insert({ user_id: userId, role: newRole });
-        if (error) throw error;
-      }
+      if (!isAdmin) throw new Error("Only admins and founders can change user roles.");
+      const token = await getStaffSession();
+      const response = await fetch(`/api/auth/users/${encodeURIComponent(userId)}/role`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ role: newRole }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Failed to update role.");
 
       toast({ title: "Role updated successfully" });
       fetchUsers();
     } catch (error) {
       console.error("Error updating role:", error);
-      toast({ title: "Failed to update role", variant: "destructive" });
+      toast({ title: "Failed to update role", description: (error as Error).message, variant: "destructive" });
     }
   };
 
@@ -436,7 +429,8 @@ const ManageUsers = () => {
                           <div className="flex items-center gap-2">
                             <Select
                               value={user.role}
-                              onValueChange={(value) => updateUserRole(user.id, value as "admin" | "agent" | "client" | "vendor")}
+                              onValueChange={(value) => updateUserRole(user.id, value as "admin" | "agent" | "client" | "vendor" | "founder")}
+                              disabled={!isAdmin}
                             >
                               <SelectTrigger className="w-28">
                                 <SelectValue />
@@ -446,6 +440,7 @@ const ManageUsers = () => {
                                 <SelectItem value="vendor">Vendor</SelectItem>
                                 <SelectItem value="agent">Agent</SelectItem>
                                 <SelectItem value="admin">Admin</SelectItem>
+                                <SelectItem value="founder">Founder</SelectItem>
                               </SelectContent>
                             </Select>
                             <Button
