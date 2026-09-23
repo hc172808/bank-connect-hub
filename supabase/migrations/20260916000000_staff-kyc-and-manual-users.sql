@@ -13,8 +13,8 @@ CREATE POLICY "Users view their own KYC"
   ON public.kyc_submissions FOR SELECT
   USING (
     auth.uid() = user_id
-    OR public.has_role(auth.uid(), 'admin'::public.app_role)
-    OR public.has_role(auth.uid(), 'agent'::public.app_role)
+    OR public.has_role(auth.uid(), 'admin')
+    OR public.has_role(auth.uid(), 'agent')
   );
 
 DROP POLICY IF EXISTS "Admins update any KYC" ON public.kyc_submissions;
@@ -22,8 +22,8 @@ DROP POLICY IF EXISTS "Staff update any KYC" ON public.kyc_submissions;
 CREATE POLICY "Staff update any KYC"
   ON public.kyc_submissions FOR UPDATE
   USING (
-    public.has_role(auth.uid(), 'admin'::public.app_role)
-    OR public.has_role(auth.uid(), 'agent'::public.app_role)
+    public.has_role(auth.uid(), 'admin')
+    OR public.has_role(auth.uid(), 'agent')
   );
 
 -- Agents need to view the private document files while reviewing.
@@ -34,39 +34,42 @@ CREATE POLICY "Users view their own KYC docs"
     bucket_id = 'kyc-documents'
     AND (
       auth.uid()::text = (storage.foldername(name))[1]
-      OR public.has_role(auth.uid(), 'admin'::public.app_role)
-      OR public.has_role(auth.uid(), 'agent'::public.app_role)
+      OR public.has_role(auth.uid(), 'admin')
+      OR public.has_role(auth.uid(), 'agent')
     )
   );
 
 DROP POLICY IF EXISTS "Admins manage KYC docs" ON storage.objects;
+DROP POLICY IF EXISTS "Staff manage KYC docs" ON storage.objects;
 CREATE POLICY "Staff manage KYC docs"
   ON storage.objects FOR ALL
   USING (
     bucket_id = 'kyc-documents'
     AND (
-      public.has_role(auth.uid(), 'admin'::public.app_role)
-      OR public.has_role(auth.uid(), 'agent'::public.app_role)
+      public.has_role(auth.uid(), 'admin')
+      OR public.has_role(auth.uid(), 'agent')
     )
   )
   WITH CHECK (
     bucket_id = 'kyc-documents'
     AND (
-      public.has_role(auth.uid(), 'admin'::public.app_role)
-      OR public.has_role(auth.uid(), 'agent'::public.app_role)
+      public.has_role(auth.uid(), 'admin')
+      OR public.has_role(auth.uid(), 'agent')
     )
   );
 
 -- Staff can view all profiles and role rows in the staff user-management page.
 DROP POLICY IF EXISTS "Admins can view all profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Staff can view all profiles" ON public.profiles;
 CREATE POLICY "Staff can view all profiles"
   ON public.profiles FOR SELECT
   USING (
-    public.has_role(auth.uid(), 'admin'::public.app_role)
-    OR public.has_role(auth.uid(), 'agent'::public.app_role)
+      public.has_role(auth.uid(), 'admin')
+      OR public.has_role(auth.uid(), 'agent')
   );
 
 DROP POLICY IF EXISTS "Admins can view all roles" ON public.user_roles;
+DROP POLICY IF EXISTS "Staff can view all roles" ON public.user_roles;
 CREATE POLICY "Staff can view all roles"
   ON public.user_roles FOR SELECT
   USING (
@@ -75,24 +78,29 @@ CREATE POLICY "Staff can view all roles"
   );
 
 -- Existing WhatsApp requests can be approved by agents too.
-DROP POLICY IF EXISTS "Admins can manage WhatsApp requests" ON public.whatsapp_verification_requests;
-DROP POLICY IF EXISTS "Staff can manage WhatsApp requests" ON public.whatsapp_verification_requests;
-CREATE POLICY "Staff can manage WhatsApp requests"
-  ON public.whatsapp_verification_requests FOR UPDATE
-  USING (
-    public.has_role(auth.uid(), 'admin'::public.app_role)
-    OR public.has_role(auth.uid(), 'agent'::public.app_role)
-  )
-  WITH CHECK (
-    public.has_role(auth.uid(), 'admin'::public.app_role)
-    OR public.has_role(auth.uid(), 'agent'::public.app_role)
-  );
+DO $$
+BEGIN
+  IF to_regclass('public.whatsapp_verification_requests') IS NOT NULL THEN
+    DROP POLICY IF EXISTS "Admins can manage WhatsApp requests" ON public.whatsapp_verification_requests;
+    DROP POLICY IF EXISTS "Staff can manage WhatsApp requests" ON public.whatsapp_verification_requests;
+    CREATE POLICY "Staff can manage WhatsApp requests"
+      ON public.whatsapp_verification_requests FOR UPDATE
+      USING (
+        public.has_role(auth.uid(), 'admin')
+        OR public.has_role(auth.uid(), 'agent')
+      )
+      WITH CHECK (
+        public.has_role(auth.uid(), 'admin')
+        OR public.has_role(auth.uid(), 'agent')
+      );
 
-DROP POLICY IF EXISTS "Admins can delete WhatsApp requests" ON public.whatsapp_verification_requests;
-DROP POLICY IF EXISTS "Staff can delete WhatsApp requests" ON public.whatsapp_verification_requests;
-CREATE POLICY "Staff can delete WhatsApp requests"
-  ON public.whatsapp_verification_requests FOR DELETE
-  USING (
-    public.has_role(auth.uid(), 'admin'::public.app_role)
-    OR public.has_role(auth.uid(), 'agent'::public.app_role)
-  );
+    DROP POLICY IF EXISTS "Admins can delete WhatsApp requests" ON public.whatsapp_verification_requests;
+    DROP POLICY IF EXISTS "Staff can delete WhatsApp requests" ON public.whatsapp_verification_requests;
+    CREATE POLICY "Staff can delete WhatsApp requests"
+      ON public.whatsapp_verification_requests FOR DELETE
+      USING (
+        public.has_role(auth.uid(), 'admin')
+        OR public.has_role(auth.uid(), 'agent')
+      );
+  END IF;
+END $$;
