@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase, initSupabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, FileCheck } from "lucide-react";
+import { ArrowLeft, Camera, FileCheck, RotateCcw, X } from "lucide-react";
 
 interface KYC {
   id: string;
@@ -16,6 +16,122 @@ interface KYC {
   full_name: string;
   created_at: string;
 }
+
+interface CameraCaptureProps {
+  label: string;
+  filePrefix: string;
+  facingMode: "user" | "environment";
+  value: File | null;
+  onCapture: (file: File | null) => void;
+}
+
+const CameraCapture = ({ label, filePrefix, facingMode, value, onCapture }: CameraCaptureProps) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [active, setActive] = useState(false);
+  const [error, setError] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setActive(false);
+  };
+
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  useEffect(() => {
+    if (!value) {
+      setPreviewUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(value);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [value]);
+
+  const openCamera = async () => {
+    setError("");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Camera access is not available in this browser.");
+      return;
+    }
+    try {
+      streamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        await videoRef.current.play();
+      }
+      setActive(true);
+    } catch {
+      setError("Camera permission was denied or the camera is unavailable.");
+    }
+  };
+
+  const capture = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setError("Camera is still starting. Try again in a moment.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setError("The camera could not capture a photo.");
+        return;
+      }
+      onCapture(new File([blob], `${filePrefix}-${Date.now()}.jpg`, { type: "image/jpeg" }));
+      stopCamera();
+    }, "image/jpeg", 0.9);
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <Label>{label}</Label>
+        {value && <span className="text-xs text-muted-foreground">Photo captured</span>}
+      </div>
+      {active && (
+        <div className="space-y-2">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`max-h-64 w-full rounded-md bg-black object-contain ${facingMode === "user" ? "-scale-x-100" : ""}`}
+          />
+          <div className="flex gap-2">
+            <Button type="button" onClick={capture} className="flex-1 gap-2">
+              <Camera className="h-4 w-4" /> Capture photo
+            </Button>
+            <Button type="button" variant="outline" size="icon" onClick={stopCamera} aria-label="Close camera">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+      {!active && (
+        <Button type="button" variant={value ? "outline" : "secondary"} onClick={() => void openCamera()} className="w-full gap-2">
+          {value ? <RotateCcw className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+          {value ? "Retake photo" : "Open camera"}
+        </Button>
+      )}
+      {value && !active && (
+        <img src={previewUrl} alt={`${label} preview`} className="max-h-32 w-full rounded-md object-contain" />
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+};
 
 const KYCSubmission = () => {
   const navigate = useNavigate();
@@ -225,10 +341,11 @@ const KYCSubmission = () => {
                 </select>
               </div>
               <div><Label>Document Number</Label><Input value={form.document_number} onChange={(e) => setForm({ ...form, document_number: e.target.value })} /></div>
-              <div><Label>ID Card — Front</Label><Input type="file" accept="image/*,.pdf" onChange={(e) => setFrontFile(e.target.files?.[0] || null)} /></div>
-              <div><Label>ID Card — Back</Label><Input type="file" accept="image/*,.pdf" onChange={(e) => setBackFile(e.target.files?.[0] || null)} /></div>
-              <div><Label>Proof of Address</Label><Input type="file" accept="image/*,.pdf" onChange={(e) => setProofOfAddressFile(e.target.files?.[0] || null)} /></div>
-              <div><Label>Selfie Photo</Label><Input type="file" accept="image/*" onChange={(e) => setSelfieFile(e.target.files?.[0] || null)} /></div>
+              <p className="text-sm text-muted-foreground">Use your camera to take all four required photos. ID and address documents use the rear camera; the selfie uses the front camera.</p>
+              <CameraCapture label="ID Card — Front" filePrefix="id-front" facingMode="environment" value={frontFile} onCapture={setFrontFile} />
+              <CameraCapture label="ID Card — Back" filePrefix="id-back" facingMode="environment" value={backFile} onCapture={setBackFile} />
+              <CameraCapture label="Proof of Address" filePrefix="proof-of-address" facingMode="environment" value={proofOfAddressFile} onCapture={setProofOfAddressFile} />
+              <CameraCapture label="Selfie Photo" filePrefix="selfie" facingMode="user" value={selfieFile} onCapture={setSelfieFile} />
               <Button onClick={submit} disabled={submitting} className="w-full">
                 {submitting ? "Submitting..." : "Submit for Review"}
               </Button>
