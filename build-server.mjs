@@ -1982,6 +1982,22 @@ app.get("/api/auth/all-users", async (req, res) => {
     const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
     const { data: roleRows } = await supaAdmin.from("user_roles").select("user_id, role");
     const roleMap = Object.fromEntries((roleRows || []).map((row) => [row.user_id, row.role]));
+    const { data: kycRows } = await supaAdmin
+      .from("kyc_submissions")
+      .select("user_id, status, created_at")
+      .order("created_at", { ascending: false });
+    const kycMap = {};
+    for (const row of kycRows || []) {
+      if (!kycMap[row.user_id]) kycMap[row.user_id] = row.status;
+    }
+    const { data: whatsappRows } = await supaAdmin
+      .from("whatsapp_verification_requests")
+      .select("user_id, status, requested_at")
+      .order("requested_at", { ascending: false });
+    const whatsappMap = {};
+    for (const row of whatsappRows || []) {
+      if (!whatsappMap[row.user_id]) whatsappMap[row.user_id] = row.status;
+    }
 
     const list = users.map((u) => ({
       id: u.id,
@@ -1990,13 +2006,199 @@ app.get("/api/auth/all-users", async (req, res) => {
        phone: profileMap[u.id]?.phone_number || u.user_metadata?.phone_number || null,
        walletAddress: profileMap[u.id]?.wallet_address || u.user_metadata?.wallet_address || null,
        disabled: Boolean(profileMap[u.id]?.disabled),
-      role: roleMap[u.id] || u.user_metadata?.account_type || u.user_metadata?.role || "client",
+       role: roleMap[u.id] || u.user_metadata?.account_type || u.user_metadata?.role || "client",
+       emailConfirmed: Boolean(u.email_confirmed_at),
+       emailConfirmedAt: u.email_confirmed_at || null,
+       phoneVerified: Boolean(u.user_metadata?.phone_verified || whatsappMap[u.id] === "verified"),
+       verificationStatus: u.user_metadata?.phone_verified || whatsappMap[u.id] === "verified" ? "verified" : "pending",
+       kycStatus: profileMap[u.id]?.kyc_status || kycMap[u.id] || "unverified",
       createdAt: u.created_at,
       lastSignIn: u.last_sign_in_at,
     }));
     res.json({ users: list });
   } catch (err) {
     console.error("[reset] all-users error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/users/:userId/verify — an admin can approve a registration
+// when the user completed an offline/WhatsApp identity check. The service key
+// stays on the server; the browser only sends the staff access token.
+app.post("/api/auth/users/:userId/verify", async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) return res.status(400).json({ error: "userId is required." });
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { data: targetResult, error: targetError } = await admin.auth.admin.getUserById(userId);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
+    if (userId === actor.user.id) return res.status(400).json({ error: "Your own session is already verified." });
+
+    const now = new Date().toISOString();
+    const metadata = {
+      ...(targetResult.user.user_metadata || {}),
+      phone_verified: true,
+      verification_method: "admin_manual",
+      verification_verified_at: now,
+      verification_verified_by: actor.user.id,
+    };
+    const { error: updateError } = await admin.auth.admin.updateUserById(userId, {
+      email_confirm: true,
+      user_metadata: metadata,
+    });
+    if (updateError) throw new Error(updateError.message);
+
+    const { data: profile } = await admin
+      .from("profiles")
+      .select("phone_number")
+      .eq("id", userId)
+      .maybeSingle();
+    const phoneNumber = profile?.phone_number || targetResult.user.user_metadata?.phone_number || null;
+
+    // Keep the verification request history in sync when that optional table
+    // exists. A missing migration must not prevent the auth verification.
+    const { data: pendingRequest } = await admin
+      .from("whatsapp_verification_requests")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("status", "pending")
+      .order("requested_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (pendingRequest?.id) {
+      await admin.from("whatsapp_verification_requests").update({
+        status: "verified",
+        admin_notes: `Verified manually by ${actor.role}.`,
+        verified_at: now,
+        verified_by: actor.user.id,
+      }).eq("id", pendingRequest.id);
+    } else if (phoneNumber) {
+      await admin.from("whatsapp_verification_requests").insert({
+        user_id: userId,
+        phone_number: phoneNumber,
+        verification_code: "ADMIN",
+        status: "verified",
+        admin_notes: `Verified manually by ${actor.role}.`,
+        requested_at: now,
+        verified_at: now,
+        verified_by: actor.user.id,
+      });
+    }
+
+    res.json({ ok: true, userId, verified: true });
+  } catch (err) {
+    console.error("[users] verification error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/kyc — create an approved KYC record for a user verified by
+// staff outside the app. This intentionally does not accept document bytes;
+// uploaded files belong in the private Supabase Storage bucket.
+app.post("/api/admin/kyc", async (req, res) => {
+  const {
+    userId,
+    fullName,
+    dateOfBirth,
+    address,
+    country,
+    documentType,
+    documentNumber,
+  } = req.body || {};
+  if (!userId || !fullName || !dateOfBirth || !address || !country || !documentType || !documentNumber) {
+    return res.status(400).json({ error: "userId and all identity details are required." });
+  }
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { data: targetResult, error: targetError } = await admin.auth.admin.getUserById(userId);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
+    const now = new Date().toISOString();
+    const { data: submission, error: submissionError } = await admin
+      .from("kyc_submissions")
+      .insert({
+        user_id: userId,
+        full_name: String(fullName).trim(),
+        date_of_birth: dateOfBirth,
+        address: String(address).trim(),
+        country: String(country).trim(),
+        document_type: String(documentType).trim(),
+        document_number: String(documentNumber).trim(),
+        status: "approved",
+        reviewed_by: actor.user.id,
+        reviewed_at: now,
+      })
+      .select("id, user_id, status")
+      .single();
+    if (submissionError) throw new Error(submissionError.message);
+
+    const { error: profileError } = await admin
+      .from("profiles")
+      .update({ kyc_status: "verified" })
+      .eq("id", userId);
+    if (profileError) throw new Error(profileError.message);
+
+    await admin.from("audit_logs").insert({
+      actor_id: actor.user.id,
+      actor_role: actor.role,
+      action: "kyc_manual_approved",
+      entity_type: "user",
+      entity_id: userId,
+      metadata: { submission_id: submission.id, source: "admin_manual" },
+    });
+    res.json({ ok: true, submission });
+  } catch (err) {
+    console.error("[kyc] manual approval error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/auth/users/:userId — permanently remove a non-staff account.
+// Supabase Auth cascades the related profile, wallet, role, KYC, and request
+// rows. KYC files are removed explicitly because storage objects are separate.
+app.delete("/api/auth/users/:userId", async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) return res.status(400).json({ error: "userId is required." });
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (userId === actor.user.id) return res.status(400).json({ error: "You cannot delete your own account from user management." });
+
+    const { data: targetResult, error: targetError } = await admin.auth.admin.getUserById(userId);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
+    const targetRole = await getUserRole(admin, userId, targetResult.user);
+    if (targetRole === "admin" || targetRole === "founder") {
+      return res.status(403).json({ error: "Staff accounts cannot be deleted from user management." });
+    }
+
+    const { data: kycRows } = await admin
+      .from("kyc_submissions")
+      .select("document_front_url, document_back_url, proof_of_address_url, selfie_url")
+      .eq("user_id", userId);
+    const paths = (kycRows || [])
+      .flatMap((row) => [row.document_front_url, row.document_back_url, row.proof_of_address_url, row.selfie_url])
+      .filter(Boolean);
+    if (paths.length) {
+      await admin.storage.from("kyc-documents").remove(paths);
+    }
+
+    const { error: deleteError } = await admin.auth.admin.deleteUser(userId);
+    if (deleteError) throw new Error(deleteError.message);
+    res.json({ ok: true, userId, deleted: true });
+  } catch (err) {
+    console.error("[users] delete error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus, KeyRound, Eye, EyeOff, MessageCircle, Loader2, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus, KeyRound, Eye, EyeOff, MessageCircle, Loader2, SlidersHorizontal, UserCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { CountryPhoneInput } from "@/components/CountryPhoneInput";
@@ -32,6 +33,10 @@ interface User {
   wallet_address: string | null;
   role: string;
   disabled?: boolean;
+  emailConfirmed?: boolean;
+  phoneVerified?: boolean;
+  verificationStatus?: string;
+  kycStatus?: string;
 }
 
 interface BlockchainSettings {
@@ -102,6 +107,10 @@ const ManageUsers = () => {
           wallet_address: item.walletAddress || null,
           disabled: Boolean(item.disabled),
           role: item.role || "client",
+           emailConfirmed: Boolean(item.emailConfirmed),
+           phoneVerified: Boolean(item.phoneVerified),
+           verificationStatus: item.verificationStatus || "pending",
+           kycStatus: item.kycStatus || "unverified",
         })));
         return;
       }
@@ -128,6 +137,10 @@ const ManageUsers = () => {
         wallet_address: profile.wallet_address || null,
         disabled: Boolean(profile.disabled),
         role: rolesByUser.get(profile.id) || "client",
+         emailConfirmed: false,
+         phoneVerified: false,
+         verificationStatus: "pending",
+         kycStatus: profile.kyc_status || "unverified",
       })));
       if (result.error) {
         console.info("Using authenticated profile list for Manage Users:", result.error);
@@ -330,19 +343,39 @@ const ManageUsers = () => {
   };
 
   const deleteUser = async (user: User) => {
-    const { data, error } = await supabase.functions.invoke("admin-delete-user", {
-      body: { user_id: user.id },
-    });
-    if (error || (data as any)?.error) {
+    try {
+      const token = await getStaffSession();
+      const response = await fetch(`/api/auth/users/${encodeURIComponent(user.id)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not delete the user.");
+      toast({ title: "User deleted" });
+      fetchUsers();
+    } catch (error) {
       toast({
         title: "Failed to delete user",
-        description: (data as any)?.error || error?.message,
+        description: (error as Error).message,
         variant: "destructive",
       });
-      return;
     }
-    toast({ title: "User deleted" });
-    fetchUsers();
+  };
+
+  const verifyRegistration = async (user: User) => {
+    try {
+      const token = await getStaffSession();
+      const response = await fetch(`/api/auth/users/${encodeURIComponent(user.id)}/verify`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Could not verify this registration.");
+      toast({ title: "Registration verified", description: `${user.full_name || user.phone_number || "User"} can now continue.` });
+      await fetchUsers();
+    } catch (error) {
+      toast({ title: "Verification failed", description: (error as Error).message, variant: "destructive" });
+    }
   };
 
   const createUser = async () => {
@@ -417,14 +450,16 @@ const ManageUsers = () => {
             ) : users.length === 0 ? (
               <p className="text-center py-8 text-muted-foreground">No users found</p>
             ) : (
-              <div className="overflow-x-auto">
-                <Table className="min-w-[1040px]">
+               <div className="overflow-x-auto">
+                 <Table className="min-w-[1280px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Phone Number</TableHead>
                       <TableHead>Wallet Address</TableHead>
                       <TableHead>Role</TableHead>
+                       <TableHead>Registration</TableHead>
+                       <TableHead>KYC</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -463,6 +498,16 @@ const ManageUsers = () => {
                             <span className="text-muted-foreground text-sm">No wallet</span>
                           )}
                         </TableCell>
+                         <TableCell>
+                           <Badge variant={user.phoneVerified && user.emailConfirmed ? "default" : "secondary"} className={user.phoneVerified && user.emailConfirmed ? "bg-green-600 text-white" : ""}>
+                             {user.phoneVerified && user.emailConfirmed ? "Verified" : "Pending"}
+                           </Badge>
+                         </TableCell>
+                         <TableCell>
+                           <Badge variant={user.kycStatus === "verified" || user.kycStatus === "approved" ? "default" : user.kycStatus === "rejected" ? "destructive" : "secondary"} className={user.kycStatus === "verified" || user.kycStatus === "approved" ? "bg-green-600 text-white" : ""}>
+                             {user.kycStatus || "unverified"}
+                           </Badge>
+                         </TableCell>
                         <TableCell>
                           <Badge variant={
                             user.role === 'admin' ? 'default' : 
@@ -498,6 +543,15 @@ const ManageUsers = () => {
                               </SelectContent>
                             </Select>
                             <Button
+                               size="icon"
+                               variant="ghost"
+                               onClick={() => void verifyRegistration(user)}
+                               disabled={!isAdmin || Boolean(user.phoneVerified && user.emailConfirmed)}
+                               title={user.phoneVerified && user.emailConfirmed ? "Registration verified" : "Verify registration"}
+                             >
+                               <UserCheck className={`w-4 h-4 ${user.phoneVerified && user.emailConfirmed ? "text-green-600" : "text-primary"}`} />
+                             </Button>
+                             <Button
                               size="icon"
                               variant="ghost"
                               onClick={() => void openFeatureAccess(user)}

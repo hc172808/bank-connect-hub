@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, initSupabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ const KYCSubmission = () => {
   const [existing, setExisting] = useState<KYC | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [form, setForm] = useState({
     full_name: "",
     date_of_birth: "",
@@ -40,29 +41,63 @@ const KYCSubmission = () => {
   }, []);
 
   const load = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data } = await supabase
-      .from("kyc_submissions" as never)
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    setExisting(data as KYC | null);
-    setLoading(false);
+    try {
+      await initSupabase();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!user) return;
+      const { data, error } = await supabase
+        .from("kyc_submissions" as never)
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      setExisting(data as KYC | null);
+      setLoadError("");
+    } catch (error) {
+      setLoadError(friendlyKycError(error));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const uploadFile = async (file: File, userId: string, prefix: string) => {
-    const path = `${userId}/${prefix}-${Date.now()}-${file.name}`;
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const path = `${userId}/${prefix}-${Date.now()}-${safeName}`;
     const { error } = await supabase.storage.from("kyc-documents").upload(path, file);
     if (error) throw error;
     return path;
   };
 
+  const friendlyKycError = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error || "Unknown error");
+    const normalized = message.toLowerCase();
+    if (normalized.includes("bucket") || normalized.includes("storage")) {
+      return "KYC document storage is not configured in Supabase yet. Ask the administrator to apply the KYC storage migration.";
+    }
+    if (
+      normalized.includes("proof_of_address_url") ||
+      normalized.includes("schema cache") ||
+      normalized.includes("relation") ||
+      normalized.includes("kyc_submissions")
+    ) {
+      return "The KYC database migration is not applied to this Supabase project yet. Ask the administrator to apply the migrations, then try again.";
+    }
+    if (normalized.includes("row-level security") || normalized.includes("permission denied")) {
+      return "Supabase blocked this KYC request with a security policy. Ask the administrator to apply the latest KYC RLS policies.";
+    }
+    return message;
+  };
+
   const submit = async () => {
     if (!frontFile || !backFile || !proofOfAddressFile || !selfieFile) {
       toast.error("Upload ID front, ID back, proof of address, and a selfie");
+      return;
+    }
+    if (!form.full_name.trim() || !form.date_of_birth || !form.address.trim() || !form.country.trim() || !form.document_number.trim()) {
+      toast.error("Complete all identity details before uploading documents");
       return;
     }
     const files = [frontFile, backFile, proofOfAddressFile, selfieFile];
@@ -72,15 +107,23 @@ const KYCSubmission = () => {
       return;
     }
     setSubmitting(true);
+    const uploadedPaths: string[] = [];
+    let submissionCreated = false;
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const [doc, docBack, proofOfAddress, selfie] = await Promise.all([
-        uploadFile(frontFile, user.id, "id-front"),
-        uploadFile(backFile, user.id, "id-back"),
-        uploadFile(proofOfAddressFile, user.id, "proof-of-address"),
-        uploadFile(selfieFile, user.id, "selfie"),
-      ]);
+      await initSupabase();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!user) throw new Error("Your session has expired. Sign in again and retry.");
+
+      const doc = await uploadFile(frontFile, user.id, "id-front");
+      uploadedPaths.push(doc);
+      const docBack = await uploadFile(backFile, user.id, "id-back");
+      uploadedPaths.push(docBack);
+      const proofOfAddress = await uploadFile(proofOfAddressFile, user.id, "proof-of-address");
+      uploadedPaths.push(proofOfAddress);
+      const selfie = await uploadFile(selfieFile, user.id, "selfie");
+      uploadedPaths.push(selfie);
+
       const { error } = await supabase.from("kyc_submissions" as never).insert({
         user_id: user.id,
         ...form,
@@ -90,7 +133,9 @@ const KYCSubmission = () => {
         selfie_url: selfie,
       } as never);
       if (error) throw error;
-      await supabase.from("profiles").update({ kyc_status: "pending" } as never).eq("id", user.id);
+      submissionCreated = true;
+      const { error: profileError } = await supabase.from("profiles").update({ kyc_status: "pending" } as never).eq("id", user.id);
+      if (profileError) throw profileError;
       await supabase.rpc("log_audit_event" as never, {
         _action: "submit_kyc", _entity_type: "user", _entity_id: user.id,
       } as never);
@@ -104,7 +149,10 @@ const KYCSubmission = () => {
       toast.success("KYC submitted for review");
       void load();
     } catch (e) {
-      toast.error((e as Error).message);
+      if (!submissionCreated && uploadedPaths.length) {
+        await supabase.storage.from("kyc-documents").remove(uploadedPaths);
+      }
+      toast.error(friendlyKycError(e));
     } finally {
       setSubmitting(false);
     }
@@ -124,6 +172,13 @@ const KYCSubmission = () => {
 
       <div className="p-4 space-y-4">
         {loading && <p>Loading...</p>}
+        {loadError && (
+          <Card className="border-destructive/40">
+            <CardContent className="pt-6">
+              <p className="text-sm text-destructive">{loadError}</p>
+            </CardContent>
+          </Card>
+        )}
         {existing && existing.status !== "rejected" && (
           <Card>
             <CardHeader>
