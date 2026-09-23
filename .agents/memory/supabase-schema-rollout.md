@@ -14,3 +14,9 @@ The active project may also have RLS enabled on a table with no policies at all;
 **Why:** A partial bootstrap can make reads appear to work while every role insert/update is silently rejected by RLS.
 
 **How to apply:** For admin-management repairs, inspect both table RLS state and policy rows, then add narrowly scoped admin/founder policies before testing the UI.
+
+The active Supabase project stores role values as text and does not define `public.app_role`; policies must call `public.has_role(auth.uid(), 'admin')` without an enum cast, and optional tables such as WhatsApp verification requests may be absent.
+
+**Why:** A migration that casts to a missing enum or creates policies on an optional table stops before later security and KYC statements are applied.
+
+**How to apply:** Check `pg_type`, `pg_policies`, and `to_regclass()` before applying staff migrations; make policy replacements idempotent and guard optional-table policy changes.

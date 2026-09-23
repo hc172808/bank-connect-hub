@@ -73,8 +73,8 @@ DROP POLICY IF EXISTS "Staff can view all roles" ON public.user_roles;
 CREATE POLICY "Staff can view all roles"
   ON public.user_roles FOR SELECT
   USING (
-    public.has_role(auth.uid(), 'admin'::public.app_role)
-    OR public.has_role(auth.uid(), 'agent'::public.app_role)
+    public.has_role(auth.uid(), 'admin')
+    OR public.has_role(auth.uid(), 'agent')
   );
 
 -- Existing WhatsApp requests can be approved by agents too.
