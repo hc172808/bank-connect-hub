@@ -497,6 +497,110 @@ app.post("/api/git-pull", (req, res) => {
 // ── App Update (git pull + npm install + optional restart) ───────────────────
 // Tracks the in-progress update so only one runs at a time
 let updateJob = null; // { logs[], status: "running"|"done"|"failed", listeners[] }
+const UPDATE_SCHEDULE_FILE = path.join(__dirname, ".update-schedule.json");
+const DEFAULT_UPDATE_SCHEDULE = { enabled: true, day: 10, hour: 3, minute: 0 };
+
+function readUpdateSchedule() {
+  try {
+    const stored = JSON.parse(fs.readFileSync(UPDATE_SCHEDULE_FILE, "utf8"));
+    return {
+      ...DEFAULT_UPDATE_SCHEDULE,
+      enabled: stored.enabled !== false,
+      day: 10,
+      hour: Number.isInteger(Number(stored.hour)) ? Number(stored.hour) : 3,
+      minute: Number.isInteger(Number(stored.minute)) ? Number(stored.minute) : 0,
+    };
+  } catch {
+    return { ...DEFAULT_UPDATE_SCHEDULE };
+  }
+}
+
+function writeUpdateSchedule(input) {
+  const schedule = {
+    enabled: input.enabled !== false,
+    day: 10,
+    hour: Number(input.hour),
+    minute: Number(input.minute),
+  };
+  if (!Number.isInteger(schedule.hour) || schedule.hour < 0 || schedule.hour > 23) {
+    throw new Error("Schedule hour must be between 0 and 23.");
+  }
+  if (!Number.isInteger(schedule.minute) || schedule.minute < 0 || schedule.minute > 59) {
+    throw new Error("Schedule minute must be between 0 and 59.");
+  }
+  fs.writeFileSync(
+    UPDATE_SCHEDULE_FILE,
+    `${JSON.stringify(schedule, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  return schedule;
+}
+
+async function runUpdateProcess(command, args, { cwd, log, env = process.env } = {}) {
+  await new Promise((resolve, reject) => {
+    const proc = spawn(command, args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+    });
+    proc.stdout.on("data", (data) => data.toString().split("\n").filter(Boolean).forEach(log));
+    proc.stderr.on("data", (data) => data.toString().split("\n").filter(Boolean).forEach(log));
+    proc.on("error", reject);
+    proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`${command} exited ${code}`)));
+  });
+}
+
+function commandAvailable(command) {
+  try {
+    execFileSync(command, ["--version"], { stdio: "ignore", timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function restartAllApplicationServices(log) {
+  if (commandAvailable("pm2")) {
+    try {
+      execFileSync("pm2", ["reload", "all", "--update-env"], { stdio: "pipe", timeout: 30000 });
+      log("All PM2 application services reloaded.");
+      return;
+    } catch {
+      try {
+        execFileSync("pm2", ["restart", "all", "--update-env"], { stdio: "pipe", timeout: 30000 });
+        log("All PM2 application services restarted.");
+        return;
+      } catch {
+        log("PM2 is installed but not managing this app; trying the next service manager.");
+      }
+    }
+  }
+
+  if (commandAvailable("systemctl")) {
+    try {
+      const units = execFileSync(
+        "systemctl",
+        ["list-units", "--type=service", "--state=active", "--no-legend", "--plain"],
+        { encoding: "utf8", timeout: 10000 },
+      )
+        .split("\n")
+        .map((line) => line.trim().split(/\s+/)[0])
+        .filter((unit) => /^(netlifecash|virtualbank)[^ ]*\.service$/.test(unit));
+      for (const unit of units) {
+        execFileSync("systemctl", ["restart", unit], { stdio: "pipe", timeout: 30000 });
+        log(`Restarted ${unit}.`);
+      }
+      if (units.length > 0) return;
+    } catch (error) {
+      log(`Systemd is unavailable; continuing with the backend restart. (${error.message})`);
+    }
+  }
+
+  // The Replit workflow wrapper restarts this child process when it exits
+  // cleanly. This keeps the Vite preview alive while refreshing the backend.
+  log("No external process manager found; restarting the backend process…");
+  setTimeout(() => process.exit(0), 1000);
+}
 
 function findGitRoot() {
   const candidates = [
@@ -553,13 +657,36 @@ function gitEnvForRemote(remoteUrl) {
   return env;
 }
 
+// GET /api/update/schedule — read the monthly update schedule
+app.get("/api/update/schedule", (_req, res) => {
+  res.json(readUpdateSchedule());
+});
+
+// POST /api/update/schedule — enable/disable the monthly update schedule
+app.post("/api/update/schedule", (req, res) => {
+  try {
+    const schedule = writeUpdateSchedule(req.body || {});
+    res.json({ ok: true, schedule });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 function updateSseSend(data) {
   if (!updateJob) return;
   const line = `data: ${JSON.stringify(data)}\n\n`;
-  for (const write of updateJob.listeners) {
-    try { write(line); } catch {}
+  for (const listener of updateJob.listeners) {
+    try { listener.write(line); } catch {}
   }
   updateJob.logs.push(data);
+}
+
+function updateSseClose() {
+  if (!updateJob) return;
+  const listeners = updateJob.listeners.splice(0);
+  for (const listener of listeners) {
+    try { listener.end(); } catch {}
+  }
 }
 
 // GET /api/update/stream — SSE stream of update progress
@@ -589,11 +716,18 @@ app.get("/api/update/stream", (req, res) => {
   }
 
   // Live stream
-  const write = (chunk) => res.write(chunk);
-  updateJob.listeners.push(write);
+  const listener = {
+    write: (chunk) => {
+      if (!res.writableEnded) res.write(chunk);
+    },
+    end: () => {
+      if (!res.writableEnded) res.end();
+    },
+  };
+  updateJob.listeners.push(listener);
 
   req.on("close", () => {
-    if (updateJob) updateJob.listeners = updateJob.listeners.filter((l) => l !== write);
+    if (updateJob) updateJob.listeners = updateJob.listeners.filter((l) => l !== listener);
   });
 });
 
@@ -612,7 +746,12 @@ app.post("/api/update", (req, res) => {
   (async () => {
     const log = (text) => updateSseSend({ type: "log", text });
     const step = (text) => updateSseSend({ type: "step", text });
-    const fail = (text) => { updateSseSend({ type: "error", text }); updateJob.status = "failed"; updateSseSend({ type: "done", status: "failed" }); };
+    const fail = (text) => {
+      updateSseSend({ type: "error", text });
+      updateJob.status = "failed";
+      updateSseSend({ type: "done", status: "failed" });
+      updateSseClose();
+    };
 
     try {
       // ── Step 1: optionally update remote ───────────────────────────────────
@@ -674,14 +813,27 @@ app.post("/api/update", (req, res) => {
         proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`npm install exited ${code}`)));
       });
 
+      if (restart) {
+        step("Building frontend for the service restart…");
+        await runUpdateProcess("npm", ["run", "build"], {
+          cwd: gitRoot,
+          log,
+          env: { ...process.env, CI: "true" },
+        });
+        log("Frontend build complete.");
+        log("Restarting all application services…");
+      }
+
       step("Update complete ✓");
       updateJob.status = "done";
       updateSseSend({ type: "done", status: "done" });
+      updateSseClose();
 
       // ── Step 4 (optional): restart server ─────────────────────────────────
       if (restart) {
-        log("Restarting server in 2 s…");
-        setTimeout(() => process.exit(0), 2000);
+        void restartAllApplicationServices(log).catch((restartError) => {
+          console.error("[build-server] service restart error:", restartError.message);
+        });
       }
     } catch (err) {
       console.error("[build-server] update error:", err.message);
@@ -1025,6 +1177,11 @@ const CLIENT_MENU_FEATURES = [
   ["client_menu_help_support", "Help & Support"],
   ["client_menu_feedback", "Feedback"],
 ];
+const DEFAULT_CLIENT_MENU_FEATURE_TOGGLES = CLIENT_MENU_FEATURES.map(([feature_key, feature_name]) => ({
+  feature_key,
+  feature_name,
+  is_enabled: true,
+}));
 const CLIENT_MENU_FEATURE_KEYS = new Set(CLIENT_MENU_FEATURES.map(([key]) => key));
 
 function defaultClientMenuAccess() {
@@ -1149,7 +1306,10 @@ app.post("/api/feature-toggles/seed", async (req, res) => {
     if (actor.error) return res.status(actor.status).json({ error: actor.error });
     const { error } = await admin
       .from("feature_toggles")
-      .upsert(DEFAULT_FEATURE_TOGGLES, { onConflict: "feature_key", ignoreDuplicates: true });
+      .upsert(
+        [...DEFAULT_FEATURE_TOGGLES, ...DEFAULT_CLIENT_MENU_FEATURE_TOGGLES],
+        { onConflict: "feature_key", ignoreDuplicates: true },
+      );
     if (error) throw new Error(error.message);
     res.json({ ok: true });
   } catch (err) {

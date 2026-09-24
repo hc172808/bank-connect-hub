@@ -7,7 +7,7 @@ const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const viteBin = path.join(projectRoot, "node_modules", ".bin", "vite");
 let shuttingDown = false;
 
-function spawnProcess(name, cmd, args, color) {
+function spawnProcess(name, cmd, args, color, onExit) {
   const proc = spawn(cmd, args, {
     cwd: projectRoot,
     stdio: "pipe",
@@ -29,6 +29,10 @@ function spawnProcess(name, cmd, args, color) {
   });
   proc.on("exit", (code) => {
     if (shuttingDown) return;
+    if (onExit) {
+      onExit(code ?? 1);
+      return;
+    }
     console.log(`${color}[${name}]${colors.reset} exited with code ${code}`);
     shutdown(code ?? 1);
   });
@@ -43,12 +47,25 @@ const viteProc = spawnProcess(
   colors.cyan
 );
 
-const serverProc = spawnProcess(
-  "build-srv",
-  "node",
-  ["build-server.mjs"],
-  colors.yellow
-);
+let serverProc;
+const startBuildServer = () => {
+  serverProc = spawnProcess(
+    "build-srv",
+    "node",
+    ["build-server.mjs"],
+    colors.yellow,
+    (code) => {
+      if (code === 0 && !shuttingDown) {
+        console.log(`${colors.yellow}[build-srv]${colors.reset} restarting after requested update`);
+        setTimeout(startBuildServer, 500);
+        return;
+      }
+      console.log(`${colors.yellow}[build-srv]${colors.reset} exited with code ${code}`);
+      shutdown(code);
+    },
+  );
+};
+startBuildServer();
 
 function shutdown(code = 0) {
   if (shuttingDown) return;

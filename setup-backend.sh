@@ -162,6 +162,16 @@ if [[ -n "$REPO_URL" && "$STATIC_ONLY" != "1" ]]; then
   ok "App started and registered with systemd."
 fi
 
+# ---------- 6.5 Monthly application update cron ----------
+if [[ "$STATIC_ONLY" != "1" && -x "${APP_DIR}/install-update-cron.sh" ]]; then
+  bash "${APP_DIR}/install-update-cron.sh" \
+    --app-dir "$APP_DIR" \
+    --app-user "$APP_USER" \
+    --app-name "$APP_NAME" \
+    --cron-user "$APP_USER"
+  ok "Monthly update cron installed for the 10th at 03:00."
+fi
+
 # ---------- 7. Nginx reverse proxy ----------
 if ! command -v nginx >/dev/null 2>&1; then
   log "Installing Nginx..."

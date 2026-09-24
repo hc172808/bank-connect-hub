@@ -1283,6 +1283,15 @@ else
   warn "Build server failed to start — check: journalctl -u netlifecash-server -n 50"
 fi
 
+if [[ -x "${APP_DIR}/install-update-cron.sh" ]]; then
+  bash "${APP_DIR}/install-update-cron.sh" \
+    --app-dir "$APP_DIR" \
+    --app-user root \
+    --app-name netlifecash \
+    --cron-user root
+  ok "Monthly update cron installed for the 10th at 03:00."
+fi
+
 # =============================================================================
 # STEP 13 — GYDS RPC Node (public/rpcnode) + Docker socket wiring
 # =============================================================================

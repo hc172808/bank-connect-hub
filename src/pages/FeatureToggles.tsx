@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,18 +22,7 @@ const FeatureToggles = () => {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
 
-  useEffect(() => {
-      if (!authLoading && role !== "admin" && role !== "founder") {
-      navigate("/");
-    }
-  }, [role, authLoading, navigate]);
-
-  useEffect(() => {
-    if (authLoading || (role !== "admin" && role !== "founder")) return;
-    void fetchFeatures();
-  }, [authLoading, role]);
-
-  const fetchFeatures = async () => {
+  const fetchFeatures = useCallback(async () => {
     try {
       await ensureFeatureToggles();
     } catch (error) {
@@ -45,17 +34,31 @@ const FeatureToggles = () => {
     try {
       const existing = await fetchFeatureToggles();
       setFeatures(existing.sort((a, b) => a.feature_name.localeCompare(b.feature_name)));
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error loading feature toggles:", error);
       toast({
         title: "Error",
-        description: error.message || "Failed to load feature toggles",
+        description: error instanceof Error ? error.message : "Failed to load feature toggles",
         variant: "destructive",
       });
       setFeatures([]);
     }
     setLoading(false);
-  };
+  }, [toast]);
+
+  useEffect(() => {
+      if (!authLoading && role !== "admin" && role !== "founder") {
+      navigate("/");
+    }
+  }, [role, authLoading, navigate]);
+
+  useEffect(() => {
+    if (authLoading || (role !== "admin" && role !== "founder")) return;
+    // This effect intentionally starts an async data load; state changes happen
+    // after the server response resolves inside fetchFeatures.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchFeatures();
+  }, [authLoading, role, fetchFeatures]);
 
   const internalFeatures = features.filter((feature) =>
     feature.feature_key === "internal_funds" ||
@@ -76,6 +79,10 @@ const FeatureToggles = () => {
   const userFeatures = features.filter((feature) =>
     !internalFeatures.some((internalFeature) => internalFeature.id === feature.id)
     && !financialToolsFeatures.some((financialFeature) => financialFeature.id === feature.id)
+    && !feature.feature_key.startsWith("client_menu_")
+  );
+  const clientMenuFeatures = features.filter((feature) =>
+    feature.feature_key.startsWith("client_menu_")
   );
 
   const setInternalFunds = async (enabled: boolean) => {
@@ -88,7 +95,7 @@ const FeatureToggles = () => {
         ids.includes(feature.id) ? { ...feature, is_enabled: enabled } : feature
       ));
       toast({ title: enabled ? "Internal funds enabled" : "Internal funds disabled" });
-    } catch (error: any) {
+    } catch {
       toast({ title: "Error", description: "Failed to update internal-funds controls", variant: "destructive" });
     }
     setUpdating(null);
@@ -105,10 +112,10 @@ const FeatureToggles = () => {
         title: "Updated",
         description: `Feature ${!currentValue ? "enabled" : "disabled"}`,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message || "Failed to update feature",
+        description: error instanceof Error ? error.message : "Failed to update feature",
         variant: "destructive",
       });
     }
@@ -187,6 +194,43 @@ const FeatureToggles = () => {
             ))}
           </CardContent>
         </Card>
+
+          <Card>
+           <CardHeader>
+             <CardTitle className="flex items-center gap-2">
+               <ToggleLeft size={24} />
+               Client Menu Features
+             </CardTitle>
+             <p className="text-sm text-muted-foreground">
+               Control which menu features are visible to non-admin and non-founder users. Admins and founders always retain access.
+             </p>
+           </CardHeader>
+           <CardContent className="space-y-3">
+             {clientMenuFeatures.length === 0 ? (
+               <p className="text-sm text-muted-foreground">
+                 Client menu controls are not configured yet. Refresh after the feature-toggle seed completes.
+               </p>
+             ) : clientMenuFeatures.map((feature) => (
+               <div key={feature.id} className="flex items-center justify-between p-4 border rounded-lg">
+                 <div>
+                   <h3 className="font-medium">{feature.feature_name}</h3>
+                   <p className="text-sm text-muted-foreground">
+                     {feature.is_enabled ? "Visible to non-admin users" : "Hidden from non-admin users"}
+                   </p>
+                 </div>
+                 <div className="flex items-center gap-2">
+                   {updating === feature.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                   <Switch
+                     checked={feature.is_enabled}
+                     onCheckedChange={() => void toggleFeature(feature.id, feature.is_enabled)}
+                     disabled={updating === feature.id}
+                     aria-label={`${feature.is_enabled ? "Disable" : "Enable"} ${feature.feature_name}`}
+                   />
+                 </div>
+               </div>
+             ))}
+           </CardContent>
+          </Card>
 
         <Card>
            <CardHeader>

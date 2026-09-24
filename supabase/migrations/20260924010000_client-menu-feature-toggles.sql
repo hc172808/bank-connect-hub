@@ -1,0 +1,48 @@
+-- Make every regular-user menu item available in Admin > Feature Toggles.
+-- Existing enabled states are preserved so this is safe to apply repeatedly.
+
+INSERT INTO public.feature_toggles (feature_key, feature_name, is_enabled)
+VALUES
+  ('client_menu_profile', 'My Profile', true),
+  ('client_menu_change_password', 'Change Password', true),
+  ('client_menu_security', 'Security & 2FA', true),
+  ('client_menu_kyc', 'Identity Verification (KYC)', true),
+  ('client_menu_insights', 'Financial Insights', true),
+  ('client_menu_budget', 'Budget Planner', true),
+  ('client_menu_savings', 'Savings Goals', true),
+  ('client_menu_savings_accounts', 'Savings Accounts', true),
+  ('client_menu_loans', 'Loans', true),
+  ('client_menu_credit_builder', 'Credit Builder', true),
+  ('client_menu_scheduled_payments', 'Scheduled Payments', true),
+  ('client_menu_international_transfers', 'International Transfer', true),
+  ('client_menu_group_payments', 'Group Payments', true),
+  ('client_menu_split_bills', 'Split Bills', true),
+  ('client_menu_currency_converter', 'Currency Converter', true),
+  ('client_menu_ai_assistant', 'AI Financial Assistant', true),
+  ('client_menu_recommendations', 'Personalized Recommendations', true),
+  ('client_menu_nfc_payment', 'NFC Tap Payments', true),
+  ('client_menu_open_banking', 'Open Banking', true),
+  ('client_menu_beneficiaries', 'Beneficiaries', true),
+  ('client_menu_virtual_cards', 'Virtual Cards', true),
+  ('client_menu_multi_wallet', 'All Wallets', true),
+  ('client_menu_investments', 'Investments', true),
+  ('client_menu_business_banking', 'Business Banking', true),
+  ('client_menu_rewards', 'Rewards', true),
+  ('client_menu_pay_bills', 'Pay Bills', true),
+  ('client_menu_send_money', 'Send Money', true),
+  ('client_menu_request_funds', 'Request Funds', true),
+  ('client_menu_top_up', 'Top-up', true),
+  ('client_menu_pay_merchant', 'Pay Merchant', true),
+  ('client_menu_shop', 'Shop', true),
+  ('client_menu_refer', 'Refer & Earn', true),
+  ('client_menu_transactions', 'Transactions', true),
+  ('client_menu_download_app', 'Download App', true),
+  ('client_menu_whats_new', 'What''s New', true),
+  ('client_menu_notifications', 'Notifications', true),
+  ('client_menu_messages', 'Messages', true),
+  ('client_menu_support_center', 'Support Center', true),
+  ('client_menu_achievements', 'Achievements', true),
+  ('client_menu_help_support', 'Help & Support', true),
+  ('client_menu_feedback', 'Feedback', true)
+ON CONFLICT (feature_key) DO UPDATE
+SET feature_name = EXCLUDED.feature_name;

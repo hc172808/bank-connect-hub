@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   ArrowLeft, GitBranch, RefreshCw, Loader2, CheckCircle2,
-  XCircle, Download, RotateCcw, Info,
+  XCircle, Download, RotateCcw, Info, CalendarClock,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,8 @@ const SystemSettings = () => {
   const [notificationProvider, setNotificationProvider] = useState("in_app");
   const [notificationSender, setNotificationSender] = useState("NetLife Cash");
   const [notificationSaving, setNotificationSaving] = useState(false);
+  const [updateScheduleEnabled, setUpdateScheduleEnabled] = useState(true);
+  const [updateScheduleSaving, setUpdateScheduleSaving] = useState(false);
 
   const [status, setStatus] = useState<UpdateStatus>("idle");
   const [logs, setLogs] = useState<{ kind: "step" | "log" | "error"; text: string }[]>([]);
@@ -47,10 +49,23 @@ const SystemSettings = () => {
       .select("key, value")
       .in("key", ["notification_provider", "notification_sender"])
       .then(({ data }) => {
-        (data || []).forEach((setting: any) => {
+        (data || []).forEach((setting: { key: string; value: unknown }) => {
           if (setting.key === "notification_provider") setNotificationProvider(String(setting.value || "in_app"));
           if (setting.key === "notification_sender") setNotificationSender(String(setting.value || "NetLife Cash"));
         });
+      });
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/update/schedule", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load update schedule.");
+        return response.json() as Promise<{ enabled?: boolean }>;
+      })
+      .then((schedule) => setUpdateScheduleEnabled(schedule.enabled !== false))
+      .catch(() => {
+        // Keep the enabled default; the host installer also enables the
+        // monthly cron unless an administrator turns it off.
       });
   }, []);
 
@@ -68,10 +83,43 @@ const SystemSettings = () => {
     });
   };
 
+  const saveUpdateSchedule = async () => {
+    setUpdateScheduleSaving(true);
+    let serverError: string | null = null;
+    try {
+      const response = await fetch("/api/update/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: updateScheduleEnabled, day: 10, hour: 3, minute: 0 }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string };
+        serverError = data.error || response.statusText;
+      }
+    } catch (error) {
+      serverError = error instanceof Error ? error.message : "Could not reach the update service.";
+    }
+
+    const { error: databaseError } = await supabase.from("app_settings").upsert({
+      key: "update_schedule",
+      value: { enabled: updateScheduleEnabled, day: 10, hour: 3, minute: 0 },
+    }, { onConflict: "key" });
+    setUpdateScheduleSaving(false);
+
+    const error = serverError || databaseError?.message;
+    toast({
+      title: error ? "Update schedule failed" : "Update schedule saved",
+      description: error || (updateScheduleEnabled
+        ? "The app will pull, build, and restart services on the 10th at 03:00 server time."
+        : "The monthly update cron is disabled. Manual updates remain available."),
+      variant: error ? "destructive" : "default",
+    });
+  };
+
   const appendLog = (kind: "step" | "log" | "error", text: string) =>
     setLogs((prev) => [...prev, { kind, text }]);
 
-  const connectStream = () => {
+  const connectStream = (withRestart = restartAfter) => {
     esRef.current?.close();
     const es = new EventSource("/api/update/stream");
     esRef.current = es;
@@ -89,23 +137,46 @@ const SystemSettings = () => {
         else if (ev.type === "done") {
           setStatus(ev.status === "done" ? "done" : "failed");
           if (ev.status === "done") {
-            toast({ title: "Update complete", description: restartAfter ? "Server is restarting…" : "Reload the page to see changes." });
+            toast({ title: "Update complete", description: withRestart ? "All application services are restarting…" : "Reload the page to see changes." });
           } else {
             toast({ title: "Update failed", description: "Check the log for details.", variant: "destructive" });
           }
           es.close();
         }
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     };
 
     es.onerror = () => {
-      // If server restarted mid-stream, the SSE connection drops — that's expected
-      setStatus((s) => s === "running" ? "done" : s);
       es.close();
+      void fetch("/api/update/status", { cache: "no-store" })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Could not verify update status.");
+          return response.json() as Promise<{ status?: string }>;
+        })
+        .then((data) => {
+          if (data.status === "done") {
+            setStatus("done");
+            toast({ title: "Update complete", description: "Reload the page to see changes." });
+          } else if (data.status === "failed") {
+            setStatus("failed");
+            toast({ title: "Update failed", description: "Check the log for details.", variant: "destructive" });
+          } else {
+            setStatus("failed");
+            appendLog("error", "The update connection closed before the server reported completion.");
+            toast({ title: "Update status unavailable", description: "Check the server logs before trying again.", variant: "destructive" });
+          }
+        })
+        .catch(() => {
+          setStatus("failed");
+          appendLog("error", "The update connection was lost before completion could be confirmed.");
+          toast({ title: "Update status unavailable", description: "Check the server logs before trying again.", variant: "destructive" });
+        });
     };
   };
 
-  const runUpdate = async () => {
+  const runUpdate = async (withRestart = restartAfter) => {
     setStatus("running");
     setLogs([]);
 
@@ -116,7 +187,7 @@ const SystemSettings = () => {
         body: JSON.stringify({
           branch: gitBranch || "main",
           remote: gitRemote || undefined,
-          restart: restartAfter,
+          restart: withRestart,
         }),
       });
 
@@ -127,10 +198,14 @@ const SystemSettings = () => {
         return;
       }
 
-      connectStream();
-    } catch (err: any) {
+      connectStream(withRestart);
+    } catch (err: unknown) {
       setStatus("failed");
-      toast({ title: "Network error", description: err.message, variant: "destructive" });
+      toast({
+        title: "Network error",
+        description: err instanceof Error ? err.message : "Could not reach the update service.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -216,6 +291,14 @@ const SystemSettings = () => {
                   ? <><Loader2 className="h-4 w-4 animate-spin" /> Updating…</>
                   : <><RefreshCw className="h-4 w-4" /> Pull &amp; Update</>}
               </Button>
+              <Button
+                onClick={() => void runUpdate(true)}
+                disabled={busy}
+                variant="outline"
+                className="gap-2"
+              >
+                <RotateCcw className="h-4 w-4" /> Pull, Build &amp; Restart All
+              </Button>
 
               {statusBadge()}
 
@@ -265,6 +348,51 @@ const SystemSettings = () => {
                 {busy && <div className="text-gray-500 animate-pulse">…</div>}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* ── Scheduled Update ──────────────────────────────────────────────── */}
+        <Card>
+          <CardHeader className="flex flex-row items-start gap-2">
+            <CalendarClock className="h-5 w-5 text-primary mt-0.5" />
+            <div>
+              <CardTitle>Monthly Automatic Update</CardTitle>
+              <CardDescription className="mt-0.5">
+                Pulls the latest code, builds the frontend, and restarts all application services on the 10th of every month at 03:00 server time.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="monthly-update-enabled" className="text-sm font-medium">
+                  Enable monthly update cron
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Disable this if updates must only be started manually.
+                </p>
+              </div>
+              <Switch
+                id="monthly-update-enabled"
+                checked={updateScheduleEnabled}
+                onCheckedChange={setUpdateScheduleEnabled}
+                disabled={updateScheduleSaving || busy}
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                onClick={() => void saveUpdateSchedule()}
+                disabled={updateScheduleSaving || busy}
+                className="gap-2"
+              >
+                {updateScheduleSaving
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
+                  : <><CalendarClock className="h-4 w-4" /> Save monthly schedule</>}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Schedule: day 10 · 03:00 · server timezone
+              </span>
+            </div>
           </CardContent>
         </Card>
 

@@ -37,8 +37,10 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchCurrentUserFeatureAccess } from "@/lib/userFeatureAccess";
+import { fetchFeatureToggles } from "@/lib/featureToggles";
+import { useAuth } from "@/hooks/useAuth";
 
 interface ProfileData {
   full_name: string | null;
@@ -82,6 +84,19 @@ const menuSections = [
     ],
   },
   {
+    title: "Dashboard Services",
+    items: [
+      { icon: Receipt,       label: "Pay Bills",      path: "/pay-bills",      featureKey: "client_menu_pay_bills" },
+      { icon: ArrowLeftRight, label: "Send Money",   path: "/send-money",     featureKey: "client_menu_send_money" },
+      { icon: Users,         label: "Request Funds",  path: "/request-funds",  featureKey: "client_menu_request_funds" },
+      { icon: Wallet,        label: "Top-up",         path: "/top-up",         featureKey: "client_menu_top_up" },
+      { icon: CreditCard,    label: "Pay Merchant",   path: "/pay-merchant",   featureKey: "client_menu_pay_merchant" },
+      { icon: Building2,     label: "Shop",           path: "/vendors",        featureKey: "client_menu_shop" },
+      { icon: UsersRound,    label: "Refer & Earn",   path: "/refer",          featureKey: "client_menu_refer" },
+      { icon: BarChart3,     label: "Transactions",   path: "/transactions",   featureKey: "client_menu_transactions" },
+    ],
+  },
+  {
     title: "Other",
     items: [
        { icon: Smartphone,      label: "Download App",     path: "/download-app", featureKey: "client_menu_download_app" },
@@ -99,21 +114,14 @@ const menuSections = [
 const Menu = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { role } = useAuth();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [featureAccess, setFeatureAccess] = useState<Record<string, boolean>>({});
+  const [globalFeatureAccess, setGlobalFeatureAccess] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    void Promise.all([fetchProfile(), fetchCurrentUserFeatureAccess()])
-      .then(([, access]) => setFeatureAccess(access))
-      .catch(() => {
-        // Missing access rows or an unavailable optional endpoint should not
-        // hide the existing menu.
-      });
-  }, []);
-
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async (): Promise<ProfileData | null> => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return null;
 
     const { data } = await supabase
       .from("profiles")
@@ -121,14 +129,35 @@ const Menu = () => {
       .eq("id", user.id)
       .single();
 
-    if (data) setProfile(data);
-  };
+    return data || null;
+  }, []);
+
+  useEffect(() => {
+    void Promise.all([
+      fetchProfile(),
+      fetchCurrentUserFeatureAccess().catch(() => ({})),
+      fetchFeatureToggles().catch(() => []),
+    ]).then(([profileData, access, toggles]) => {
+      setProfile(profileData);
+      setFeatureAccess(access);
+      setGlobalFeatureAccess(Object.fromEntries(
+        toggles
+          .filter((feature) => feature.feature_key.startsWith("client_menu_"))
+          .map((feature) => [feature.feature_key, feature.is_enabled]),
+      ));
+    });
+  }, [fetchProfile]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     toast({ title: "Signed out successfully" });
     navigate("/auth");
   };
+
+  const isPrivileged = role === "admin" || role === "founder";
+  const isMenuFeatureEnabled = (featureKey: string) =>
+    isPrivileged
+    || (globalFeatureAccess[featureKey] !== false && featureAccess[featureKey] !== false);
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -159,30 +188,34 @@ const Menu = () => {
         </Card>
 
         <div className="space-y-4">
-          {menuSections.map((section) => (
-            <Card key={section.title}>
-              <CardContent className="p-2">
-                <p className="text-xs font-semibold text-muted-foreground px-4 pt-2 pb-1 uppercase tracking-wide">
-                  {section.title}
-                </p>
-                {section.items.filter((item) => featureAccess[item.featureKey] !== false).map((item, index) => (
-                  <button
-                    key={index}
-                    onClick={() => navigate(item.path)}
-                    className="w-full flex items-center justify-between p-4 hover:bg-muted/50 rounded-xl transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-                        <item.icon size={20} className="text-primary" />
+          {menuSections.map((section) => {
+            const visibleItems = section.items.filter((item) => isMenuFeatureEnabled(item.featureKey));
+            if (visibleItems.length === 0) return null;
+            return (
+              <Card key={section.title}>
+                <CardContent className="p-2">
+                  <p className="text-xs font-semibold text-muted-foreground px-4 pt-2 pb-1 uppercase tracking-wide">
+                    {section.title}
+                  </p>
+                  {visibleItems.map((item) => (
+                    <button
+                      key={item.featureKey}
+                      onClick={() => navigate(item.path)}
+                      className="w-full flex items-center justify-between p-4 hover:bg-muted/50 rounded-xl transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                          <item.icon size={20} className="text-primary" />
+                        </div>
+                        <span className="font-medium">{item.label}</span>
                       </div>
-                      <span className="font-medium">{item.label}</span>
-                    </div>
-                    <ChevronRight size={20} className="text-muted-foreground" />
-                  </button>
-                ))}
-              </CardContent>
-            </Card>
-          ))}
+                      <ChevronRight size={20} className="text-muted-foreground" />
+                    </button>
+                  ))}
+                </CardContent>
+              </Card>
+            );
+          })}
 
           <Card>
             <CardContent className="p-2">
