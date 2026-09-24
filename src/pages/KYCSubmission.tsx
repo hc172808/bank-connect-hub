@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Camera, FileCheck, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, Camera, FileCheck, RotateCcw, Upload, X } from "lucide-react";
 
 interface KYC {
   id: string;
@@ -21,11 +21,19 @@ interface CameraCaptureProps {
   label: string;
   filePrefix: string;
   facingMode: "user" | "environment";
+  allowUpload?: boolean;
   value: File | null;
   onCapture: (file: File | null) => void;
 }
 
-const CameraCapture = ({ label, filePrefix, facingMode, value, onCapture }: CameraCaptureProps) => {
+const CameraCapture = ({
+  label,
+  filePrefix,
+  facingMode,
+  allowUpload = false,
+  value,
+  onCapture,
+}: CameraCaptureProps) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [active, setActive] = useState(false);
@@ -94,6 +102,13 @@ const CameraCapture = ({ label, filePrefix, facingMode, value, onCapture }: Came
     }, "image/jpeg", 0.9);
   };
 
+  const chooseUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    onCapture(file);
+    setError("");
+  };
+
   return (
     <div className="space-y-2 rounded-md border p-3">
       <div className="flex items-center justify-between gap-2">
@@ -120,10 +135,24 @@ const CameraCapture = ({ label, filePrefix, facingMode, value, onCapture }: Came
         </div>
       )}
       {!active && (
-        <Button type="button" variant={value ? "outline" : "secondary"} onClick={() => void openCamera()} className="w-full gap-2">
-          {value ? <RotateCcw className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
-          {value ? "Retake photo" : "Open camera"}
-        </Button>
+        <div className={allowUpload ? "grid gap-2 sm:grid-cols-2" : undefined}>
+          <Button type="button" variant={value ? "outline" : "secondary"} onClick={() => void openCamera()} className="w-full gap-2">
+            {value ? <RotateCcw className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+            {value ? "Retake with camera" : "Use camera"}
+          </Button>
+          {allowUpload && (
+            <label className="flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
+              <Upload className="h-4 w-4" />
+              {value ? "Choose another file" : "Upload image"}
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={chooseUpload}
+                className="sr-only"
+              />
+            </label>
+          )}
+        </div>
       )}
       {value && !active && (
         <img src={previewUrl} alt={`${label} preview`} className="max-h-32 w-full rounded-md object-contain" />
@@ -341,10 +370,10 @@ const KYCSubmission = () => {
                 </select>
               </div>
               <div><Label>Document Number</Label><Input value={form.document_number} onChange={(e) => setForm({ ...form, document_number: e.target.value })} /></div>
-              <p className="text-sm text-muted-foreground">Use your camera to take all four required photos. ID and address documents use the rear camera; the selfie uses the front camera.</p>
-              <CameraCapture label="ID Card — Front" filePrefix="id-front" facingMode="environment" value={frontFile} onCapture={setFrontFile} />
-              <CameraCapture label="ID Card — Back" filePrefix="id-back" facingMode="environment" value={backFile} onCapture={setBackFile} />
-              <CameraCapture label="Proof of Address" filePrefix="proof-of-address" facingMode="environment" value={proofOfAddressFile} onCapture={setProofOfAddressFile} />
+              <p className="text-sm text-muted-foreground">Selfie must be captured with your front camera. For your ID and proof of address, you can upload an image or capture it with your rear camera.</p>
+              <CameraCapture label="ID Card — Front" filePrefix="id-front" facingMode="environment" allowUpload value={frontFile} onCapture={setFrontFile} />
+              <CameraCapture label="ID Card — Back" filePrefix="id-back" facingMode="environment" allowUpload value={backFile} onCapture={setBackFile} />
+              <CameraCapture label="Proof of Address" filePrefix="proof-of-address" facingMode="environment" allowUpload value={proofOfAddressFile} onCapture={setProofOfAddressFile} />
               <CameraCapture label="Selfie Photo" filePrefix="selfie" facingMode="user" value={selfieFile} onCapture={setSelfieFile} />
               <Button onClick={submit} disabled={submitting} className="w-full">
                 {submitting ? "Submitting..." : "Submit for Review"}

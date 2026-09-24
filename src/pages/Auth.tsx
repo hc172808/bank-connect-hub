@@ -175,20 +175,31 @@ const Auth = () => {
           console.warn("[auth] Phone availability check unavailable; continuing signup.", availabilityError);
         }
 
-        const { error } = await supabase.auth.signUp({
-          email: phoneToEmail(phoneNumber),
-          password,
-          options: {
-            data: {
+        const registration = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: phoneToEmail(phoneNumber),
+            password,
+            metadata: {
               full_name: fullName,
               phone_number: phoneNumber,
               account_type: accountType,
             },
-            emailRedirectTo: `${window.location.origin}/`,
-          },
+          }),
         });
+        const registrationResult = await registration.json().catch(() => ({}));
+        if (!registration.ok) {
+          throw new Error(registrationResult.error || "Your account could not be created.");
+        }
 
-        if (error) throw error;
+        // The server creates and confirms the internal phone email. Sign in
+        // through the normal client so the browser receives its session.
+        const { error: loginError } = await supabase.auth.signInWithPassword({
+          email: phoneToEmail(phoneNumber),
+          password,
+        });
+        if (loginError) throw loginError;
 
         toast({
           title: "Account created!",
