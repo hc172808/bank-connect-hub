@@ -48,6 +48,17 @@ const INCOME_SOURCES = ["💼 Salary", "💰 Freelance", "🏢 Business", "📈 
 
 const STORAGE_KEY = "vbank_financial_tools_v1";
 
+const parsePositiveAmount = (value: string) => {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+};
+
+const parseNonNegativeAmount = (value: string, fallback: number) => {
+  if (!value.trim()) return fallback;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+};
+
 const FinancialTools = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -86,9 +97,13 @@ const FinancialTools = () => {
   };
 
   const addExpense = () => {
-    if (!expForm.amount || !expForm.category) { toast({ title: "Fill required fields", variant: "destructive" }); return; }
+    const amount = parsePositiveAmount(expForm.amount);
+    if (!expForm.category || amount === null) {
+      toast({ title: "Enter a valid expense amount and category", variant: "destructive" });
+      return;
+    }
     const newExp: Expense = {
-      id: `exp-${Date.now()}`, amount: parseFloat(expForm.amount),
+      id: `exp-${Date.now()}`, amount,
       category: expForm.category, note: expForm.note, date: new Date().toISOString(),
     };
     saveAll([newExp, ...expenses], incomes, debts);
@@ -97,9 +112,13 @@ const FinancialTools = () => {
   };
 
   const addIncome = () => {
-    if (!incForm.amount || !incForm.source) { toast({ title: "Fill required fields", variant: "destructive" }); return; }
+    const amount = parsePositiveAmount(incForm.amount);
+    if (!incForm.source || amount === null) {
+      toast({ title: "Enter a valid income amount and source", variant: "destructive" });
+      return;
+    }
     const newInc: Income = {
-      id: `inc-${Date.now()}`, amount: parseFloat(incForm.amount),
+      id: `inc-${Date.now()}`, amount,
       source: incForm.source, date: new Date().toISOString(), recurring: incForm.recurring,
     };
     saveAll(expenses, [newInc, ...incomes], debts);
@@ -108,11 +127,28 @@ const FinancialTools = () => {
   };
 
   const addDebt = () => {
-    if (!debtForm.name || !debtForm.total) { toast({ title: "Fill required fields", variant: "destructive" }); return; }
+    const total = parsePositiveAmount(debtForm.total);
+    const remaining = parseNonNegativeAmount(debtForm.remaining, total ?? 0);
+    const rate = parseNonNegativeAmount(debtForm.rate, 0);
+    const minPayment = parseNonNegativeAmount(debtForm.minPayment, 0);
+    if (
+      !debtForm.name.trim()
+      || total === null
+      || remaining === null
+      || remaining > total
+      || rate === null
+      || minPayment === null
+    ) {
+      toast({
+        title: "Enter valid debt details",
+        description: "Remaining debt must be between $0 and the total debt.",
+        variant: "destructive",
+      });
+      return;
+    }
     const newDebt: Debt = {
-      id: `debt-${Date.now()}`, name: debtForm.name,
-      total: parseFloat(debtForm.total), remaining: parseFloat(debtForm.remaining) || parseFloat(debtForm.total),
-      rate: parseFloat(debtForm.rate) || 0, minPayment: parseFloat(debtForm.minPayment) || 0,
+      id: `debt-${Date.now()}`, name: debtForm.name.trim(),
+      total, remaining, rate, minPayment,
     };
     saveAll(expenses, incomes, [...debts, newDebt]);
     setDebtForm({ name: "", total: "", remaining: "", rate: "", minPayment: "" });

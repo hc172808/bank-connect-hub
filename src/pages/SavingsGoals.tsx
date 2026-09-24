@@ -14,8 +14,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
-
-const STORAGE_KEY = "vbank_savings_goals_v1";
+import {
+  legacySavingsGoalsStorageKey,
+  savingsGoalsStorageKey,
+} from "@/lib/savingsGoalsStorage";
 
 interface SavingsGoal {
   id: string;
@@ -58,13 +60,19 @@ const SavingsGoals = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserId(user.id);
-    const raw = localStorage.getItem(`${STORAGE_KEY}_${user.id}`);
+    const currentKey = savingsGoalsStorageKey(user.id);
+    const legacyKey = legacySavingsGoalsStorageKey(user.id);
+    const current = localStorage.getItem(currentKey);
+    const raw = current ?? localStorage.getItem(legacyKey);
+    if (!current && raw) {
+      localStorage.setItem(currentKey, raw);
+    }
     setGoals(raw ? JSON.parse(raw) : []);
   };
 
   const save = (list: SavingsGoal[]) => {
     if (!userId) return;
-    localStorage.setItem(`${STORAGE_KEY}_${userId}`, JSON.stringify(list));
+    localStorage.setItem(savingsGoalsStorageKey(userId), JSON.stringify(list));
     setGoals(list);
   };
 

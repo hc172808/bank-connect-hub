@@ -24,7 +24,7 @@ Scope reviewed:
 
 ### 2. Dashboard and Savings Goals use different localStorage keys — High
 
-**Status:** Open
+**Status:** Fixed
 
 `SavingsGoals` saves under `vbank_savings_goals_v1_<userId>`, while `ClientDashboard` reads `savings_goals_<userId>`. The dashboard savings widget therefore does not show goals created on the Savings Goals page.
 
@@ -34,7 +34,7 @@ Scope reviewed:
 
 ### 3. Financial Tools can save invalid numeric values — High
 
-**Status:** Open
+**Status:** Fixed
 
 Expense and income forms only check whether the amount field is non-empty. `parseFloat()` can save `NaN`, zero, or negative values, which then corrupt totals and health calculations. Debt values have similar gaps: negative totals, negative remaining balances, remaining balances above the original debt, and invalid rates are accepted.
 

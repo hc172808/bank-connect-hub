@@ -38,6 +38,10 @@ import { requestNotificationPermission, subscribeToTransactionNotifications, sub
 import { PiggyBank, CalendarClock, Target } from "lucide-react";
 import { fetchFeatureToggles } from "@/lib/featureToggles";
 import { fetchCurrentUserFeatureAccess } from "@/lib/userFeatureAccess";
+import {
+  legacySavingsGoalsStorageKey,
+  savingsGoalsStorageKey,
+} from "@/lib/savingsGoalsStorage";
 
 interface SavingsGoal { id: string; name: string; target: number; saved: number; }
 interface ScheduledPayment { id: string; label: string; amount: number; nextDate: string; }
@@ -118,7 +122,15 @@ const ClientDashboard = () => {
 
     // Load savings goals from localStorage
     try {
-      const gs = JSON.parse(localStorage.getItem(`savings_goals_${user.id}`) || "[]");
+      const currentKey = savingsGoalsStorageKey(user.id);
+      const legacyKey = legacySavingsGoalsStorageKey(user.id);
+      const current = localStorage.getItem(currentKey);
+      const legacy = localStorage.getItem(legacyKey);
+      const raw = current ?? legacy;
+      if (!current && legacy) {
+        localStorage.setItem(currentKey, legacy);
+      }
+      const gs = JSON.parse(raw || "[]");
       setSavingsGoals(gs.slice(0, 3));
     } catch { setSavingsGoals([]); }
 
