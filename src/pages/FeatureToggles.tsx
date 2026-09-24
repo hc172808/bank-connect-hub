@@ -12,6 +12,7 @@ import {
   updateFeatureToggle,
   type FeatureToggle,
 } from "@/lib/featureToggles";
+import { FINANCIAL_TOOL_FEATURE_KEYS } from "@/lib/financialToolFeatures";
 
 const FeatureToggles = () => {
   const navigate = useNavigate();
@@ -68,6 +69,13 @@ const FeatureToggles = () => {
       "agent_distributions",
       "bank_reserve",
     ].includes(feature.feature_key)
+  );
+  const financialToolsFeatures = features.filter((feature) =>
+    FINANCIAL_TOOL_FEATURE_KEYS.includes(feature.feature_key as typeof FINANCIAL_TOOL_FEATURE_KEYS[number])
+  );
+  const userFeatures = features.filter((feature) =>
+    !internalFeatures.some((internalFeature) => internalFeature.id === feature.id)
+    && !financialToolsFeatures.some((financialFeature) => financialFeature.id === feature.id)
   );
 
   const setInternalFunds = async (enabled: boolean) => {
@@ -181,6 +189,43 @@ const FeatureToggles = () => {
         </Card>
 
         <Card>
+           <CardHeader>
+             <CardTitle className="flex items-center gap-2">
+               <ToggleLeft size={24} />
+               Financial Tools
+             </CardTitle>
+             <p className="text-sm text-muted-foreground">
+               Control which Financial Tools tabs are visible to non-admin users. Admins and founders always retain access.
+             </p>
+           </CardHeader>
+           <CardContent className="space-y-3">
+             {financialToolsFeatures.length === 0 ? (
+               <p className="text-sm text-muted-foreground">
+                 Financial Tools controls are not configured yet. Apply the Financial Tools feature-toggle migration and refresh.
+               </p>
+             ) : financialToolsFeatures.map((feature) => (
+               <div key={feature.id} className="flex items-center justify-between p-4 border rounded-lg">
+                 <div>
+                   <h3 className="font-medium">{feature.feature_name}</h3>
+                   <p className="text-sm text-muted-foreground">
+                     {feature.is_enabled ? "Visible to non-admin users" : "Hidden from non-admin users"}
+                   </p>
+                 </div>
+                 <div className="flex items-center gap-2">
+                   {updating === feature.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                   <Switch
+                     checked={feature.is_enabled}
+                     onCheckedChange={() => void toggleFeature(feature.id, feature.is_enabled)}
+                     disabled={updating === feature.id}
+                     aria-label={`${feature.is_enabled ? "Disable" : "Enable"} ${feature.feature_name}`}
+                   />
+                 </div>
+               </div>
+             ))}
+           </CardContent>
+         </Card>
+
+         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <ToggleLeft size={24} />
@@ -192,7 +237,7 @@ const FeatureToggles = () => {
               <p className="text-sm text-muted-foreground">
                 No feature toggles are available. Check the Supabase connection and reload this page.
               </p>
-            ) : features.map((feature) => (
+             ) : userFeatures.map((feature) => (
               <div
                 key={feature.id}
                 className="flex items-center justify-between p-4 border rounded-lg"

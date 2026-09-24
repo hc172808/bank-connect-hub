@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,13 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { fetchFeatureToggles } from "@/lib/featureToggles";
+import {
+  FINANCIAL_TOOL_FEATURES,
+  financialToolFeatureKey,
+  type FinancialToolTab,
+} from "@/lib/financialToolFeatures";
 import {
   ArrowLeft, DollarSign, TrendingUp, TrendingDown, PiggyBank,
   CreditCard, BarChart3, Target, Minus, Plus, Calculator,
@@ -62,18 +69,62 @@ const parseNonNegativeAmount = (value: string, fallback: number) => {
 const FinancialTools = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { role, loading: authLoading } = useAuth();
+  const isStaff = role === "admin" || role === "founder";
   const [userId, setUserId] = useState("");
-  const [activeTab, setActiveTab] = useState<"expenses" | "income" | "debt" | "networth">("expenses");
+  const [activeTab, setActiveTab] = useState<FinancialToolTab>("expenses");
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [walletBalance, setWalletBalance] = useState(0);
+  const [featureAccess, setFeatureAccess] = useState<Record<string, boolean>>({});
+  const [featureLoading, setFeatureLoading] = useState(true);
 
   const [expForm, setExpForm] = useState({ amount: "", category: "", note: "" });
   const [incForm, setIncForm] = useState({ amount: "", source: "", recurring: false });
   const [debtForm, setDebtForm] = useState({ name: "", total: "", remaining: "", rate: "", minPayment: "" });
 
-  useEffect(() => { init(); }, []);
+  useEffect(() => {
+    if (authLoading) return;
+    void init();
+    if (isStaff) {
+      setFeatureAccess(Object.fromEntries(FINANCIAL_TOOL_FEATURES.map(({ featureKey }) => [featureKey, true])));
+      setFeatureLoading(false);
+      return;
+    }
+
+    void fetchFeatureToggles()
+      .then((features) => {
+        setFeatureAccess(Object.fromEntries(
+          FINANCIAL_TOOL_FEATURES.map(({ featureKey }) => [
+            featureKey,
+            features.some((feature) => feature.feature_key === featureKey && feature.is_enabled),
+          ])
+        ));
+      })
+      .catch(() => setFeatureAccess({}))
+      .finally(() => setFeatureLoading(false));
+  }, [authLoading, isStaff]);
+
+  const visibleTabs = useMemo(
+    () => FINANCIAL_TOOL_FEATURES
+      .filter(({ featureKey }) => isStaff || featureAccess[featureKey] === true)
+      .map(({ tab }) => tab),
+    [featureAccess, isStaff]
+  );
+  const tabGridClass = visibleTabs.length === 1
+    ? "grid-cols-1"
+    : visibleTabs.length === 2
+      ? "grid-cols-2"
+      : visibleTabs.length === 3
+        ? "grid-cols-3"
+        : "grid-cols-4";
+
+  useEffect(() => {
+    if (!isStaff && !visibleTabs.includes(activeTab)) {
+      setActiveTab(visibleTabs[0] ?? "expenses");
+    }
+  }, [activeTab, isStaff, visibleTabs]);
 
   const init = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -95,6 +146,27 @@ const FinancialTools = () => {
     localStorage.setItem(`${STORAGE_KEY}_${userId}`, JSON.stringify({ expenses: e, incomes: i, debts: d }));
     setExpenses(e); setIncomes(i); setDebts(d);
   };
+
+  if (authLoading || featureLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-sm text-muted-foreground">Loading Financial Tools…</p>
+      </div>
+    );
+  }
+
+  if (!isStaff && visibleTabs.length === 0) {
+    return (
+      <div className="min-h-screen bg-background p-6 flex items-center justify-center">
+        <div className="max-w-md text-center">
+          <h1 className="text-xl font-semibold">Financial Tools are unavailable</h1>
+          <p className="text-sm text-muted-foreground mt-2">
+            An administrator must enable at least one Financial Tools feature before it is available.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const addExpense = () => {
     const amount = parsePositiveAmount(expForm.amount);
@@ -238,8 +310,8 @@ const FinancialTools = () => {
           </button>
         </div>
 
-        <div className="grid grid-cols-4 gap-1">
-          {(["expenses", "income", "debt", "networth"] as const).map(tab => (
+         <div className={`grid ${tabGridClass} gap-1`}>
+           {visibleTabs.map(tab => (
             <button key={tab}
               onClick={() => setActiveTab(tab)}
               className={`py-2 px-1 rounded-lg text-xs font-medium capitalize transition-all ${activeTab === tab ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
@@ -248,7 +320,7 @@ const FinancialTools = () => {
           ))}
         </div>
 
-        {activeTab === "expenses" && (
+         {activeTab === "expenses" && (isStaff || featureAccess[financialToolFeatureKey("expenses") ?? ""] === true) && (
           <div className="space-y-4">
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm">Track Expense</CardTitle></CardHeader>
@@ -305,7 +377,7 @@ const FinancialTools = () => {
           </div>
         )}
 
-        {activeTab === "income" && (
+         {activeTab === "income" && (isStaff || featureAccess[financialToolFeatureKey("income") ?? ""] === true) && (
           <div className="space-y-4">
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm">Record Income</CardTitle></CardHeader>
@@ -350,7 +422,7 @@ const FinancialTools = () => {
           </div>
         )}
 
-        {activeTab === "debt" && (
+         {activeTab === "debt" && (isStaff || featureAccess[financialToolFeatureKey("debt") ?? ""] === true) && (
           <div className="space-y-4">
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm">Add Debt</CardTitle></CardHeader>
@@ -391,7 +463,7 @@ const FinancialTools = () => {
           </div>
         )}
 
-        {activeTab === "networth" && (
+         {activeTab === "networth" && (isStaff || featureAccess[financialToolFeatureKey("networth") ?? ""] === true) && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3">
               <Card className="border-green-200 bg-green-50">

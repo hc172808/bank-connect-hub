@@ -976,6 +976,10 @@ const DEFAULT_FEATURE_TOGGLES = [
   { feature_key: "agent_deposits", feature_name: "Agent Deposits", is_enabled: false },
   { feature_key: "agent_distributions", feature_name: "Agent Distributions", is_enabled: false },
   { feature_key: "bank_reserve", feature_name: "Bank Reserve Controls", is_enabled: false },
+  { feature_key: "financial_tools_expenses", feature_name: "Financial Tools · Expense Tracking", is_enabled: false },
+  { feature_key: "financial_tools_income", feature_name: "Financial Tools · Income Tracking", is_enabled: false },
+  { feature_key: "financial_tools_debt", feature_name: "Financial Tools · Debt Tracking", is_enabled: false },
+  { feature_key: "financial_tools_networth", feature_name: "Financial Tools · Net Worth", is_enabled: false },
 ];
 
 const CLIENT_MENU_FEATURES = [
