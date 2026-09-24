@@ -50,7 +50,8 @@ const ScanToPay = () => {
     try {
       // Try to parse JSON QR data
       const parsed = JSON.parse(data);
-      const userId = parsed.userId;
+      const userId = parsed.userId || parsed.receiverId;
+      if (!userId || typeof userId !== "string") throw new Error("Invalid payment QR");
       
       // Fetch user info
       const { data: profile } = await supabase
@@ -68,15 +69,19 @@ const ScanToPay = () => {
       // Check if scanned user has PIN set
       setHasPin(!!profile?.pin_hash);
 
-      // Vendor "charge_request" QR includes a pre-filled amount → skip
+      // Vendor/payment request QR includes a pre-filled amount → skip
       // straight to the payment confirmation flow.
-      if (parsed.type === "charge_request" && typeof parsed.amount === "number") {
+      if (
+        (parsed.type === "charge_request" || parsed.type === "payment_request")
+        && Number.isFinite(Number(parsed.amount))
+        && Number(parsed.amount) > 0
+      ) {
         setSelectedAction("pay");
-        setAmount(String(parsed.amount));
+        setAmount(String(Number(parsed.amount)));
         setStep("amount");
         toast({
           title: "Payment request",
-          description: `${parsed.merchantName || profile?.full_name || "Vendor"} requests $${parsed.amount.toFixed(2)}`,
+          description: `${parsed.merchant || parsed.merchantName || profile?.full_name || "Vendor"} requests $${Number(parsed.amount).toFixed(2)}`,
         });
         return;
       }

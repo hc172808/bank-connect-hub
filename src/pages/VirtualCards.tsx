@@ -38,7 +38,7 @@ function hashCode(str: string): number {
   for (let i = 0; i < str.length; i++) {
     h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
   }
-  return Math.abs(h);
+  return h >>> 0;
 }
 
 function generateCardFromSeed(seed: string, index: number): Omit<VCard, "frozen" | "online_enabled"> {
@@ -52,8 +52,10 @@ function generateCardFromSeed(seed: string, index: number): Omit<VCard, "frozen"
   const n4 = 1000 + (hashCode(seed + index + "n4") % 9000);
   const number = `${n1} ${n2} ${n3} ${n4}`;
 
+  // Keep generated cards valid when the app is first opened late in the year.
+  // The old 2026-only range could produce cards that were already expired.
   const month = 1 + (h2 % 12);
-  const year  = 26 + (h2 % 5);
+  const year  = (new Date().getFullYear() % 100) + 3 + (h2 % 3);
   const expiry = `${String(month).padStart(2, "0")}/${year}`;
 
   const cvv = String(100 + (h3 % 900));
@@ -80,6 +82,47 @@ function generateCardFromSeed(seed: string, index: number): Omit<VCard, "frozen"
 }
 
 const STORAGE_KEY = "vbank_vcards_v1";
+const DEFAULT_DAILY_LIMIT = 500;
+const DEFAULT_MONTHLY_LIMIT = 2000;
+
+const createCard = (userId: string, index: number): VCard => ({
+  ...generateCardFromSeed(userId, index),
+  frozen: false,
+  online_enabled: true,
+});
+
+const normalizeCard = (raw: unknown, userId: string, index: number): VCard => {
+  const fallback = createCard(userId, index);
+  if (!raw || typeof raw !== "object") return fallback;
+
+  const value = raw as Partial<VCard>;
+  return {
+    ...fallback,
+    id: typeof value.id === "string" && value.id ? value.id : fallback.id,
+    label: typeof value.label === "string" && value.label ? value.label : fallback.label,
+    number: typeof value.number === "string" && /^\d{4}( \d{4}){3}$/.test(value.number)
+      ? value.number
+      : fallback.number,
+    expiry: typeof value.expiry === "string" && /^\d{2}\/\d{2}$/.test(value.expiry)
+      ? value.expiry
+      : fallback.expiry,
+    cvv: typeof value.cvv === "string" && /^\d{3}$/.test(value.cvv) ? value.cvv : fallback.cvv,
+    color: typeof value.color === "string" && value.color ? value.color : fallback.color,
+    frozen: value.frozen === true,
+    online_enabled: value.online_enabled !== false,
+    contactless_enabled: value.contactless_enabled !== false,
+    daily_limit: Number.isFinite(value.daily_limit) && Number(value.daily_limit) >= 0
+      ? Number(value.daily_limit)
+      : DEFAULT_DAILY_LIMIT,
+    monthly_limit: Number.isFinite(value.monthly_limit) && Number(value.monthly_limit) >= 0
+      ? Number(value.monthly_limit)
+      : DEFAULT_MONTHLY_LIMIT,
+    pin: typeof value.pin === "string" && /^\d{4}$/.test(value.pin) ? value.pin : fallback.pin,
+    created_at: typeof value.created_at === "string" && !Number.isNaN(Date.parse(value.created_at))
+      ? value.created_at
+      : fallback.created_at,
+  };
+};
 
 const VirtualCards = () => {
   const navigate = useNavigate();
@@ -88,29 +131,45 @@ const VirtualCards = () => {
   const [showDetails, setShowDetails] = useState<Record<string, boolean>>({});
   const [userId, setUserId] = useState("");
 
-  useEffect(() => {
-    init();
-  }, []);
-
-  const init = async () => {
+  async function init() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserId(user.id);
 
     const raw = localStorage.getItem(`${STORAGE_KEY}_${user.id}`);
     if (raw) {
-      setCards(JSON.parse(raw));
-    } else {
-      // Generate one default card
-      const base = generateCardFromSeed(user.id, 0);
-      const defaultCard: VCard = { ...base, frozen: false, online_enabled: true, contactless_enabled: true, daily_limit: 500, monthly_limit: 2000, pin: "1234" };
+      try {
+        const parsed = JSON.parse(raw);
+        const normalized = Array.isArray(parsed)
+          ? parsed.slice(0, 3).map((card, index) => normalizeCard(card, user.id, index))
+          : [];
+        if (normalized.length > 0) {
+          localStorage.setItem(`${STORAGE_KEY}_${user.id}`, JSON.stringify(normalized));
+          setCards(normalized);
+          return;
+        }
+      } catch {
+        // Recreate the local card record below when storage is corrupt.
+      }
+      localStorage.removeItem(`${STORAGE_KEY}_${user.id}`);
+    }
+
+    {
+      // Generate one default card.
+      const defaultCard = createCard(user.id, 0);
       const list = [defaultCard];
       localStorage.setItem(`${STORAGE_KEY}_${user.id}`, JSON.stringify(list));
       setCards(list);
     }
-  };
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void init(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const saveCards = (list: VCard[]) => {
+    if (!userId) return;
     localStorage.setItem(`${STORAGE_KEY}_${userId}`, JSON.stringify(list));
     setCards(list);
   };
@@ -132,15 +191,44 @@ const VirtualCards = () => {
       toast({ title: "Maximum 3 virtual cards", variant: "destructive" });
       return;
     }
-    const base = generateCardFromSeed(userId, cards.length);
-    const newCard: VCard = { ...base, frozen: false, online_enabled: true, contactless_enabled: true, daily_limit: 500, monthly_limit: 2000, pin: "1234" };
+    const newCard = createCard(userId, cards.length);
     saveCards([...cards, newCard]);
     toast({ title: "New virtual card created" });
   };
 
-  const copy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text.replace(/\s/g, ""));
-    toast({ title: `${label} copied` });
+  const copy = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text.replace(/\s/g, ""));
+      toast({ title: `${label} copied` });
+    } catch {
+      toast({
+        title: "Copy failed",
+        description: "Your browser blocked clipboard access. Select the value and copy it manually.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const updateLimit = (id: string, field: "daily_limit" | "monthly_limit", rawValue: string) => {
+    const value = Number(rawValue);
+    const card = cards.find((candidate) => candidate.id === id);
+    if (!card || !Number.isFinite(value) || value < 0) {
+      toast({ title: "Enter a valid non-negative limit", variant: "destructive" });
+      return;
+    }
+    if (field === "daily_limit" && value > card.monthly_limit) {
+      toast({ title: "Daily limit cannot exceed monthly limit", variant: "destructive" });
+      return;
+    }
+    if (field === "monthly_limit" && value < card.daily_limit) {
+      toast({ title: "Monthly limit must cover the daily limit", variant: "destructive" });
+      return;
+    }
+    const updated = cards.map((candidate) =>
+      candidate.id === id ? { ...candidate, [field]: value } : candidate
+    );
+    saveCards(updated);
+    toast({ title: `${field === "daily_limit" ? "Daily" : "Monthly"} limit updated` });
   };
 
   const toggleShow = (id: string) => {
@@ -291,26 +379,20 @@ const VirtualCards = () => {
                               <Label>Daily Spending Limit ($)</Label>
                               <Input
                                 type="number"
+                                 min="0"
+                                 step="0.01"
                                 defaultValue={card.daily_limit ?? 500}
-                                onBlur={e => {
-                                  const val = parseFloat(e.target.value) || 500;
-                                  const updated = cards.map(c => c.id === card.id ? { ...c, daily_limit: val } : c);
-                                  saveCards(updated);
-                                  toast({ title: "Daily limit updated" });
-                                }}
+                                 onBlur={e => updateLimit(card.id, "daily_limit", e.target.value)}
                               />
                             </div>
                             <div>
                               <Label>Monthly Spending Limit ($)</Label>
                               <Input
                                 type="number"
+                                 min="0"
+                                 step="0.01"
                                 defaultValue={card.monthly_limit ?? 2000}
-                                onBlur={e => {
-                                  const val = parseFloat(e.target.value) || 2000;
-                                  const updated = cards.map(c => c.id === card.id ? { ...c, monthly_limit: val } : c);
-                                  saveCards(updated);
-                                  toast({ title: "Monthly limit updated" });
-                                }}
+                                 onBlur={e => updateLimit(card.id, "monthly_limit", e.target.value)}
                               />
                             </div>
                             <div className="border-t pt-3">

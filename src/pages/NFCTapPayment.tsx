@@ -7,63 +7,140 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { processPrivateLedgerTransfer } from "@/lib/privateLedger";
 import {
   ArrowLeft, Smartphone, Wifi, WifiOff, QrCode, CheckCircle2,
-  AlertTriangle, Loader2, DollarSign, RefreshCw, Info,
+  AlertTriangle, Loader2, DollarSign, RefreshCw, Info, X,
 } from "lucide-react";
 import QRCode from "qrcode";
 
 type NFCState = "idle" | "scanning" | "reading" | "success" | "error";
 
 interface NFCPayload {
-  type: "payment_request";
+  type: "payment_request" | "charge_request";
   amount: number;
   currency: string;
   merchant: string;
   ref: string;
+  receiverId?: string;
 }
 
-const NFC_SUPPORTED = "NDEFReader" in window;
+const NFC_SUPPORTED = typeof window !== "undefined"
+  && window.isSecureContext
+  && "NDEFReader" in window;
+
+const USER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function decodeNfcRecord(record: { recordType: string; data: BufferSource }) {
+  try {
+    if (record.recordType === "text") {
+      const bytes = record.data instanceof ArrayBuffer
+        ? new Uint8Array(record.data)
+        : new Uint8Array(record.data.buffer, record.data.byteOffset, record.data.byteLength);
+      // Web NFC text records begin with a status byte and a language code.
+      const status = bytes[0] ?? 0;
+      const languageLength = status & 0x3f;
+      const textBytes = bytes.slice(1 + languageLength);
+      return new TextDecoder(status & 0x80 ? "utf-16" : "utf-8").decode(textBytes).trim();
+    }
+    return new TextDecoder().decode(record.data).trim();
+  } catch {
+    return "";
+  }
+}
+
+function parsePaymentPayload(text: string): NFCPayload | null {
+  try {
+    const parsed = JSON.parse(text) as Partial<NFCPayload> & { userId?: string };
+    const receiverId = parsed.receiverId || parsed.userId;
+    const amount = Number(parsed.amount);
+    if (
+      (parsed.type !== "payment_request" && parsed.type !== "charge_request")
+      || !Number.isFinite(amount)
+      || amount <= 0
+      || !receiverId
+      || !USER_ID_PATTERN.test(receiverId)
+    ) {
+      return null;
+    }
+    return {
+      type: parsed.type,
+      amount,
+      currency: parsed.currency || "USD",
+      merchant: parsed.merchant || "NETLIFE CASH merchant",
+      ref: parsed.ref || `NFC-${Date.now()}`,
+      receiverId,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export default function NFCTapPayment() {
   const navigate = useNavigate();
   const [nfcState, setNfcState] = useState<NFCState>("idle");
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState("");
+  const [recipientId, setRecipientId] = useState("");
+  const [recipientResults, setRecipientResults] = useState<Array<{ id: string; full_name: string | null; phone_number: string | null }>>([]);
+  const [recipientSearching, setRecipientSearching] = useState(false);
+  const [qrMerchantName, setQrMerchantName] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [balance, setBalance] = useState(0);
+  const [userId, setUserId] = useState("");
+  const [userName, setUserName] = useState("");
   const [tab, setTab] = useState<"tap" | "qr">(NFC_SUPPORTED ? "tap" : "qr");
   const [processing, setProcessing] = useState(false);
-  const readerRef = useRef<unknown>(null);
+  const readerRef = useRef<{ controller: AbortController } | null>(null);
 
   useEffect(() => {
-    loadBalance();
+    void loadBalance();
     return () => { stopNFC(); };
   }, []);
 
-  useEffect(() => {
-    if (tab === "qr" && amount && recipient) generateQR();
-  }, [amount, recipient, tab]);
+  async function searchRecipients(query: string) {
+    if (tab !== "tap" || recipientId || query.trim().length < 2) {
+      setRecipientResults([]);
+      setRecipientSearching(false);
+      return;
+    }
+    setRecipientSearching(true);
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, phone_number")
+      .or(`full_name.ilike.%${query.trim()}%,phone_number.ilike.%${query.trim()}%`)
+      .limit(8);
+    setRecipientResults((data || []).filter((candidate) => candidate.id !== userId));
+    setRecipientSearching(false);
+  }
 
-  const loadBalance = async () => {
+  async function loadBalance() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await (supabase
-        .from("wallets") as any).select("balance")
-        .eq("user_id", user.id).eq("wallet_type", "main").single();
-      setBalance((data as { balance: number } | null)?.balance || 0);
-    } catch {}
-  };
+      setUserId(user.id);
+      const [{ data: wallet }, { data: profile }] = await Promise.all([
+        supabase.from("wallets").select("balance").eq("user_id", user.id).maybeSingle(),
+        supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
+      ]);
+      const name = profile?.full_name || user.email || "NETLIFE CASH user";
+      setUserName(name);
+      setQrMerchantName((current) => current || name);
+      setBalance(wallet?.balance || 0);
+    } catch {
+      toast.error("Could not load your wallet balance.");
+    }
+  }
 
-  const generateQR = async () => {
-    if (!amount || !recipient) return;
+  async function generateQR() {
+    if (!amount || !userId || !qrMerchantName.trim()) return;
     const payload: NFCPayload = {
       type: "payment_request",
       amount: parseFloat(amount),
       currency: "USD",
-      merchant: recipient,
+      merchant: qrMerchantName.trim(),
       ref: `QR-${Date.now()}`,
+      receiverId: userId,
     };
     try {
       const url = await QRCode.toDataURL(JSON.stringify(payload), {
@@ -71,8 +148,15 @@ export default function NFCTapPayment() {
         color: { dark: "#1e1b4b", light: "#ffffff" },
       });
       setQrDataUrl(url);
-    } catch {}
-  };
+    } catch {
+      toast.error("Could not generate the payment QR code.");
+    }
+  }
+
+  function handleRecipientChange(query: string) {
+    setRecipient(query);
+    void searchRecipients(query);
+  }
 
   const startNFC = async () => {
     if (!NFC_SUPPORTED) {
@@ -83,32 +167,24 @@ export default function NFCTapPayment() {
     setNfcState("scanning");
     try {
       const NDEFReader = (window as unknown as { NDEFReader: new () => unknown }).NDEFReader;
+      const controller = new AbortController();
       const reader = new NDEFReader() as {
-        scan: () => Promise<void>;
+        scan: (options?: { signal?: AbortSignal }) => Promise<void>;
         onreading: ((event: { message: { records: Array<{ recordType: string; data: BufferSource }> } }) => void) | null;
         onerror: ((event: Event) => void) | null;
-        abort?: () => void;
       };
-      readerRef.current = reader;
-      await reader.scan();
-      setNfcState("reading");
+      readerRef.current = { controller };
 
       reader.onreading = (event) => {
         setNfcState("reading");
         for (const record of event.message.records) {
-          if (record.recordType === "text") {
-            const decoder = new TextDecoder();
-            const text = decoder.decode(record.data);
-            try {
-              const payload = JSON.parse(text) as NFCPayload;
-              if (payload.type === "payment_request") {
-                processNFCPayment(payload);
-                return;
-              }
-            } catch {}
+          const payload = parsePaymentPayload(decodeNfcRecord(record));
+          if (payload) {
+            void processNFCPayment(payload);
+            return;
           }
         }
-        toast.error("Unrecognized NFC tag");
+        toast.error("Unrecognized NFC payment tag");
         setNfcState("idle");
       };
 
@@ -116,78 +192,76 @@ export default function NFCTapPayment() {
         setNfcState("error");
         toast.error("NFC read error — try again");
       };
+      await reader.scan({ signal: controller.signal });
+      setNfcState("reading");
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setNfcState("error");
       const msg = err instanceof Error ? err.message : "NFC unavailable";
       toast.error(msg.includes("permission") ? "NFC permission denied — check browser settings" : msg);
     }
   };
 
-  const stopNFC = () => {
-    const reader = readerRef.current as { abort?: () => void } | null;
-    if (reader?.abort) reader.abort();
+  function stopNFC() {
+    readerRef.current?.controller.abort();
     readerRef.current = null;
     setNfcState("idle");
-  };
+  }
 
   const processNFCPayment = async (payload: NFCPayload) => {
     stopNFC();
     setProcessing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      if (payload.amount > balance) {
-        toast.error("Insufficient balance");
-        setNfcState("idle");
-        setProcessing(false);
-        return;
-      }
-
-      await supabase.from("transactions").insert({
-        sender_id: user.id,
+      if (!user || !payload.receiverId) throw new Error("This payment tag is missing a NETLIFE CASH recipient.");
+      const result = await processPrivateLedgerTransfer({
+        senderId: user.id,
+        receiverId: payload.receiverId,
         amount: payload.amount,
-        transaction_type: "nfc_payment",
-        description: `NFC Payment to ${payload.merchant}`,
-        status: "completed",
-        reference: payload.ref,
-      } as never);
+        transactionType: "transfer",
+        description: `NFC payment to ${payload.merchant}`,
+      });
+      if (!result.success) throw new Error(result.error || "The ledger rejected this payment.");
 
       setNfcState("success");
       toast.success(`Payment of $${payload.amount} to ${payload.merchant} complete!`);
       loadBalance();
     } catch (err) {
-      toast.error("Payment failed");
+      toast.error(err instanceof Error ? err.message : "Payment failed");
       setNfcState("error");
+    } finally {
+      setProcessing(false);
     }
-    setProcessing(false);
   };
 
   const manualPayment = async () => {
     if (!amount || parseFloat(amount) <= 0) { toast.error("Enter a valid amount"); return; }
-    if (!recipient.trim()) { toast.error("Enter a recipient"); return; }
+    if (!recipientId) { toast.error("Select a NETLIFE CASH recipient"); return; }
     setProcessing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      if (parseFloat(amount) > balance) { toast.error("Insufficient balance"); setProcessing(false); return; }
-
-      await supabase.from("transactions").insert({
-        sender_id: user.id,
+      if (!user) throw new Error("Please sign in again.");
+      const result = await processPrivateLedgerTransfer({
+        senderId: user.id,
+        receiverId: recipientId,
         amount: parseFloat(amount),
-        transaction_type: "nfc_payment",
-        description: `Tap Payment to ${recipient}`,
-        status: "completed",
-        reference: `TAP-${Date.now()}`,
-      } as never);
+        transactionType: "transfer",
+        description: `Tap payment to ${recipient}`,
+      });
+      if (!result.success) throw new Error(result.error || "The ledger rejected this payment.");
 
       toast.success(`Paid $${amount} to ${recipient}!`);
       setAmount("");
       setRecipient("");
+      setRecipientId("");
+      setRecipientResults([]);
       setQrDataUrl("");
       loadBalance();
-    } catch { toast.error("Payment failed"); }
-    setProcessing(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Payment failed");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const nfcIcon = nfcState === "scanning" || nfcState === "reading"
@@ -322,10 +396,60 @@ export default function NFCTapPayment() {
                 </div>
                 <div>
                   <Label className="text-xs">Recipient / Merchant</Label>
-                  <Input value={recipient} onChange={e => setRecipient(e.target.value)}
-                    placeholder="Merchant name or phone" className="h-9 mt-1" />
+                  {recipientId ? (
+                    <div className="mt-1 flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                      <span className="truncate text-sm">{recipient}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => {
+                          setRecipientId("");
+                          setRecipient("");
+                        }}
+                        aria-label="Change recipient"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <Input
+                        value={recipient}
+                        onChange={e => setRecipient(e.target.value)}
+                        placeholder="Search by name or phone"
+                        className="h-9 mt-1"
+                      />
+                      {recipient.trim().length >= 2 && (
+                        <div className="mt-1 overflow-hidden rounded-md border divide-y">
+                          {recipientSearching && (
+                            <p className="p-2 text-xs text-muted-foreground">Searching…</p>
+                          )}
+                          {!recipientSearching && recipientResults.length === 0 && (
+                            <p className="p-2 text-xs text-muted-foreground">No NETLIFE CASH users found.</p>
+                          )}
+                          {recipientResults.map((candidate) => (
+                            <button
+                              key={candidate.id}
+                              type="button"
+                              className="w-full px-3 py-2 text-left hover:bg-muted/60"
+                              onClick={() => {
+                                setRecipientId(candidate.id);
+                                setRecipient(candidate.full_name || candidate.phone_number || "NETLIFE CASH user");
+                                setRecipientResults([]);
+                              }}
+                            >
+                              <span className="block text-sm font-medium">{candidate.full_name || "Unnamed user"}</span>
+                              <span className="block text-xs text-muted-foreground">{candidate.phone_number || "NETLIFE CASH user"}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-                <Button onClick={manualPayment} disabled={processing} className="w-full gap-2">
+                <Button onClick={manualPayment} disabled={processing || !recipientId} className="w-full gap-2">
                   {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Smartphone className="h-4 w-4" />}
                   Pay Now
                 </Button>
@@ -349,14 +473,17 @@ export default function NFCTapPayment() {
                 </div>
                 <div>
                   <Label className="text-xs">Your Name / Business</Label>
-                  <Input value={recipient} onChange={e => setRecipient(e.target.value)}
-                    placeholder="Who is this for?" className="h-9 mt-1" />
+                  <Input value={qrMerchantName} onChange={e => setQrMerchantName(e.target.value)}
+                    placeholder={userName || "Who is this for?"} className="h-9 mt-1" />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    This QR is linked to your signed-in NETLIFE CASH account.
+                  </p>
                 </div>
                 {qrDataUrl && (
                   <div className="flex flex-col items-center gap-2 pt-2">
                     <img src={qrDataUrl} alt="Payment QR" className="w-48 h-48 rounded-xl border" />
                     <p className="text-xs text-muted-foreground text-center">
-                      Show this QR code to the payer. They scan it to send <strong>${amount}</strong> to <strong>{recipient}</strong>.
+                      Show this QR code to the payer. They scan it to send <strong>${amount}</strong> to <strong>{qrMerchantName}</strong>.
                     </p>
                     <Button variant="outline" size="sm" onClick={generateQR} className="gap-1">
                       <RefreshCw className="h-3.5 w-3.5" /> Regenerate
@@ -364,7 +491,7 @@ export default function NFCTapPayment() {
                   </div>
                 )}
                 {(!qrDataUrl) && (
-                  <Button onClick={generateQR} disabled={!amount || !recipient} className="w-full gap-2">
+                  <Button onClick={generateQR} disabled={!amount || !userId || !qrMerchantName.trim()} className="w-full gap-2">
                     <QrCode className="h-4 w-4" /> Generate QR
                   </Button>
                 )}
