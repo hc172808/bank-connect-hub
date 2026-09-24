@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, initSupabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -317,57 +317,68 @@ export default function Profile() {
     }
 
     setUploading(true);
+    const input = e.currentTarget;
 
-    const fileExt = file.name.split('.').pop();
-    const filePath = `${user.id}/avatar.${fileExt}`;
-
-    // Delete old avatar if exists
-    if (profile.avatar_url) {
-      const oldPath = profile.avatar_url.split('/').pop();
-      if (oldPath) {
-        await supabase.storage.from('avatars').remove([`${user.id}/${oldPath}`]);
+    try {
+      await initSupabase();
+      const { data: sessionData, error: sessionError } = await supabase.auth.getUser();
+      if (sessionError) throw sessionError;
+      if (!sessionData.user || sessionData.user.id !== user.id) {
+        throw new Error('Your session has expired. Sign in again and retry.');
       }
-    }
 
-    const { error: uploadError } = await supabase.storage
-      .from('avatars')
-      .upload(filePath, file, { upsert: true });
+      const fileExt = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const filePath = `${user.id}/avatar.${fileExt}`;
+      let oldPath = '';
+      if (profile.avatar_url) {
+        try {
+          const avatarUrl = new URL(profile.avatar_url);
+          const marker = '/storage/v1/object/public/avatars/';
+          const markerIndex = avatarUrl.pathname.indexOf(marker);
+          oldPath = markerIndex >= 0
+            ? decodeURIComponent(avatarUrl.pathname.slice(markerIndex + marker.length))
+            : '';
+        } catch {
+          oldPath = '';
+        }
+      }
 
-    if (uploadError) {
-      toast({
-        variant: "destructive",
-        title: "Upload failed",
-        description: uploadError.message,
-      });
-      setUploading(false);
-      return;
-    }
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true, contentType: file.type });
+      if (uploadError) throw uploadError;
 
-    const { data: publicUrl } = supabase.storage
-      .from('avatars')
-      .getPublicUrl(filePath);
+      const { data: publicUrl } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+      const avatarUrl = `${publicUrl.publicUrl}?v=${Date.now()}`;
 
-    // Update profile with new avatar URL
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ avatar_url: publicUrl.publicUrl })
-      .eq('id', user.id);
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: avatarUrl })
+        .eq('id', user.id);
+      if (updateError) throw updateError;
 
-    if (updateError) {
-      toast({
-        variant: "destructive",
-        title: "Update failed",
-        description: updateError.message,
-      });
-    } else {
-      setProfile({ ...profile, avatar_url: publicUrl.publicUrl });
+      if (oldPath && oldPath !== filePath) {
+        await supabase.storage.from('avatars').remove([oldPath]);
+      }
+
+      setProfile((current) => ({ ...current, avatar_url: avatarUrl }));
       toast({
         title: "Avatar updated",
         description: "Your profile picture has been updated",
       });
+    } catch (error: any) {
+      const message = error?.message || "The profile picture could not be uploaded.";
+      toast({
+        variant: "destructive",
+        title: "Upload failed",
+        description: message,
+      });
+    } finally {
+      input.value = '';
+      setUploading(false);
     }
-
-    setUploading(false);
   };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
