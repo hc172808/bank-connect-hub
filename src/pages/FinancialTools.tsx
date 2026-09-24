@@ -121,9 +121,17 @@ const FinancialTools = () => {
 
   const removeDebt = (id: string) => saveAll(expenses, incomes, debts.filter(d => d.id !== id));
 
-  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
-  const totalIncome = incomes.filter(i => !i.recurring).reduce((s, i) => s + i.amount, 0)
-    + incomes.filter(i => i.recurring).reduce((s, i) => s + i.amount, 0);
+  const today = new Date();
+  const isCurrentMonth = (date: string) => {
+    const parsed = new Date(date);
+    return !Number.isNaN(parsed.getTime())
+      && parsed.getFullYear() === today.getFullYear()
+      && parsed.getMonth() === today.getMonth();
+  };
+  const monthlyExpenses = expenses.filter((expense) => isCurrentMonth(expense.date));
+  const monthlyIncome = incomes.filter((income) => isCurrentMonth(income.date));
+  const totalExpenses = monthlyExpenses.reduce((s, e) => s + e.amount, 0);
+  const totalIncome = monthlyIncome.reduce((s, i) => s + i.amount, 0);
   const totalDebt = debts.reduce((s, d) => s + d.remaining, 0);
   const netWorth = walletBalance - totalDebt;
   const savingsRate = totalIncome > 0 ? Math.max(0, ((totalIncome - totalExpenses) / totalIncome) * 100) : 0;
@@ -140,7 +148,7 @@ const FinancialTools = () => {
     : healthScore >= 40 ? { l: "Fair", c: "text-yellow-600" }
     : { l: "Needs Work", c: "text-red-600" };
 
-  const expByCategory = expenses.reduce((acc: Record<string, number>, e) => {
+  const expByCategory = monthlyExpenses.reduce((acc: Record<string, number>, e) => {
     acc[e.category] = (acc[e.category] || 0) + e.amount;
     return acc;
   }, {});
