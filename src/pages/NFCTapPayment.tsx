@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { processPrivateLedgerTransfer } from "@/lib/privateLedger";
 import {
@@ -23,6 +24,13 @@ interface NFCPayload {
   merchant: string;
   ref: string;
   receiverId?: string;
+}
+
+interface RecipientProfile {
+  id: string;
+  full_name: string | null;
+  phone_number: string | null;
+  avatar_url: string | null;
 }
 
 const NFC_SUPPORTED = typeof window !== "undefined"
@@ -76,13 +84,27 @@ function parsePaymentPayload(text: string): NFCPayload | null {
   }
 }
 
+function recipientInitials(profile: RecipientProfile) {
+  const name = profile.full_name?.trim();
+  if (name) {
+    return name
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase();
+  }
+  return profile.phone_number?.slice(-2) || "NC";
+}
+
 export default function NFCTapPayment() {
   const navigate = useNavigate();
   const [nfcState, setNfcState] = useState<NFCState>("idle");
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState("");
   const [recipientId, setRecipientId] = useState("");
-  const [recipientResults, setRecipientResults] = useState<Array<{ id: string; full_name: string | null; phone_number: string | null }>>([]);
+  const [selectedRecipient, setSelectedRecipient] = useState<RecipientProfile | null>(null);
+  const [recipientResults, setRecipientResults] = useState<RecipientProfile[]>([]);
   const [recipientSearching, setRecipientSearching] = useState(false);
   const [qrMerchantName, setQrMerchantName] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
@@ -107,7 +129,7 @@ export default function NFCTapPayment() {
     setRecipientSearching(true);
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, phone_number")
+      .select("id, full_name, phone_number, avatar_url")
       .or(`full_name.ilike.%${query.trim()}%,phone_number.ilike.%${query.trim()}%`)
       .limit(8);
     setRecipientResults((data || []).filter((candidate) => candidate.id !== userId));
@@ -254,6 +276,7 @@ export default function NFCTapPayment() {
       setAmount("");
       setRecipient("");
       setRecipientId("");
+      setSelectedRecipient(null);
       setRecipientResults([]);
       setQrDataUrl("");
       loadBalance();
@@ -397,8 +420,24 @@ export default function NFCTapPayment() {
                 <div>
                   <Label className="text-xs">Recipient / Merchant</Label>
                   {recipientId ? (
-                    <div className="mt-1 flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
-                      <span className="truncate text-sm">{recipient}</span>
+                    <div className="mt-1 flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-2">
+                      <Avatar className="h-9 w-9">
+                        <AvatarImage
+                          src={selectedRecipient?.avatar_url || undefined}
+                          alt={`${selectedRecipient?.full_name || recipient} profile photo`}
+                        />
+                        <AvatarFallback>
+                          {selectedRecipient ? recipientInitials(selectedRecipient) : "NC"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {selectedRecipient?.full_name || "Unnamed user"}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {selectedRecipient?.phone_number || "Phone number unavailable"}
+                        </p>
+                      </div>
                       <Button
                         type="button"
                         variant="ghost"
@@ -407,6 +446,7 @@ export default function NFCTapPayment() {
                         onClick={() => {
                           setRecipientId("");
                           setRecipient("");
+                          setSelectedRecipient(null);
                         }}
                         aria-label="Change recipient"
                       >
@@ -417,7 +457,7 @@ export default function NFCTapPayment() {
                     <>
                       <Input
                         value={recipient}
-                        onChange={e => setRecipient(e.target.value)}
+                        onChange={e => handleRecipientChange(e.target.value)}
                         placeholder="Search by name or phone"
                         className="h-9 mt-1"
                       />
@@ -433,15 +473,29 @@ export default function NFCTapPayment() {
                             <button
                               key={candidate.id}
                               type="button"
-                              className="w-full px-3 py-2 text-left hover:bg-muted/60"
+                              className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-muted/60"
                               onClick={() => {
                                 setRecipientId(candidate.id);
                                 setRecipient(candidate.full_name || candidate.phone_number || "NETLIFE CASH user");
+                                setSelectedRecipient(candidate);
                                 setRecipientResults([]);
                               }}
                             >
-                              <span className="block text-sm font-medium">{candidate.full_name || "Unnamed user"}</span>
-                              <span className="block text-xs text-muted-foreground">{candidate.phone_number || "NETLIFE CASH user"}</span>
+                              <Avatar className="h-9 w-9">
+                                <AvatarImage
+                                  src={candidate.avatar_url || undefined}
+                                  alt={`${candidate.full_name || "User"} profile photo`}
+                                />
+                                <AvatarFallback>{recipientInitials(candidate)}</AvatarFallback>
+                              </Avatar>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium">
+                                  {candidate.full_name || "Unnamed user"}
+                                </span>
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {candidate.phone_number || "Phone number unavailable"}
+                                </span>
+                              </span>
                             </button>
                           ))}
                         </div>
