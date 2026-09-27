@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "bash", "go-1.21"]
+modules = ["nodejs-20", "bash", "go-1.21", "python-base-3.13"]
 [agent]
 expertMode = true
 integrations = ["javascript_database:1.0.0"]
@@ -60,13 +60,5 @@ NODE_ENV = "development"
 VITE_SUPABASE_PROJECT_ID = "nrmzexwkeoekbqigdwod"
 
 [[ports]]
-localPort = 3001
-externalPort = 80
-
-[[ports]]
 localPort = 5000
-externalPort = 5000
-
-[[ports]]
-localPort = 5001
-externalPort = 3000
+externalPort = 80
