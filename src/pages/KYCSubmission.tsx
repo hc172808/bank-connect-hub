@@ -185,6 +185,21 @@ const KYCSubmission = () => {
     void load();
   }, []);
 
+  useEffect(() => {
+    if (existing?.status === "approved") {
+      navigate("/", { replace: true });
+      return;
+    }
+    if (existing?.status !== "pending") return;
+    const interval = window.setInterval(() => void load(), 15000);
+    const refreshOnFocus = () => void load();
+    window.addEventListener("focus", refreshOnFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshOnFocus);
+    };
+  }, [existing?.status, navigate]);
+
   const load = async () => {
     try {
       await initSupabase();
@@ -292,7 +307,7 @@ const KYCSubmission = () => {
         type: "kyc_update",
       } as never);
       toast.success("KYC submitted for review");
-      void load();
+      navigate("/", { replace: true });
     } catch (e) {
       if (!submissionCreated && uploadedPaths.length) {
         await supabase.storage.from("kyc-documents").remove(uploadedPaths);
@@ -333,10 +348,16 @@ const KYCSubmission = () => {
             <CardContent>
               <Badge variant={statusColor(existing.status)}>{existing.status.toUpperCase()}</Badge>
               {existing.status === "pending" && (
-                <p className="text-sm text-muted-foreground mt-2">Your documents are being reviewed.</p>
+                <>
+                  <p className="text-sm text-muted-foreground mt-2">Your documents are being reviewed. You can continue using your dashboard while you wait.</p>
+                  <Button className="mt-4 w-full" onClick={() => navigate("/", { replace: true })}>Go to Dashboard</Button>
+                </>
               )}
               {existing.status === "approved" && (
-                <p className="text-sm text-muted-foreground mt-2">Your identity has been verified!</p>
+                <>
+                  <p className="text-sm text-muted-foreground mt-2">Your identity has been verified!</p>
+                  <Button className="mt-4 w-full" onClick={() => navigate("/", { replace: true })}>Go to Dashboard</Button>
+                </>
               )}
             </CardContent>
           </Card>
