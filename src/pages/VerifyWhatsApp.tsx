@@ -24,7 +24,7 @@ import {
 
 const VerifyWhatsApp = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const { toast } = useToast();
   const homeRoute = useDashboardHome();
   const [settings, setSettings] = useState<WhatsAppSettings | null>(null);
@@ -64,6 +64,23 @@ const VerifyWhatsApp = () => {
   };
 
   useEffect(() => { void load(); }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const refresh = () => void load();
+    const interval = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (request?.status === "verified" && role) {
+      navigate(homeRoute, { replace: true });
+    }
+  }, [homeRoute, navigate, request?.status, role]);
 
   const message = `Hi, my NETLIFE CASH verification code is ${code}. My registered phone is ${userPhone || "the number on my account"}.`;
 
