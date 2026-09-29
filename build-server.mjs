@@ -66,14 +66,6 @@ function getSupabaseUrl() {
     process.env.VITE_SUPABASE_URL ||
     ""
   ).trim();
-  const requestedProjectUrl = "https://ocngdgwelxaiyzdywjld.supabase.co";
-  const legacyProjectRef = "pdsjwvcxolifgvwjvtwy";
-
-  // Migration guard for the previous project. Remove this branch after the
-  // Replit secret has been replaced with the new project URL/reference.
-  if (projectId === legacyProjectRef || configuredUrl.includes(`${legacyProjectRef}.supabase.co`)) {
-    return requestedProjectUrl;
-  }
   // SUPABASE_URL is the authoritative server-side setting. PROJECT_ID can be
   // a Replit project id rather than a Supabase project ref, and deriving a
   // hostname from it can silently point the browser at a nonexistent project.
@@ -206,6 +198,31 @@ app.get("/api/config", (_req, res) => {
       "VITE_SUPABASE_PUBLISHABLE_KEY"
     ),
     whatsappNumber: headerSafe(process.env.VITE_WHATSAPP_SUPPORT_NUMBER, "VITE_WHATSAPP_SUPPORT_NUMBER"),
+  });
+});
+
+// GET /api/config/status — safe deployment diagnostic
+// Reports only the active project reference and credential presence. Never
+// return or log a Supabase key.
+app.get("/api/config/status", (_req, res) => {
+  const supabaseUrl = getSupabaseUrl();
+  let projectRef = null;
+  try {
+    projectRef = new URL(supabaseUrl).hostname.split(".")[0] || null;
+  } catch {
+    // Keep the diagnostic useful even when the URL is malformed.
+  }
+  res.json({
+    supabaseUrl: headerSafe(supabaseUrl, "SUPABASE_URL"),
+    projectRef,
+    hasPublishableKey: Boolean(
+      String(
+        process.env.SUPABASE_PUBLISHABLE_KEY ||
+          process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+          "",
+      ).trim(),
+    ),
+    hasServiceRoleKey: Boolean(getSupabaseServiceRoleKey()),
   });
 });
 
