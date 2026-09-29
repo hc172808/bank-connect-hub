@@ -2,7 +2,16 @@
 -- and founders. Browser role writes remain blocked; the app uses its protected
 -- server endpoint for role changes.
 
-ALTER TYPE public.app_role ADD VALUE IF NOT EXISTS 'founder';
+-- The active project stores roles as text, while older installations used an
+-- app_role enum. Extend the enum only when it exists; the functions below use
+-- uncast string literals so both role representations remain compatible.
+DO $$
+BEGIN
+  IF to_regtype('public.app_role') IS NOT NULL THEN
+    EXECUTE 'ALTER TYPE public.app_role ADD VALUE IF NOT EXISTS ''founder''';
+  END IF;
+END
+$$;
 
 CREATE OR REPLACE FUNCTION public.admin_add_funds(
   _user_id uuid,
@@ -17,8 +26,8 @@ DECLARE
   _transaction_id uuid;
 BEGIN
   IF NOT (
-    public.has_role(auth.uid(), 'admin'::public.app_role)
-    OR public.has_role(auth.uid(), 'founder'::public.app_role)
+    public.has_role(auth.uid(), 'admin')
+    OR public.has_role(auth.uid(), 'founder')
   ) THEN
     RETURN jsonb_build_object('success', false, 'error', 'Unauthorized');
   END IF;
@@ -95,8 +104,8 @@ BEGIN
   END IF;
 
   SELECT (
-    public.has_role(_sender_id, 'admin'::public.app_role)
-    OR public.has_role(_sender_id, 'founder'::public.app_role)
+    public.has_role(_sender_id, 'admin')
+    OR public.has_role(_sender_id, 'founder')
   ) INTO _is_staff;
 
   SELECT balance INTO _sender_balance
@@ -177,8 +186,8 @@ BEGIN
   END IF;
 
   SELECT (
-    public.has_role(auth.uid(), 'admin'::public.app_role)
-    OR public.has_role(auth.uid(), 'founder'::public.app_role)
+    public.has_role(auth.uid(), 'admin')
+    OR public.has_role(auth.uid(), 'founder')
   ) INTO _is_staff;
 
   IF NOT _is_staff THEN
