@@ -1,7 +1,9 @@
 -- Compatibility objects for importing the app's Supabase migrations into a
 -- plain PostgreSQL database. Supabase normally owns these schemas and roles.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE SCHEMA IF NOT EXISTS storage;
+CREATE SCHEMA IF NOT EXISTS extensions;
 
 DO $$
 BEGIN
@@ -38,6 +40,9 @@ CREATE TABLE IF NOT EXISTS storage.buckets (
   name text UNIQUE NOT NULL,
   public boolean NOT NULL DEFAULT false
 );
+ALTER TABLE storage.buckets
+  ADD COLUMN IF NOT EXISTS file_size_limit bigint,
+  ADD COLUMN IF NOT EXISTS allowed_mime_types text[];
 
 CREATE TABLE IF NOT EXISTS storage.objects (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -231,6 +231,133 @@ npm_ci_production() {
   rm -f "$install_log"
 }
 
+# Apply the repository's deployable PostgreSQL SQL files exactly once per
+# database. Full schema snapshots and account-creation scripts are intentionally
+# excluded: snapshots duplicate the migration history, while SQL-update.sql
+# requires a password supplied only by an operator in the current SQL session.
+collect_postgres_sql_files() {
+  local file name
+  POSTGRES_SQL_FILES=()
+  POSTGRES_SQL_BEFORE_STAFF=()
+  POSTGRES_SQL_AFTER_STAFF=()
+
+  # Plain PostgreSQL needs the small Supabase-compatibility bootstrap before
+  # the first migration. Local mode also mounts this file into initdb, but
+  # applying it here makes existing volumes and remote PostgreSQL consistent.
+  if [[ "$DB_MODE" == "local" || "$DB_MODE" == "remote-dsn" ]]; then
+    [[ -f "${APP_DIR}/database/local-bootstrap.sql" ]] &&
+      POSTGRES_SQL_FILES+=("${APP_DIR}/database/local-bootstrap.sql")
+  fi
+
+  if [[ -d "${APP_DIR}/supabase/migrations" ]]; then
+    while IFS= read -r -d '' file; do
+      name="$(basename "$file")"
+      # This file is inserted after the private-ledger migration below so the
+      # KYC/staff checks remain the final definition of the wrapper function.
+      [[ "$name" == "20260921110000_staff-role-and-funds.sql" ]] && continue
+      POSTGRES_SQL_BEFORE_STAFF+=("$file")
+    done < <(find "${APP_DIR}/supabase/migrations" -maxdepth 1 -type f \
+      -iname '*.sql' -print0 | sort -z)
+  fi
+
+  # Root-level SQL files are supported automatically. Keep full snapshots and
+  # the operator-supplied-password script out of unattended deployment.
+  while IFS= read -r -d '' file; do
+    name="$(basename "$file")"
+    case "$name" in
+      all_migrations.sql|postgres-setup.sql|SQL-update.sql)
+        continue
+        ;;
+      whatsapp-login-toggle.sql)
+        POSTGRES_SQL_AFTER_STAFF+=("$file")
+        ;;
+      *)
+        POSTGRES_SQL_BEFORE_STAFF+=("$file")
+        ;;
+    esac
+  done < <(find "${APP_DIR}" -maxdepth 1 -type f -iname '*.sql' -print0 | sort -z)
+
+  # Migration files are the canonical order. Root-level repair files run after
+  # that history, and the staff/funds migration remains the final function
+  # override before optional seed toggles.
+  POSTGRES_SQL_FILES+=("${POSTGRES_SQL_BEFORE_STAFF[@]}")
+  if [[ -f "${APP_DIR}/supabase/migrations/20260921110000_staff-role-and-funds.sql" ]]; then
+    POSTGRES_SQL_FILES+=("${APP_DIR}/supabase/migrations/20260921110000_staff-role-and-funds.sql")
+  fi
+  POSTGRES_SQL_FILES+=("${POSTGRES_SQL_AFTER_STAFF[@]}")
+}
+
+apply_postgres_sql_files() {
+  local mode="${1:-}" file name applied
+  local -a psql_command=()
+
+  collect_postgres_sql_files
+  if [[ "${#POSTGRES_SQL_FILES[@]}" -eq 0 ]]; then
+    warn "No deployable PostgreSQL SQL files were found."
+    return 0
+  fi
+
+  case "$mode" in
+    local)
+      psql_command=(
+        "${DB_COMPOSE[@]}" exec -T postgres psql -X
+        -v ON_ERROR_STOP=1
+        -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"
+      )
+      ;;
+    remote-dsn)
+      command -v psql &>/dev/null ||
+        err "PostgreSQL client is required for DB_MODE=remote-dsn."
+      psql_command=(psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1)
+      ;;
+    self-hosted)
+      local selfhost_dir="${SUPABASE_INSTALL_DIR:-/opt/supabase}/docker"
+      [[ -f "${selfhost_dir}/docker-compose.yml" ]] ||
+        err "Self-hosted Supabase Docker Compose file was not found at ${selfhost_dir}."
+      local -a selfhost_compose=(
+        docker compose --env-file "${selfhost_dir}/.env"
+        -f "${selfhost_dir}/docker-compose.yml"
+      )
+      psql_command=(
+        "${selfhost_compose[@]}" exec -T db psql -X
+        -v ON_ERROR_STOP=1 -U postgres -d postgres
+      )
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  "${psql_command[@]}" -c '
+    CREATE TABLE IF NOT EXISTS public.deploy_sql_migrations (
+      filename text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    );
+  ' >/dev/null
+
+  log "Applying discovered PostgreSQL SQL files (${#POSTGRES_SQL_FILES[@]})…"
+  for file in "${POSTGRES_SQL_FILES[@]}"; do
+    name="${file#${APP_DIR}/}"
+    applied="$("${psql_command[@]}" -At \
+      -c "SELECT 1 FROM public.deploy_sql_migrations WHERE filename = '${name}' LIMIT 1;" \
+      2>/dev/null || true)"
+    if [[ "$applied" == "1" ]]; then
+      info "  already applied: ${name}"
+      continue
+    fi
+
+    log "  applying: ${name}"
+    # Each file is atomic. A failed SQL file stops deployment rather than
+    # silently leaving a partially initialized financial database.
+    "${psql_command[@]}" --single-transaction -f "$file"
+    "${psql_command[@]}" -c \
+      "INSERT INTO public.deploy_sql_migrations (filename) VALUES ('${name}');" \
+      >/dev/null
+    ok "  applied: ${name}"
+  done
+  ok "PostgreSQL SQL deployment complete"
+}
+
 # =============================================================================
 # STEP 1 — Gather required values interactively
 # =============================================================================
@@ -442,14 +569,14 @@ case "$PKG" in
       curl wget git ca-certificates gnupg lsb-release \
       ufw openssl jq net-tools unzip zip rsync cron \
       build-essential python3 python3-pip apt-transport-https \
-      nginx software-properties-common
+      nginx software-properties-common postgresql-client
     ;;
   dnf|yum)
     $PKG update -y -q
     $PKG install -y -q \
       curl wget git ca-certificates gnupg openssl jq net-tools unzip zip rsync cronie \
       gcc gcc-c++ make python3 python3-pip \
-      nginx firewalld
+      nginx firewalld postgresql
     ;;
 esac
 ok "System prerequisites installed"
@@ -936,8 +1063,6 @@ if [[ "${DB_MODE:-cloud}" == "local" ]]; then
   mkdir -p "${LOCAL_DB_DIR}/database"
   cp "${APP_DIR}/db-server/docker-compose.yml" "${LOCAL_DB_DIR}/docker-compose.yml"
   cp "${APP_DIR}/database/local-bootstrap.sql" "${LOCAL_DB_DIR}/database/local-bootstrap.sql"
-  [[ -f "${APP_DIR}/all_migrations.sql" ]] && \
-    cp "${APP_DIR}/all_migrations.sql" "${LOCAL_DB_DIR}/all_migrations.sql"
 
   # The checked-in Compose file uses a repo-relative bootstrap path. The
   # server copy lives in /opt/netlifecash-db, so make that path local.
@@ -972,16 +1097,17 @@ DBENV
     err "PostgreSQL did not become ready. Check: ${DB_COMPOSE[*]} logs postgres"
   ok "PostgreSQL ready on 127.0.0.1:${POSTGRES_PORT}"
 
-  if [[ -s "${LOCAL_DB_DIR}/all_migrations.sql" ]]; then
-    log "Loading application database migrations…"
-    "${DB_COMPOSE[@]}" exec -T postgres \
-      psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
-      < "${LOCAL_DB_DIR}/all_migrations.sql" \
-      && ok "Application migrations loaded" \
-      || warn "Migration import reported errors; inspect PostgreSQL logs before production use"
-  fi
+  apply_postgres_sql_files local
 
   ok "pgAdmin available privately on 127.0.0.1:${PGADMIN_PORT}"
+fi
+
+# =============================================================================
+# STEP 9.6 — Remote/self-hosted PostgreSQL SQL deployment
+# =============================================================================
+if [[ "${DB_MODE:-cloud}" == "remote-dsn" || "${DB_MODE:-cloud}" == "self-hosted" ]]; then
+  section "STEP 9.6 — PostgreSQL SQL Deployment"
+  apply_postgres_sql_files "${DB_MODE}"
 fi
 
 # Write (or refresh) .env in the app directory
