@@ -15,6 +15,7 @@
 - [Supabase schema rollout](supabase-schema-rollout.md) — app builds do not apply Supabase migrations; remote schema and storage policies need an explicit rollout
 - [Bank reserve controls](bank-reserve.md) — reserve funding and internal-funds writes are database RPCs; apply the dedicated migration before enabling the feature
 - [Supabase runtime configuration](supabase-runtime-config.md) — server-side SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must override stale VITE/project-id values
+- [Supabase service-role deployment](supabase-service-role-deployment.md) — normalize service-key aliases across self-hosted, systemd, PM2, and Docker updates
 - [Phone registration confirmation](phone-registration-auth.md) — phone-based internal emails must be created through the server registration route so password login is immediately usable
 - [NFC payment rail](nfc-payments.md) — decode Web NFC text metadata and settle NFC/QR payments through the private ledger, never direct transaction inserts
 - [Client menu access](client-menu-access.md) — regular-user menu visibility combines global Feature Toggles with per-user access; admins/founders bypass both

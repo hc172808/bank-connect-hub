@@ -86,6 +86,60 @@ function getSupabaseUrl() {
   return configuredUrl;
 }
 
+function getSupabaseServiceRoleKey() {
+  const configuredKey = [
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    process.env.SUPABASE_SECRET_KEY,
+    process.env.SUPABASE_SERVICE_KEY,
+    process.env.SERVICE_ROLE_KEY,
+  ].find((value) => String(value || "").trim());
+  if (configuredKey) return configuredKey;
+
+  // A self-hosted Supabase install keeps its generated key in the Supabase
+  // stack's dotenv file, while the app may have been deployed without copying
+  // that value into its own .env. Recover it at startup so the first update
+  // after an older deployment can fix admin verification immediately.
+  const dotenvFiles = [
+    process.env.SUPABASE_ENV_FILE,
+    path.join(__dirname, ".env"),
+    path.join(process.env.SUPABASE_INSTALL_DIR || "/opt/supabase", "docker", ".env"),
+  ].filter(Boolean);
+  const keyNames = new Set([
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_SECRET_KEY",
+    "SUPABASE_SERVICE_KEY",
+    "SERVICE_ROLE_KEY",
+  ]);
+
+  for (const dotenvFile of dotenvFiles) {
+    try {
+      const raw = fs.readFileSync(dotenvFile, "utf8");
+      for (const line of raw.split("\n")) {
+        const match = line.match(/^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+        if (!match || !keyNames.has(match[1])) continue;
+        const value = match[2].replace(/^(['"])(.*)\1$/, "$2").trim();
+        if (value) return value;
+      }
+    } catch {
+      // This file is optional; continue to the next known location.
+    }
+  }
+
+  try {
+    const credentialsFile = path.join(
+      process.env.SUPABASE_INSTALL_DIR || "/opt/supabase",
+      "SUPABASE_CREDENTIALS.txt",
+    );
+    const raw = fs.readFileSync(credentialsFile, "utf8");
+    const match = raw.match(/^\s*Service role key\s*:\s*(\S+)\s*$/m);
+    if (match?.[1]) return match[1];
+  } catch {
+    // The credentials summary is optional.
+  }
+
+  return "";
+}
+
 // ── Persistence ──────────────────────────────────────────────────────────────
 function loadBuilds() {
   try {
@@ -1102,9 +1156,7 @@ app.post("/api/sms/broadcast", async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════════
 
 const SUPABASE_URL      = getSupabaseUrl();
-const SUPABASE_ADMIN_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SECRET_KEY; // optional
+const SUPABASE_ADMIN_KEY = getSupabaseServiceRoleKey(); // optional
 const SUPABASE_PUBLISHABLE_KEY =
   process.env.SUPABASE_PUBLISHABLE_KEY ||
   process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -1832,14 +1884,18 @@ app.post("/api/auth/ensure-admin", async (req, res) => {
   const { email, password, metadata = {}, legacyEmails = [] } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: "email and password required" });
 
-  let supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  let serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+  let supabaseUrl = getSupabaseUrl();
+  let serviceKey  = getSupabaseServiceRoleKey();
   if (!supabaseUrl || !serviceKey) {
     try {
       const dotenv = fs.readFileSync(path.join(__dirname, ".env"), "utf8");
       const parse  = (key) => { const m = dotenv.match(new RegExp(`^${key}="?([^"\\n]+)"?`, "m")); return m?.[1] || ""; };
-      supabaseUrl = supabaseUrl || parse("VITE_SUPABASE_URL") || parse("SUPABASE_URL");
-      serviceKey  = serviceKey || parse("SUPABASE_SERVICE_ROLE_KEY") || parse("SUPABASE_SECRET_KEY");
+      supabaseUrl = supabaseUrl || parse("SUPABASE_URL") || parse("VITE_SUPABASE_URL");
+      serviceKey  = serviceKey ||
+        parse("SUPABASE_SERVICE_ROLE_KEY") ||
+        parse("SUPABASE_SECRET_KEY") ||
+        parse("SUPABASE_SERVICE_KEY") ||
+        parse("SERVICE_ROLE_KEY");
     } catch { /* ignore */ }
   }
   if (!supabaseUrl || !serviceKey) {

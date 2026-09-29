@@ -168,7 +168,7 @@ fi
 VITE_SUPABASE_URL="${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}"
 VITE_SUPABASE_PUBLISHABLE_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}"
 VITE_SUPABASE_PROJECT_ID="${VITE_SUPABASE_PROJECT_ID:-${SUPABASE_PROJECT_ID:-}}"
-SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-${SUPABASE_SECRET_KEY:-}}"
+SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-${SUPABASE_SECRET_KEY:-${SUPABASE_SERVICE_KEY:-${SERVICE_ROLE_KEY:-}}}}"
 export VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY VITE_SUPABASE_PROJECT_ID
 export SUPABASE_SERVICE_ROLE_KEY
 
@@ -753,6 +753,18 @@ SBINFO
 
   # Open Supabase ports in firewall (handled generically in STEP 8 below)
   SB_PORTS_OPEN=true
+fi
+
+# If self-hosted Supabase was already installed, recover its service key before
+# writing the app .env. This keeps future update/restart operations working.
+if [[ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && -n "${SUPABASE_INSTALL_DIR:-}" ]]; then
+  if [[ -f "${SUPABASE_INSTALL_DIR}/docker/.env" ]]; then
+    SUPABASE_SERVICE_ROLE_KEY="$(
+      grep -E '^SERVICE_ROLE_KEY=' "${SUPABASE_INSTALL_DIR}/docker/.env" \
+        | head -1 | cut -d= -f2-
+    )"
+  fi
+  export SUPABASE_SERVICE_ROLE_KEY
 fi
 
 # =============================================================================

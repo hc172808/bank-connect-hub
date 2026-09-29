@@ -64,6 +64,93 @@ if [ ! -f ".env" ]; then
   warn "If something breaks, copy .env.ubuntu.example to .env and fill it in."
 fi
 
+# ── Normalize Supabase admin credentials before any restart ───────────────────
+# Different Supabase installers use different names for the same service-role
+# JWT. The Node server accepts all of them, but keeping the canonical name in
+# the app .env also makes systemd/PM2 restarts deterministic.
+read_dotenv_value() {
+  local wanted="$1"
+  local file="$2"
+  [ -r "$file" ] || return 0
+  awk -v key="$wanted" '
+    {
+      line=$0
+      sub(/^[[:space:]]+/, "", line)
+      prefix=key "="
+      export_prefix="export " key "="
+      if (index(line, prefix) == 1) {
+        print substr(line, length(prefix) + 1)
+        exit
+      }
+      if (index(line, export_prefix) == 1) {
+        print substr(line, length(export_prefix) + 1)
+        exit
+      }
+    }
+  ' "$file"
+}
+
+clean_dotenv_value() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  if [ "${#value}" -ge 2 ] &&
+     { { [ "${value:0:1}" = '"' ] && [ "${value: -1}" = '"' ]; } ||
+       { [ "${value:0:1}" = "'" ] && [ "${value: -1}" = "'" ]; }; }; then
+    value="${value:1:${#value}-2}"
+  fi
+  printf '%s' "$value"
+}
+
+SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
+SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY:-${SUPABASE_SECRET_KEY:-}}"
+SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY:-${SUPABASE_SERVICE_KEY:-}}"
+SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY:-${SERVICE_ROLE_KEY:-}}"
+
+if [ -z "$SERVICE_ROLE_KEY" ] && [ -f ".env" ]; then
+  for key_name in SUPABASE_SERVICE_ROLE_KEY SUPABASE_SECRET_KEY SUPABASE_SERVICE_KEY SERVICE_ROLE_KEY; do
+    SERVICE_ROLE_KEY="$(clean_dotenv_value "$(read_dotenv_value "$key_name" ".env")")"
+    [ -n "$SERVICE_ROLE_KEY" ] && break
+  done
+fi
+
+# The production deploy script's self-hosted Supabase stack stores its key in
+# /opt/supabase/docker/.env. Recover it automatically if the app .env lost it.
+SUPABASE_INSTALL_DIR="${SUPABASE_INSTALL_DIR:-/opt/supabase}"
+if [ -z "$SERVICE_ROLE_KEY" ] && [ -f "${SUPABASE_INSTALL_DIR}/docker/.env" ]; then
+  SERVICE_ROLE_KEY="$(clean_dotenv_value "$(read_dotenv_value "SERVICE_ROLE_KEY" "${SUPABASE_INSTALL_DIR}/docker/.env")")"
+fi
+if [ -z "$SERVICE_ROLE_KEY" ] && [ -f "${SUPABASE_INSTALL_DIR}/SUPABASE_CREDENTIALS.txt" ]; then
+  SERVICE_ROLE_KEY="$(awk -F: '/^[[:space:]]*Service role key[[:space:]]*:/ { value=$0; sub(/^[^:]*:[[:space:]]*/, "", value); print value; exit }' "${SUPABASE_INSTALL_DIR}/SUPABASE_CREDENTIALS.txt")"
+  SERVICE_ROLE_KEY="$(clean_dotenv_value "$SERVICE_ROLE_KEY")"
+fi
+
+if [ -n "$SERVICE_ROLE_KEY" ] && [ -f ".env" ]; then
+  export UPDATE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
+  TMP_ENV="$(mktemp "${TMPDIR:-/tmp}/virtualbank-env.XXXXXX")"
+  awk '
+    BEGIN {
+      replacement=ENVIRON["UPDATE_SERVICE_ROLE_KEY"]
+      found=0
+    }
+    /^[[:space:]]*(export[[:space:]]+)?SUPABASE_SERVICE_ROLE_KEY=/ {
+      print "SUPABASE_SERVICE_ROLE_KEY=" replacement
+      found=1
+      next
+    }
+    { print }
+    END {
+      if (!found) print "SUPABASE_SERVICE_ROLE_KEY=" replacement
+    }
+  ' ".env" > "$TMP_ENV"
+  chmod 600 "$TMP_ENV"
+  mv "$TMP_ENV" ".env"
+  unset UPDATE_SERVICE_ROLE_KEY
+  ok "Supabase service-role configuration preserved for the restart."
+elif [ -z "$SERVICE_ROLE_KEY" ]; then
+  warn "No Supabase service-role key found; admin verification may remain unavailable."
+fi
+
 # ── Detect process manager ────────────────────────────────────────────────────
 detect_pm() {
   if command -v pm2 &>/dev/null && pm2 list 2>/dev/null | grep -q "virtualbank\|netlife\|vite_react"; then
