@@ -286,7 +286,7 @@ const SystemSettings = () => {
 
             {/* Action row */}
             <div className="flex flex-wrap items-center gap-3 pt-1">
-              <Button onClick={runUpdate} disabled={busy} className="gap-2">
+              <Button onClick={() => void runUpdate()} disabled={busy} className="gap-2">
                 {busy
                   ? <><Loader2 className="h-4 w-4 animate-spin" /> Updating…</>
                   : <><RefreshCw className="h-4 w-4" /> Pull &amp; Update</>}
