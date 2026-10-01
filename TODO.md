@@ -435,3 +435,11 @@
 ---
 
 _Last updated: 2026-06-13_
+
+## Send Money debugging (Oct 2026)
+- [x] Ledger transfer function tested end-to-end (client to client) — works
+- [x] Login "failed to fetch" fixed (app no longer uses placeholder server address)
+- [x] Admins/founders can now send without KYC approval
+- [ ] Approve KYC for clients who need to send (only Jack hector is verified) — Admin > KYC Review
+- [ ] Re-enable disabled accounts if intended: Kenrick hecctor (6421651, admin) and Mark Hector — Admin > Manage Users
+- [ ] Wire Send Money to the live GYDS node once it's running on the server

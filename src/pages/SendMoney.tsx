@@ -211,10 +211,13 @@ const SendMoney = () => {
       .single();
     if (data?.wallet_address) setUserWalletAddress(data.wallet_address);
     if (data?.full_name) setSenderName(data.full_name);
-    setKycStatus(String((data as { kyc_status?: string } | null)?.kyc_status || "unverified"));
+    // Staff (admin/founder) bypass the KYC send requirement.
+    const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+    const isStaff = (roles || []).some((r: { role: string }) => r.role === "admin" || r.role === "founder");
+    setKycStatus(isStaff ? "staff" : String((data as { kyc_status?: string } | null)?.kyc_status || "unverified"));
   };
 
-  const kycApproved = kycStatus === "verified" || kycStatus === "approved";
+  const kycApproved = kycStatus === "verified" || kycStatus === "approved" || kycStatus === "staff";
 
   const fetchSupportedCoins = async () => {
     const [coinsRes, feesRes] = await Promise.all([
