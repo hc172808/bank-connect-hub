@@ -80,7 +80,7 @@ BEGIN
   VALUES (
     NEW.id,
     _previous_hash,
-    encode(digest(_payload, 'sha256'), 'hex')
+    encode(extensions.digest(_payload, 'sha256'), 'hex')
   );
 
   RETURN NEW;
