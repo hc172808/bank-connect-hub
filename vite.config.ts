@@ -36,7 +36,6 @@ export default defineConfig(() => ({
       srcDir: "src",
       filename: "sw.js",
       registerType: "autoUpdate",
-      cleanupOutdatedCaches: true,
       includeAssets: ["favicon.ico", "robots.txt", "icon.svg"],
       manifest: {
         name: "NETLIFE CASH",
