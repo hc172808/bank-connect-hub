@@ -35,14 +35,19 @@ const runtimeEnv =
 // Runtime env-config.js is used by Docker/nginx and bundled APKs. The Vite
 // values remain the fallback for local development and builds where that file
 // is intentionally absent.
+// Public (publishable) defaults so the app never falls back to a dead
+// placeholder host when env values are missing at build time.
+const DEFAULT_URL = 'https://qdtsheoodhxmggiavukj.supabase.co';
+const DEFAULT_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkdHNoZW9vZGh4bWdnaWF2dWtqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1OTUzMjgsImV4cCI6MjA3OTE3MTMyOH0.IvQINOHea1EwK5H89acHlyRw0dLuOcBMCUuvRgTXsr8';
 const ENV_URL = sanitizeCredential(
   runtimeEnv?.VITE_SUPABASE_URL ||
     (import.meta.env.VITE_SUPABASE_URL as string | undefined)
-);
+) || DEFAULT_URL;
 const ENV_KEY = sanitizeCredential(
   runtimeEnv?.VITE_SUPABASE_PUBLISHABLE_KEY ||
     (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined)
-);
+) || DEFAULT_KEY;
 
 let _supabaseUrl = ENV_URL || '';
 let _supabaseAnonKey = ENV_KEY || '';
