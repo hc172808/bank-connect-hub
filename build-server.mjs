@@ -1301,6 +1301,325 @@ async function requireStaffActor(req, admin, allowedRoles = ["admin", "founder",
   return { user: actorResult.user, role: actorRole, accessToken };
 }
 
+const SYSTEM_DOCTOR_SETTINGS_FILE = path.join(__dirname, ".local", "system-doctor-settings.json");
+const DEFAULT_SYSTEM_DOCTOR_SETTINGS = { aiEnabled: false };
+
+function readSystemDoctorSettings() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(SYSTEM_DOCTOR_SETTINGS_FILE, "utf8"));
+    return {
+      aiEnabled: typeof saved.aiEnabled === "boolean"
+        ? saved.aiEnabled
+        : DEFAULT_SYSTEM_DOCTOR_SETTINGS.aiEnabled,
+    };
+  } catch {
+    return { ...DEFAULT_SYSTEM_DOCTOR_SETTINGS };
+  }
+}
+
+function writeSystemDoctorSettings(settings) {
+  fs.mkdirSync(path.dirname(SYSTEM_DOCTOR_SETTINGS_FILE), { recursive: true });
+  const temporaryFile = `${SYSTEM_DOCTOR_SETTINGS_FILE}.tmp`;
+  fs.writeFileSync(temporaryFile, JSON.stringify(settings), { encoding: "utf8", mode: 0o600 });
+  fs.renameSync(temporaryFile, SYSTEM_DOCTOR_SETTINGS_FILE);
+}
+
+function systemDoctorSettingsResponse() {
+  return {
+    ...readSystemDoctorSettings(),
+    automaticRepairsEnabled: false,
+  };
+}
+
+async function getSystemDoctorActor(req) {
+  const authorization = String(req.headers.authorization || "");
+  const accessToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (!accessToken) return { status: 401, error: "Admin sign-in required." };
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    return { status: 503, error: "Supabase client configuration is unavailable." };
+  }
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      realtime: { transport: WebSocket },
+    });
+    const { data: userResult, error: userError } = await client.auth.getUser(accessToken);
+    if (userError || !userResult?.user) return { status: 401, error: "Admin session is invalid or expired." };
+
+    const { data: roles, error: roleError } = await client
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userResult.user.id);
+    if (roleError) return { status: 503, error: "Could not verify the signed-in admin role." };
+
+    const role = (roles || []).map((row) => row.role).find((value) => value === "admin" || value === "founder");
+    if (!role) return { status: 403, error: "Only admins and founders can use System Doctor." };
+    return { user: userResult.user, role, client };
+  } catch {
+    return { status: 503, error: "Admin authentication could not be verified." };
+  }
+}
+
+function systemDoctorCheck(id, label, status, detail, latencyMs) {
+  return { id, label, status, detail, ...(Number.isFinite(latencyMs) ? { latencyMs } : {}) };
+}
+
+async function probeSystemDoctorEndpoint(url, apiKey) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: apiKey ? { apikey: apiKey } : {},
+      signal: controller.signal,
+    });
+    const latencyMs = Date.now() - startedAt;
+    return systemDoctorCheck(
+      "",
+      "",
+      response.ok ? "ok" : response.status >= 500 ? "error" : "warning",
+      response.ok ? `Responded with HTTP ${response.status}.` : `Returned HTTP ${response.status}.`,
+      latencyMs,
+    );
+  } catch (error) {
+    const detail = error?.name === "AbortError" ? "Request timed out after 5 seconds." : "Could not reach the configured service.";
+    return systemDoctorCheck("", "", "error", detail, Date.now() - startedAt);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function runSystemDoctorChecks(actorClient) {
+  const checks = [
+    systemDoctorCheck("app", "Application API", "ok", "The admin diagnostic service responded."),
+  ];
+  const supabaseUrl = getSupabaseUrl();
+  const publishableKey = SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !publishableKey) {
+    checks.push(systemDoctorCheck("supabase_config", "Supabase configuration", "error", "The server is missing a Supabase URL or publishable key."));
+    checks.push(systemDoctorCheck("supabase_auth", "Supabase Auth", "unknown", "Skipped because Supabase configuration is incomplete."));
+    checks.push(systemDoctorCheck("supabase_rest", "Supabase database API", "unknown", "Skipped because Supabase configuration is incomplete."));
+  } else {
+    checks.push(systemDoctorCheck("supabase_config", "Supabase configuration", "ok", "Server-side URL and publishable key are configured."));
+    const baseUrl = supabaseUrl.replace(/\/+$/, "");
+    const [authCheck, restCheck] = await Promise.all([
+      probeSystemDoctorEndpoint(`${baseUrl}/auth/v1/health`, publishableKey),
+      probeSystemDoctorEndpoint(`${baseUrl}/rest/v1/profiles?select=id&limit=0`, publishableKey),
+    ]);
+    checks.push({
+      ...authCheck,
+      id: "supabase_auth",
+      label: "Supabase Auth",
+      detail: authCheck.status === "ok" ? "Auth health endpoint responded successfully." : authCheck.detail,
+    });
+    checks.push({
+      ...restCheck,
+      id: "supabase_rest",
+      label: "Supabase database API",
+      detail: restCheck.status === "ok" ? "Read-only PostgREST health query succeeded." : restCheck.detail,
+    });
+  }
+
+  try {
+    const { data, error } = await actorClient.rpc("process_private_ledger_transfer_v2", {
+      _receiver_id: null,
+      _amount: 0,
+      _transaction_type: "system_doctor_probe",
+      _idempotency_key: null,
+      _description: null,
+    });
+    if (!error && data?.error === "A secure transfer request ID is required.") {
+      checks.push(systemDoctorCheck(
+        "transfer_schema",
+        "Transfer protection schema",
+        "ok",
+        "The idempotent transfer RPC is available. The probe used an empty request ID and did not attempt a transfer.",
+      ));
+    } else if (
+      error?.code === "PGRST202" ||
+      /could not find the function|schema cache/i.test(String(error?.message || ""))
+    ) {
+      checks.push(systemDoctorCheck(
+        "transfer_schema",
+        "Transfer protection schema",
+        "warning",
+        "The idempotent transfer RPC is not available in the active database. Apply the transfer-protection migration before using the updated app.",
+      ));
+    } else {
+      checks.push(systemDoctorCheck(
+        "transfer_schema",
+        "Transfer protection schema",
+        "warning",
+        "The transfer RPC returned an unexpected result. No transfer was attempted; review the migration status before sending funds.",
+      ));
+    }
+  } catch {
+    checks.push(systemDoctorCheck(
+      "transfer_schema",
+      "Transfer protection schema",
+      "unknown",
+      "The schema check could not complete. No transfer was attempted.",
+    ));
+  }
+
+  try {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: reports, error } = await actorClient
+      .from("boot_error_reports")
+      .select("stage, online, created_at")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (error) throw error;
+    const stageCounts = {};
+    for (const report of reports || []) {
+      const stage = ["network", "initSupabase", "auth", "bundle"].includes(report.stage)
+        ? report.stage
+        : "other";
+      stageCounts[stage] = (stageCounts[stage] || 0) + 1;
+    }
+    const summaries = Object.entries(stageCounts).map(([stage, count]) => `${stage}: ${count}`);
+    checks.push(systemDoctorCheck(
+      "recent_boot_errors",
+      "Recent app-start reports",
+      reports?.length ? "warning" : "ok",
+      reports?.length
+        ? `${reports.length} reports in the last 24 hours${summaries.length ? ` (${summaries.join(", ")})` : ""}. Only aggregate counts were shared with AI analysis.`
+        : "No app-start error reports were recorded in the last 24 hours.",
+    ));
+  } catch {
+    checks.push(systemDoctorCheck(
+      "recent_boot_errors",
+      "Recent app-start reports",
+      "unknown",
+      "Recent app-start reports could not be read; no report details were sent for analysis.",
+    ));
+  }
+
+  return checks;
+}
+
+async function getSystemDoctorModel() {
+  const { ReplitConnectors } = await import("@replit/connectors-sdk");
+  const connectors = new ReplitConnectors();
+  const response = await connectors.proxy("xai", "/v1/language-models", { method: "GET" });
+  if (!response.ok) throw new Error("Model list request failed.");
+  const result = await response.json();
+  const models = Array.isArray(result?.models) ? result.models : [];
+  const model = models.find((item) => typeof item?.id === "string" && item.id.trim());
+  if (!model) throw new Error("No text model is available.");
+  return { connectors, modelId: model.id };
+}
+
+function extractSystemDoctorText(responseBody) {
+  if (typeof responseBody?.output_text === "string" && responseBody.output_text.trim()) {
+    return responseBody.output_text.trim();
+  }
+  const parts = [];
+  for (const item of responseBody?.output || []) {
+    for (const content of item?.content || []) {
+      if (typeof content?.text === "string") parts.push(content.text);
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+async function analyzeSystemDoctorChecks(checks) {
+  const { connectors, modelId } = await getSystemDoctorModel();
+  const safeChecks = checks.map(({ id, label, status, detail, latencyMs }) => ({
+    id,
+    label,
+    status,
+    detail,
+    ...(Number.isFinite(latencyMs) ? { latencyMs } : {}),
+  }));
+  const response = await connectors.proxy("xai", "/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: modelId,
+      input: [
+        {
+          role: "system",
+          content: "You are a cautious support assistant for a financial-services admin console. Analyze only the supplied sanitized, read-only diagnostic results. Do not invent evidence. Explain likely causes and give short, safe next steps. Never request or reveal credentials, personal information, or account data. Do not provide shell commands, SQL, code patches, or claim to execute repairs. Financial discrepancies require transaction reconciliation before any manual balance adjustment.",
+        },
+        {
+          role: "user",
+          content: `Summarize these system checks for an administrator. Distinguish confirmed failures from unknowns. Mention that these checks do not inspect or change customer balances. Checks: ${JSON.stringify(safeChecks)}`,
+        },
+      ],
+      temperature: 0.2,
+      max_output_tokens: 700,
+    }),
+  });
+  if (!response.ok) throw new Error("Model analysis request failed.");
+  const result = await response.json();
+  const analysis = extractSystemDoctorText(result);
+  if (!analysis) throw new Error("Model returned no analysis.");
+  return { analysis, modelId };
+}
+
+app.get("/api/admin/system-doctor/settings", async (req, res) => {
+  const actor = await getSystemDoctorActor(req);
+  if (actor.error) return res.status(actor.status).json({ error: actor.error });
+  res.json(systemDoctorSettingsResponse());
+});
+
+app.patch("/api/admin/system-doctor/settings", async (req, res) => {
+  const actor = await getSystemDoctorActor(req);
+  if (actor.error) return res.status(actor.status).json({ error: actor.error });
+  if (typeof req.body?.aiEnabled !== "boolean") {
+    return res.status(400).json({ error: "aiEnabled must be a boolean." });
+  }
+  try {
+    writeSystemDoctorSettings({ aiEnabled: req.body.aiEnabled });
+    res.json(systemDoctorSettingsResponse());
+  } catch {
+    res.status(500).json({ error: "Could not save System Doctor settings." });
+  }
+});
+
+app.post("/api/admin/system-doctor/diagnose", async (req, res) => {
+  const actor = await getSystemDoctorActor(req);
+  if (actor.error) return res.status(actor.status).json({ error: actor.error });
+  const checkedAt = new Date().toISOString();
+
+  try {
+    const checks = await runSystemDoctorChecks(actor.client);
+    const settings = readSystemDoctorSettings();
+    let analysis = null;
+    let analysisStatus = "disabled";
+    let model = null;
+    if (settings.aiEnabled) {
+      try {
+        const result = await analyzeSystemDoctorChecks(checks);
+        analysis = result.analysis;
+        model = result.modelId;
+        analysisStatus = "complete";
+      } catch {
+        analysisStatus = "unavailable";
+      }
+    }
+
+    res.json({
+      checks,
+      analysis,
+      analysisStatus,
+      model,
+      checkedAt,
+      safeActions: [{ id: "rerun_diagnostics", label: "Run diagnostics again" }],
+    });
+  } catch {
+    res.status(500).json({ error: "System diagnostics could not be completed." });
+  }
+});
+
 async function requireFeatureAdmin(req, admin) {
   const authorization = String(req.headers.authorization || "");
   const accessToken = authorization.startsWith("Bearer ")

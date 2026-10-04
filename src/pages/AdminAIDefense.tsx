@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import SystemDoctorPanel from "@/components/admin/SystemDoctorPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -324,6 +325,8 @@ export default function AdminAIDefense() {
       </header>
 
       <div className="p-4 space-y-4 max-w-2xl mx-auto">
+        <SystemDoctorPanel />
+
         {/* Stats */}
         <div className="grid grid-cols-4 gap-2">
           {[

@@ -19,3 +19,4 @@
 - [Phone registration confirmation](phone-registration-auth.md) — phone-based internal emails must be created through the server registration route so password login is immediately usable
 - [NFC payment rail](nfc-payments.md) — decode Web NFC text metadata and settle NFC/QR payments through the private ledger, never direct transaction inserts
 - [Client menu access](client-menu-access.md) — regular-user menu visibility combines global Feature Toggles with per-user access; admins/founders bypass both
+- [System Doctor safety](system-doctor.md) — xAI receives only sanitized diagnostics after admin opt-in; it cannot execute repairs or change financial data
