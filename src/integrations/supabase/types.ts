@@ -1315,6 +1315,16 @@ export type Database = {
         }
         Returns: Json
       }
+      process_private_ledger_transfer_v2: {
+        Args: {
+          _amount: number
+          _description?: string
+          _idempotency_key: string
+          _receiver_id: string
+          _transaction_type: string
+        }
+        Returns: Json
+      }
       process_transaction: {
         Args: {
           _amount: number
