@@ -87,7 +87,12 @@ export default function BlockchainSettings() {
 
   const fetchSettings = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from("blockchain_settings").select("*").single();
+    const { data, error } = await supabase
+      .from("blockchain_settings")
+      .select("*")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
     if (error && error.code !== "PGRST116") {
       toast({ variant: "destructive", title: "Error", description: "Failed to load blockchain settings" });
     }
@@ -105,7 +110,7 @@ export default function BlockchainSettings() {
         liquidity_pool_address: data.liquidity_pool_address || "",
         fee_wallet_address: data.fee_wallet_address || "",
         fee_wallet_encrypted_key: data.fee_wallet_encrypted_key || "",
-        gas_fee_gyd: data.gas_fee_gyd || 0.01,
+        gas_fee_gyd: data.gas_fee_gyd ?? 0.01,
       });
     }
     setLoading(false);
@@ -116,30 +121,56 @@ export default function BlockchainSettings() {
     if (!user) return;
     setSaving(true);
 
-    const { error } = await supabase
-      .from("blockchain_settings")
-      .update({
-        rpc_url: settings.rpc_url || null,
-        rpc_urls: settings.rpc_urls as any,
-        chain_id: settings.chain_id || null,
-        native_coin_symbol: settings.native_coin_symbol,
-        native_coin_name: settings.native_coin_name,
-        explorer_url: settings.explorer_url || null,
-        is_active: settings.is_active,
-        liquidity_pool_address: settings.liquidity_pool_address || null,
-        fee_wallet_address: settings.fee_wallet_address || null,
-        fee_wallet_encrypted_key: settings.fee_wallet_encrypted_key || null,
-        gas_fee_gyd: settings.gas_fee_gyd,
-        updated_by: user.id,
-      })
-      .eq("id", settings.id);
+    const payload = {
+      rpc_url: settings.rpc_url || null,
+      rpc_urls: settings.rpc_urls as any,
+      chain_id: settings.chain_id || null,
+      native_coin_symbol: settings.native_coin_symbol,
+      native_coin_name: settings.native_coin_name,
+      explorer_url: settings.explorer_url || null,
+      is_active: settings.is_active,
+      liquidity_pool_address: settings.liquidity_pool_address || null,
+      fee_wallet_address: settings.fee_wallet_address || null,
+      fee_wallet_encrypted_key: settings.fee_wallet_encrypted_key || null,
+      gas_fee_gyd: settings.gas_fee_gyd,
+      updated_by: user.id,
+    };
 
-    if (error) {
-      toast({ variant: "destructive", title: "Save failed", description: error.message });
-    } else {
-      toast({ title: "Settings saved", description: "Blockchain settings have been updated successfully" });
+    try {
+      const result = settings.id
+        ? await supabase
+            .from("blockchain_settings")
+            .update(payload)
+            .eq("id", settings.id)
+            .select("id")
+            .maybeSingle()
+        : await supabase
+            .from("blockchain_settings")
+            .insert(payload)
+            .select("id")
+            .single();
+
+      if (result.error) {
+        toast({ variant: "destructive", title: "Save failed", description: result.error.message });
+      } else if (!result.data?.id) {
+        toast({
+          variant: "destructive",
+          title: "Save failed",
+          description: "No blockchain settings row was saved. Reload the page and try again.",
+        });
+      } else {
+        setSettings((current) => ({ ...current, id: result.data.id }));
+        toast({ title: "Settings saved", description: "Blockchain settings have been updated successfully" });
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Save failed",
+        description: error instanceof Error ? error.message : "Could not save blockchain settings.",
+      });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const addRpcUrl = () => {
@@ -235,6 +266,7 @@ export default function BlockchainSettings() {
                 </CardTitle>
                 <CardDescription>
                   Customer payments use the private ledger. RPC settings below are retained only for controlled legacy administration.
+                  {!settings.id && " No settings row exists yet; the first save will create it."}
                 </CardDescription>
               </div>
               <Badge variant={settings.is_active ? "default" : "secondary"}>
