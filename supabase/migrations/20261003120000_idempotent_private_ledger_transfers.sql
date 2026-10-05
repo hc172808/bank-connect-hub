@@ -1,3 +1,5 @@
+-- Phase 1 is additive: old clients keep using v1 while updated clients move to
+-- the idempotent v2 RPC. The v1 permission is revoked only in a later rollout.
 -- Persist successful private-ledger request IDs so retries cannot post a
 -- second payment after a client timeout or lost response.
 CREATE TABLE IF NOT EXISTS public.private_ledger_transfer_requests (
@@ -127,8 +129,3 @@ REVOKE EXECUTE ON FUNCTION public.process_private_ledger_transfer_v2(uuid, numer
   FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.process_private_ledger_transfer_v2(uuid, numeric, text, uuid, text)
   TO authenticated;
-
--- The old RPC has no request ID and cannot safely deduplicate a replay. Force
--- old clients to fail closed rather than retain an unprotected transfer path.
-REVOKE EXECUTE ON FUNCTION public.process_private_ledger_transfer(uuid, numeric, text, text)
-  FROM PUBLIC, anon, authenticated;

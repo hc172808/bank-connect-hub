@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { formatEther, isAddress } from "ethers";
 import { supabase } from "@/integrations/supabase/client";
+import { buildRpcList, getProviderWithFallback } from "@/lib/rpcFallback";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus, KeyRound, Eye, EyeOff, MessageCircle, Loader2, SlidersHorizontal, UserCheck } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus, KeyRound, Eye, EyeOff, MessageCircle, Loader2, RefreshCw, SlidersHorizontal, UserCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { CountryPhoneInput } from "@/components/CountryPhoneInput";
@@ -32,6 +34,14 @@ interface User {
   phone_number: string | null;
   wallet_address: string | null;
   role: string;
+  walletBalance?: number | null;
+  walletCurrency?: string | null;
+  hasWallet?: boolean;
+  balanceRestricted?: boolean;
+  onChainBalance?: {
+    status: "loading" | "ready" | "error";
+    value?: string;
+  };
   disabled?: boolean;
   emailConfirmed?: boolean;
   phoneVerified?: boolean;
@@ -39,9 +49,32 @@ interface User {
   kycStatus?: string;
 }
 
+interface AdminUserRecord {
+  id: string;
+  email?: string | null;
+  fullName?: string | null;
+  phone?: string | null;
+  walletAddress?: string | null;
+  disabled?: boolean;
+  role?: string;
+  emailConfirmed?: boolean;
+  phoneVerified?: boolean;
+  verificationStatus?: string;
+  kycStatus?: string;
+}
+
+interface AdminUsersResponse {
+  users?: AdminUserRecord[];
+  error?: string;
+}
+
 interface BlockchainSettings {
   explorer_url: string | null;
   is_active: boolean;
+  rpc_url: string | null;
+  rpc_urls: string[];
+  chain_id: string | null;
+  native_coin_symbol: string | null;
 }
 
 function generateTemporaryPassword(length = 12) {
@@ -49,9 +82,17 @@ function generateTemporaryPassword(length = 12) {
   return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
+function formatNativeBalance(value: bigint) {
+  const [whole, fraction = ""] = formatEther(value).split(".");
+  const trimmedFraction = fraction.slice(0, 6).replace(/0+$/, "");
+  const formattedWhole = BigInt(whole).toLocaleString();
+  return trimmedFraction ? `${formattedWhole}.${trimmedFraction}` : formattedWhole;
+}
+
 const ManageUsers = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [walletBalancesUnavailable, setWalletBalancesUnavailable] = useState(false);
   const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
   const [newUser, setNewUser] = useState({ fullName: "", phone: "", password: "" });
   const [creating, setCreating] = useState(false);
@@ -74,32 +115,142 @@ const ManageUsers = () => {
   const [featureLoading, setFeatureLoading] = useState(false);
   const [featureUpdating, setFeatureUpdating] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchUsers();
-    fetchBlockchainSettings();
-  }, []);
-
-  const fetchBlockchainSettings = async () => {
+  const fetchBlockchainSettings = useCallback(async () => {
     const { data } = await supabase
       .from("blockchain_settings")
-      .select("explorer_url, is_active")
-      .single();
+      .select("*")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
     
     if (data) {
-      setBlockchainSettings(data);
+      const row = data as unknown as Record<string, unknown>;
+      const rpcUrls = Array.isArray(row.rpc_urls)
+        ? row.rpc_urls.filter((url): url is string => typeof url === "string")
+        : [];
+      setBlockchainSettings({
+        explorer_url: typeof row.explorer_url === "string" ? row.explorer_url : null,
+        is_active: row.is_active === true,
+        rpc_url: typeof row.rpc_url === "string" ? row.rpc_url : null,
+        rpc_urls: rpcUrls,
+        chain_id: typeof row.chain_id === "string" || typeof row.chain_id === "number"
+          ? String(row.chain_id)
+          : null,
+        native_coin_symbol: typeof row.native_coin_symbol === "string" ? row.native_coin_symbol : null,
+      });
     }
-  };
+  }, []);
 
-  const fetchUsers = async () => {
+  const refreshOnChainBalance = useCallback(async (user: User) => {
+    if (!user.wallet_address || (staffRole === "agent" && user.role !== "client" && user.role !== "vendor")) {
+      return;
+    }
+
+    const address = user.wallet_address.trim();
+    if (!isAddress(address)) {
+      setUsers((current) => current.map((item) =>
+        item.id === user.id ? { ...item, onChainBalance: { status: "error" } } : item
+      ));
+      return;
+    }
+
+    setUsers((current) => current.map((item) =>
+      item.id === user.id ? { ...item, onChainBalance: { status: "loading" } } : item
+    ));
+
+    let provider: Awaited<ReturnType<typeof getProviderWithFallback>> = null;
+    try {
+      const configuredUrls = buildRpcList({
+        rpc_url: blockchainSettings?.rpc_url,
+        rpc_urls: blockchainSettings?.rpc_urls,
+      });
+      provider = await getProviderWithFallback(
+        configuredUrls.length ? configuredUrls : ["https://rpc.netlifegy.com"],
+      );
+      if (!provider) throw new Error("No configured RPC endpoint is available.");
+
+      const network = await provider.getNetwork();
+      const expectedChainId = BigInt(blockchainSettings?.chain_id || "198282");
+      if (network.chainId !== expectedChainId) {
+        throw new Error("The configured RPC is connected to a different network.");
+      }
+
+      const balance = await provider.getBalance(address);
+      setUsers((current) => current.map((item) =>
+        item.id === user.id
+          ? { ...item, onChainBalance: { status: "ready", value: formatNativeBalance(balance) } }
+          : item
+      ));
+    } catch {
+      setUsers((current) => current.map((item) =>
+        item.id === user.id ? { ...item, onChainBalance: { status: "error" } } : item
+      ));
+    } finally {
+      provider?.destroy();
+    }
+  }, [blockchainSettings, staffRole]);
+
+  const attachWalletBalances = useCallback(async (loadedUsers: User[]) => {
+    const isRestrictedForAgent = (user: User) =>
+      staffRole === "agent" && user.role !== "client" && user.role !== "vendor";
+    const visibleUsers = staffRole === "agent"
+      ? loadedUsers.filter((user) => user.role === "client" || user.role === "vendor")
+      : loadedUsers;
+
+    if (visibleUsers.length === 0) {
+      setWalletBalancesUnavailable(false);
+      return loadedUsers.map((user) => ({
+        ...user,
+        walletBalance: null,
+        walletCurrency: null,
+        hasWallet: false,
+        balanceRestricted: isRestrictedForAgent(user),
+      }));
+    }
+
+    const { data: wallets, error } = await supabase
+      .from("wallets")
+      .select("user_id, balance, currency")
+      .in("user_id", visibleUsers.map((user) => user.id));
+
+    if (error) {
+      console.error("Error fetching visible wallet balances:", error);
+      setWalletBalancesUnavailable(true);
+      return loadedUsers.map((user) => ({
+        ...user,
+        walletBalance: null,
+        walletCurrency: null,
+        hasWallet: false,
+        balanceRestricted: isRestrictedForAgent(user),
+      }));
+    }
+
+    setWalletBalancesUnavailable(false);
+    const walletsByUser = new Map((wallets || []).map((wallet) => [wallet.user_id, wallet]));
+    return loadedUsers.map((user) => {
+      const balanceRestricted = isRestrictedForAgent(user);
+      const wallet = balanceRestricted ? undefined : walletsByUser.get(user.id);
+      return {
+        ...user,
+        walletBalance: wallet ? Number(wallet.balance) : null,
+        walletCurrency: wallet?.currency || null,
+        hasWallet: Boolean(wallet),
+        balanceRestricted,
+      };
+    });
+  }, [staffRole]);
+
+  const fetchUsers = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
       const response = await fetch("/api/auth/all-users", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
-      const result = await response.json().catch(() => ({}));
+      const result = await response.json().catch(() => ({})) as AdminUsersResponse;
+      let loadedUsers: User[];
       if (response.ok) {
-        setUsers((result.users || []).map((item: any) => ({
+        loadedUsers = (result.users || []).map((item) => ({
           id: item.id,
           email: item.email || null,
           full_name: item.fullName || null,
@@ -111,40 +262,41 @@ const ManageUsers = () => {
            phoneVerified: Boolean(item.phoneVerified),
            verificationStatus: item.verificationStatus || "pending",
            kycStatus: item.kycStatus || "unverified",
-        })));
-        return;
+        }));
+      } else {
+        // Listing auth.users requires the optional service-role key. Fall back
+        // to the authenticated staff session so the page still works when the
+        // build server is intentionally configured without that secret.
+        const [{ data: profiles, error: profilesError }, { data: roleRows, error: rolesError }] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("*")
+            .order("created_at", { ascending: false }),
+          supabase.from("user_roles").select("user_id, role"),
+        ]);
+        if (profilesError) throw profilesError;
+        if (rolesError) throw rolesError;
+
+        const rolesByUser = new Map((roleRows || []).map((row) => [row.user_id, row.role]));
+        loadedUsers = (profiles || []).map((profile) => ({
+          id: profile.id,
+          email: null,
+          full_name: profile.full_name || null,
+          phone_number: profile.phone_number || null,
+          wallet_address: profile.wallet_address || null,
+          disabled: Boolean(profile.disabled),
+          role: rolesByUser.get(profile.id) || "client",
+          emailConfirmed: false,
+          phoneVerified: false,
+          verificationStatus: "pending",
+          kycStatus: profile.kyc_status || "unverified",
+        }));
+        if (result.error) {
+          console.info("Using authenticated profile list for Manage Users:", result.error);
+        }
       }
 
-      // Listing auth.users requires the optional service-role key. Fall back
-      // to the authenticated staff session so the page still works when the
-      // build server is intentionally configured without that secret.
-      const [{ data: profiles, error: profilesError }, { data: roleRows, error: rolesError }] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("*")
-          .order("created_at", { ascending: false }),
-        supabase.from("user_roles").select("user_id, role"),
-      ]);
-      if (profilesError) throw profilesError;
-      if (rolesError) throw rolesError;
-
-      const rolesByUser = new Map((roleRows || []).map((row) => [row.user_id, row.role]));
-      setUsers((profiles || []).map((profile) => ({
-        id: profile.id,
-        email: null,
-        full_name: profile.full_name || null,
-        phone_number: profile.phone_number || null,
-        wallet_address: profile.wallet_address || null,
-        disabled: Boolean(profile.disabled),
-        role: rolesByUser.get(profile.id) || "client",
-         emailConfirmed: false,
-         phoneVerified: false,
-         verificationStatus: "pending",
-         kycStatus: profile.kyc_status || "unverified",
-      })));
-      if (result.error) {
-        console.info("Using authenticated profile list for Manage Users:", result.error);
-      }
+      setUsers(await attachWalletBalances(loadedUsers));
     } catch (error) {
       console.error("Error fetching users:", error);
       toast({
@@ -155,7 +307,19 @@ const ManageUsers = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [attachWalletBalances, toast]);
+
+  useEffect(() => {
+    let disposed = false;
+    queueMicrotask(() => {
+      if (disposed) return;
+      void fetchUsers();
+      void fetchBlockchainSettings();
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [fetchUsers, fetchBlockchainSettings]);
 
   const updateUserRole = async (userId: string, newRole: "admin" | "agent" | "client" | "vendor" | "founder") => {
     try {
@@ -438,11 +602,14 @@ const ManageUsers = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              <span>All Users ({users.length})</span>
-              {blockchainSettings?.is_active && (
-                <Badge variant="secondary">Blockchain Active</Badge>
-              )}
+                  <span>All Users ({users.length})</span>
+                  {blockchainSettings?.is_active && (
+                    <Badge variant="secondary">Blockchain Active</Badge>
+                  )}
             </CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Internal balance is from the Supabase ledger. On-chain native balance is read live from the configured RPC.
+                </p>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -450,17 +617,19 @@ const ManageUsers = () => {
             ) : users.length === 0 ? (
               <p className="text-center py-8 text-muted-foreground">No users found</p>
             ) : (
-               <div className="overflow-x-auto">
-                 <Table className="min-w-[1280px]">
+              <div className="overflow-x-auto">
+                  <Table className="min-w-[1500px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Phone Number</TableHead>
                       <TableHead>Wallet Address</TableHead>
+                      <TableHead>Registration</TableHead>
+                      <TableHead>KYC</TableHead>
                       <TableHead>Role</TableHead>
-                       <TableHead>Registration</TableHead>
-                       <TableHead>KYC</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Balance</TableHead>
+                      <TableHead title="Native coin balance read live from the configured RPC">On-chain native</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -522,6 +691,67 @@ const ManageUsers = () => {
                             <Badge variant="destructive">Disabled</Badge>
                           ) : (
                             <Badge variant="outline" className="text-green-600 border-green-600">Active</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap tabular-nums">
+                          {user.balanceRestricted ? (
+                            <span className="text-muted-foreground">Restricted</span>
+                          ) : walletBalancesUnavailable ? (
+                            <span className="text-muted-foreground">Unavailable</span>
+                          ) : !user.hasWallet ? (
+                            <span className="text-muted-foreground">No wallet</span>
+                          ) : user.walletBalance === null || !Number.isFinite(user.walletBalance) ? (
+                            <span className="text-muted-foreground">Unavailable</span>
+                          ) : (
+                            `${user.walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${user.walletCurrency || "USD"}`
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap tabular-nums">
+                          {user.balanceRestricted ? (
+                            <span className="text-muted-foreground">Restricted</span>
+                          ) : !user.wallet_address ? (
+                            <span className="text-muted-foreground">No wallet</span>
+                          ) : !isAddress(user.wallet_address.trim()) ? (
+                            <span className="text-muted-foreground">Invalid address</span>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              {user.onChainBalance?.status === "ready" ? (
+                                <span>
+                                  {user.onChainBalance.value} {blockchainSettings?.native_coin_symbol || "GYDS"}
+                                </span>
+                              ) : user.onChainBalance?.status === "loading" ? (
+                                <span className="inline-flex items-center gap-1 text-muted-foreground">
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading…
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">
+                                  {user.onChainBalance?.status === "error" ? "Unavailable" : "Not loaded"}
+                                </span>
+                              )}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-7 gap-1 px-2"
+                                aria-label={`Read on-chain balance for ${user.full_name || "user"}`}
+                                title="Read or refresh live balance from RPC"
+                                disabled={user.onChainBalance?.status === "loading"}
+                                onClick={() => void refreshOnChainBalance(user)}
+                              >
+                                {user.onChainBalance?.status === "loading" ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="h-3.5 w-3.5" />
+                                )}
+                                {user.onChainBalance?.status === "loading"
+                                  ? "Reading"
+                                  : user.onChainBalance?.status === "ready"
+                                    ? "Refresh"
+                                    : user.onChainBalance?.status === "error"
+                                      ? "Retry"
+                                      : "Read"}
+                              </Button>
+                            </div>
                           )}
                         </TableCell>
                         <TableCell>
