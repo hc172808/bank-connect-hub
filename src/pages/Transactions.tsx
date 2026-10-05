@@ -90,7 +90,7 @@ const Transactions = () => {
 
   const fetchBlockchainSettings = async () => {
     const { data } = await supabase
-      .from("blockchain_settings")
+      .from("blockchain_settings_public")
       .select("rpc_url, explorer_url, native_coin_symbol, is_active")
       .maybeSingle();
 

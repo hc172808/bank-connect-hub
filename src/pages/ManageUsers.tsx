@@ -117,7 +117,7 @@ const ManageUsers = () => {
 
   const fetchBlockchainSettings = useCallback(async () => {
     const { data } = await supabase
-      .from("blockchain_settings")
+      .from("blockchain_settings_public")
       .select("*")
       .order("created_at", { ascending: true })
       .limit(1)
@@ -608,7 +608,7 @@ const ManageUsers = () => {
                   )}
             </CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Internal balance is from the Supabase ledger. On-chain native balance is read live from the configured RPC.
+                  Users create or import their own blockchain wallet from Profile. Staff can see its public address here, never its private key. Internal balance is from the Supabase ledger; on-chain balance is read live from the configured RPC.
                 </p>
           </CardHeader>
           <CardContent>

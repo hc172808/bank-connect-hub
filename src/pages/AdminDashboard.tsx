@@ -385,6 +385,14 @@ const AdminDashboard = () => {
               </Button>
               <Button
                 className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
+                onClick={() => navigate("/profile#blockchain-wallet")}
+              >
+                <Wallet size={20} />
+                Create or Import My Wallet
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
                 variant={bankReserve?.is_low ? "destructive" : "secondary"}
                 onClick={() => navigate("/admin/bank-reserve")}
               >

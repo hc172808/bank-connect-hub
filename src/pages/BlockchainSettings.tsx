@@ -78,7 +78,7 @@ export default function BlockchainSettings() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (role !== "admin") {
+    if (role !== "admin" && role !== "founder") {
       navigate("/admin");
       return;
     }
@@ -94,7 +94,8 @@ export default function BlockchainSettings() {
       .limit(1)
       .maybeSingle();
     if (error && error.code !== "PGRST116") {
-      toast({ variant: "destructive", title: "Error", description: "Failed to load blockchain settings" });
+      console.error("Error loading blockchain settings:", error);
+      toast({ variant: "destructive", title: "Error", description: error.message || "Failed to load blockchain settings" });
     }
     if (data) {
       const rpcUrlsRaw = data.rpc_urls as unknown;
@@ -279,7 +280,9 @@ export default function BlockchainSettings() {
               <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
                 <div>
                   <p className="font-medium">Enable Blockchain</p>
-                  <p className="text-sm text-muted-foreground">Activate blockchain features</p>
+                  <p className="text-sm text-muted-foreground">
+                    Enable blockchain-related views. Customer payments stay on the private ledger; sponsored on-chain sends remain unavailable until bank signing runs securely on the server.
+                  </p>
                 </div>
                 <Switch
                   checked={settings.is_active}
@@ -471,7 +474,7 @@ export default function BlockchainSettings() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium flex items-center gap-2">
                     <Key className="w-4 h-4" />
-                    Fee Wallet Private Key (Encrypted)
+                    Bank Fee Wallet Private Key
                   </label>
                   <Input type="password" value={settings.fee_wallet_encrypted_key} onChange={(e) => setSettings({ ...settings, fee_wallet_encrypted_key: e.target.value })} placeholder="Enter encrypted private key..." />
                 </div>

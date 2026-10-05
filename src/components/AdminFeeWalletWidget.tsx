@@ -27,7 +27,7 @@ import { ethers } from "ethers";
      const fetchData = async () => {
        // Fetch blockchain settings
        const { data: blockchainData } = await supabase
-         .from("blockchain_settings")
+         .from("blockchain_settings_public")
          .select("fee_wallet_address, rpc_url, native_coin_symbol")
          .eq("is_active", true)
          .single();

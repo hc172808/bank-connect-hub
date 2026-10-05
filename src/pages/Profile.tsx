@@ -56,6 +56,8 @@ export default function Profile() {
   const [importPassword, setImportPassword] = useState('');
   const [importing, setImporting] = useState(false);
   const [showImportKey, setShowImportKey] = useState(false);
+  const [walletSyncStatus, setWalletSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [walletSyncing, setWalletSyncing] = useState(false);
   const [biometricDevices, setBiometricDevices] = useState<any[]>([]);
   const [enrollingBiometric, setEnrollingBiometric] = useState(false);
   const [showBiometricPasswordDialog, setShowBiometricPasswordDialog] = useState(false);
@@ -92,6 +94,13 @@ export default function Profile() {
         .catch(() => setPwaInstallEnabled(true));
     }
   }, [user]);
+
+  useEffect(() => {
+    if (window.location.hash !== '#blockchain-wallet') return;
+    requestAnimationFrame(() => {
+      document.getElementById('blockchain-wallet')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, []);
 
   const fetchBiometricDevices = async () => {
     if (!user) return;
@@ -161,17 +170,52 @@ export default function Profile() {
 
   const walletStorageKey = user ? `vb.wallet.${user.id}` : null;
 
+  const syncWalletAddressToProfile = async (address: string): Promise<boolean> => {
+    if (!user) return false;
+    setWalletSyncing(true);
+    setWalletSyncStatus('syncing');
+    try {
+      await initSupabase();
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({
+          wallet_address: address,
+          wallet_created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('Your profile was not updated.');
+      setWalletSyncStatus('synced');
+      return true;
+    } catch (error) {
+      console.error('Could not sync public wallet address to profile:', error);
+      setWalletSyncStatus('error');
+      return false;
+    } finally {
+      setWalletSyncing(false);
+    }
+  };
+
   const fetchWallet = () => {
-    if (!walletStorageKey) return;
+    setWalletSyncStatus('idle');
+    if (!walletStorageKey) {
+      setWalletAddress(null);
+      return;
+    }
     const raw = localStorage.getItem(walletStorageKey);
     if (raw) {
       try {
         const { address } = JSON.parse(raw);
-        setWalletAddress(address);
+        setWalletAddress(typeof address === 'string' ? address : null);
       } catch {
+        setWalletAddress(null);
         setShowCreateWallet(false);
       }
     } else {
+      setWalletAddress(null);
       setShowCreateWallet(false);
     }
   };
@@ -212,7 +256,14 @@ export default function Profile() {
       setWalletAddress(wallet.address);
       setShowCreateWallet(false);
       setImportKey(''); setImportMnemonic(''); setImportPassword('');
-      toast({ title: 'Wallet imported!', description: `Address: ${wallet.address.slice(0,10)}…` });
+      const synced = await syncWalletAddressToProfile(wallet.address);
+      toast({
+        title: 'Wallet imported!',
+        description: synced
+          ? `Public address linked to your profile: ${wallet.address.slice(0, 10)}…`
+          : 'The wallet is saved in this browser, but its public address could not be linked to your account. Use Sync address in Profile to retry.',
+        variant: synced ? undefined : 'destructive',
+      });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Import failed', description: e.message ?? String(e) });
     } finally {
@@ -244,9 +295,17 @@ export default function Profile() {
       }));
 
       setWalletAddress(wallet.address);
+      const synced = await syncWalletAddressToProfile(wallet.address);
       setNewWalletData(wallet);
       setShowCreateWallet(false);
       setShowWalletDialog(true);
+      if (!synced) {
+        toast({
+          title: 'Wallet created on this device',
+          description: 'Its public address could not be linked to your account. Use Sync address in Profile to retry.',
+          variant: 'destructive',
+        });
+      }
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -431,7 +490,18 @@ export default function Profile() {
 
         <Card className="shadow-xl border-primary/20">
           <CardHeader>
-            <CardTitle className="text-2xl">My Profile</CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardTitle className="text-2xl">My Profile</CardTitle>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => document.getElementById('blockchain-wallet')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              >
+                <Wallet className="w-4 h-4 mr-2" />
+                Create / Import Wallet
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex flex-col items-center gap-4">
@@ -565,13 +635,15 @@ export default function Profile() {
           </CardContent>
         </Card>
 
-        {/* Legacy wallet controls are intentionally hidden in private-ledger mode. */}
-        <Card className="hidden shadow-xl border-primary/20">
+        <Card id="blockchain-wallet" className="scroll-mt-6 shadow-xl border-primary/20">
           <CardHeader>
             <CardTitle className="text-xl flex items-center gap-2">
               <Wallet className="w-5 h-5" />
               Blockchain Wallet
             </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Create or import your own wallet here. Only its public address is linked to your profile for staff visibility; your private key stays encrypted in this browser. This does not enable blockchain payments, which remain controlled by the admin settings.
+            </p>
           </CardHeader>
           <CardContent>
             {walletAddress ? (
@@ -593,6 +665,26 @@ export default function Profile() {
                   </div>
                   {copiedField === 'walletAddress' && <span className="text-xs text-green-500 mt-1 block">Copied!</span>}
                 </div>
+                {walletSyncStatus === 'synced' ? (
+                  <Badge variant="secondary">Public address linked to your profile</Badge>
+                ) : (
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => void syncWalletAddressToProfile(walletAddress)}
+                      disabled={walletSyncing}
+                      className="w-full"
+                    >
+                      {walletSyncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                      {walletSyncing ? 'Syncing address…' : 'Sync address to profile'}
+                    </Button>
+                    {walletSyncStatus === 'error' && (
+                      <p className="text-xs text-destructive">
+                        Address sync failed. Your encrypted wallet remains on this device; staff will not see its address until sync succeeds.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ) : showCreateWallet ? (
               /* ── No wallet yet — create or import ── */
@@ -694,7 +786,7 @@ export default function Profile() {
                     </Tabs>
 
                     <p className="text-[11px] text-muted-foreground mt-2 p-2 bg-muted rounded-lg">
-                      Your private key / seed phrase never leaves your device. It is encrypted with your password before being stored.
+                      Your private key / seed phrase is encrypted before being stored in this browser and is not sent to the server. Back up your recovery phrase offline; clearing this browser can remove the encrypted copy.
                     </p>
                   </TabsContent>
                 </Tabs>

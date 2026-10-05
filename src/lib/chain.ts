@@ -17,7 +17,7 @@ export interface ChainStatus {
 
 async function loadRpcList(): Promise<string[]> {
   const { data } = await supabase
-    .from("blockchain_settings")
+    .from("blockchain_settings_public")
     .select("rpc_url, rpc_urls")
     .eq("is_active", true)
     .maybeSingle();

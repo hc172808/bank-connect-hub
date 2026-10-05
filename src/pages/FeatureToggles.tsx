@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, ToggleLeft, Loader2, Power, PowerOff } from "lucide-react";
+import { ArrowLeft, ToggleLeft, Loader2, Power, PowerOff, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -23,6 +23,7 @@ const FeatureToggles = () => {
   const [updating, setUpdating] = useState<string | null>(null);
 
   const fetchFeatures = useCallback(async () => {
+    setLoading(true);
     try {
       await ensureFeatureToggles();
     } catch (error) {
@@ -133,11 +134,17 @@ const FeatureToggles = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-primary p-6">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
           <Button onClick={() => navigate("/admin")} variant="secondary" size="icon">
             <ArrowLeft size={20} />
           </Button>
           <h1 className="text-2xl font-bold text-foreground">Feature Toggles</h1>
+          </div>
+          <Button onClick={() => void fetchFeatures()} variant="secondary" size="sm" disabled={loading}>
+            {loading ? <Loader2 size={16} className="mr-2 animate-spin" /> : <RefreshCw size={16} className="mr-2" />}
+            Refresh
+          </Button>
         </div>
       </header>
 

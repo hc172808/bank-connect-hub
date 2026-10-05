@@ -166,7 +166,7 @@ export default function AdminApkBuilder() {
   const loadNetworkConfig = async () => {
     try {
       const { data } = await supabase
-        .from("blockchain_settings")
+        .from("blockchain_settings_public")
         .select("rpc_url, chain_id, native_coin_symbol, explorer_url")
         .single();
       if (data) setNetConfig(data as NetworkConfig);

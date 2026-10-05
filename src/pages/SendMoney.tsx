@@ -189,13 +189,13 @@ const SendMoney = () => {
 
   const fetchBlockchainSettings = async () => {
     const { data } = await supabase
-      .from("blockchain_settings")
-      .select("rpc_url, chain_id, native_coin_symbol, is_active, liquidity_pool_address, fee_wallet_address, fee_wallet_encrypted_key, gas_fee_gyd")
+      .from("blockchain_settings_public")
+      .select("rpc_url, chain_id, native_coin_symbol, is_active, liquidity_pool_address, fee_wallet_address, gas_fee_gyd")
       .maybeSingle();
     if (data) {
       setBlockchainSettings({
         ...data,
-        fee_wallet_encrypted_key: data.fee_wallet_encrypted_key || null,
+        fee_wallet_encrypted_key: null,
         gas_fee_gyd: data.gas_fee_gyd || 0.01,
       });
     }
@@ -427,7 +427,11 @@ const SendMoney = () => {
       return;
     }
     if (!blockchainSettings?.fee_wallet_address || !blockchainSettings?.fee_wallet_encrypted_key) {
-      toast({ title: "Bank Fee Wallet Not Configured", description: "Please contact admin to configure the bank fee wallet for gas sponsorship", variant: "destructive" });
+      toast({
+        title: "On-chain send unavailable",
+        description: "Customer payments remain on the private ledger. Bank-sponsored on-chain sends require server-side signing, which is not enabled.",
+        variant: "destructive",
+      });
       return;
     }
 

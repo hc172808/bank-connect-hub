@@ -973,9 +973,7 @@ function loadOrGenerateVapidKeys() {
   fs.mkdirSync(path.dirname(VAPID_FILE), { recursive: true });
   fs.writeFileSync(VAPID_FILE, JSON.stringify(keys, null, 2));
   webpush.setVapidDetails(`mailto:admin@virtualbank.app`, keys.publicKey, keys.privateKey);
-  console.log("[push] Generated new VAPID keys. Add to .env for persistence:");
-  console.log(`  VAPID_PUBLIC_KEY=${keys.publicKey}`);
-  console.log(`  VAPID_PRIVATE_KEY=${keys.privateKey}`);
+  console.log("[push] Generated and persisted a new VAPID key pair. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in Replit Secrets to use a persistent production key.");
   return keys;
 }
 
@@ -2524,8 +2522,15 @@ app.get("/api/auth/all-users", async (req, res) => {
     if (actorRole !== "admin" && actorRole !== "founder" && actorRole !== "agent") {
       return res.status(403).json({ error: "Only an admin, founder, or agent can view users." });
     }
-    const { data: { users }, error } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
-    if (error) throw new Error(error.message);
+    const users = [];
+    const perPage = 1000;
+    for (let page = 1; ; page += 1) {
+      const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage });
+      if (error) throw new Error(error.message);
+      const pageUsers = data?.users || [];
+      users.push(...pageUsers);
+      if (pageUsers.length < perPage) break;
+    }
 
     // Fetch profiles for display names
     const supaAdmin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {

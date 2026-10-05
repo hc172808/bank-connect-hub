@@ -590,7 +590,7 @@ const AppRoutes = () => {
         <Route path="/agent-cash-withdrawal" element={<AgentCashWithdrawal />} />
         <Route path="/bank-reserve" element={<ProtectedRoute allowedRoles={["agent"]}><BankReserve /></ProtectedRoute>} />
         <Route path="/print-qr" element={<AdminPrintQRCodes />} />
-        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><ManageUsers /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "founder", "agent"]}><ManageUsers /></ProtectedRoute>} />
         <Route path="/admin/whatsapp-verification" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminWhatsAppVerification /></ProtectedRoute>} />
         <Route path="/admin/kyc-review" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><AdminKYCReview /></ProtectedRoute>} />
         <Route path="/notifications" element={<Notifications />} />
@@ -621,7 +621,7 @@ const AppRoutes = () => {
       <Routes>
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/admin/bank-reserve" element={<ProtectedRoute allowedRoles={["admin", "founder"]}><BankReserve /></ProtectedRoute>} />
-        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "agent"]}><ManageUsers /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "founder", "agent"]}><ManageUsers /></ProtectedRoute>} />
         <Route path="/admin/agents" element={<ProtectedRoute allowedRoles={["admin"]}><ManageAgents /></ProtectedRoute>} />
         <Route path="/admin/vendors" element={<ProtectedRoute allowedRoles={["admin"]}><ManageVendors /></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={["admin"]}><SystemSettings /></ProtectedRoute>} />
@@ -634,7 +634,7 @@ const AppRoutes = () => {
         <Route path="/fee-management" element={<FeeManagement />} />
         <Route path="/admin-deposit" element={<InternalFundsGate><AdminDeposit /></InternalFundsGate>} />
         <Route path="/approve-deposits" element={<InternalFundsGate><ApprovePendingDeposits /></InternalFundsGate>} />
-        <Route path="/admin/blockchain" element={<ProtectedRoute allowedRoles={["admin"]}><BlockchainSettings /></ProtectedRoute>} />
+        <Route path="/admin/blockchain" element={<ProtectedRoute allowedRoles={["admin", "founder"]}><BlockchainSettings /></ProtectedRoute>} />
         <Route path="/admin/coins" element={<ProtectedRoute allowedRoles={["admin"]}><CoinManagement /></ProtectedRoute>} />
         <Route path="/admin/conversion-fees" element={<ProtectedRoute allowedRoles={["admin"]}><ConversionFees /></ProtectedRoute>} />
         <Route path="/admin/features" element={<ProtectedRoute allowedRoles={["admin", "founder"]}><FeatureToggles /></ProtectedRoute>} />

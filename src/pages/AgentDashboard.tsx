@@ -164,6 +164,7 @@ const AgentDashboard = () => {
             { icon: Receipt,      label: "Transactions", path: "/transactions",        color: "text-orange-600" },
             { icon: ShieldCheck,  label: "Review KYC",   path: "/admin/kyc-review",    color: "text-blue-600" },
             { icon: UserCheck,    label: "Add User",     path: "/admin/users",         color: "text-teal-600" },
+             { icon: Wallet,       label: "My Wallet",    path: "/profile#blockchain-wallet", color: "text-indigo-600" },
           ].map(a => (
             <button key={a.label} onClick={() => navigate(a.path)}
               className="flex flex-col items-center gap-2 bg-card border rounded-xl p-3 hover:shadow-md transition-all active:scale-95">
