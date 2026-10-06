@@ -45,6 +45,7 @@ const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const BankReserve = lazy(() => import("./pages/BankReserve"));
 const ManageUsers = lazy(() => import("./pages/ManageUsers"));
+const AdminUserAccount = lazy(() => import("./pages/AdminUserAccount"));
 const ManageAgents = lazy(() => import("./pages/ManageAgents"));
 const ManageVendors = lazy(() => import("./pages/ManageVendors"));
 const SystemSettings = lazy(() => import("./pages/SystemSettings"));
@@ -622,6 +623,7 @@ const AppRoutes = () => {
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/admin/bank-reserve" element={<ProtectedRoute allowedRoles={["admin", "founder"]}><BankReserve /></ProtectedRoute>} />
         <Route path="/admin/users" element={<ProtectedRoute allowedRoles={["admin", "founder", "agent"]}><ManageUsers /></ProtectedRoute>} />
+        <Route path="/admin/users/:userId/account" element={<ProtectedRoute allowedRoles={["admin", "founder"]}><AdminUserAccount /></ProtectedRoute>} />
         <Route path="/admin/agents" element={<ProtectedRoute allowedRoles={["admin"]}><ManageAgents /></ProtectedRoute>} />
         <Route path="/admin/vendors" element={<ProtectedRoute allowedRoles={["admin"]}><ManageVendors /></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={["admin"]}><SystemSettings /></ProtectedRoute>} />

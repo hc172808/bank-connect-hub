@@ -113,7 +113,7 @@ const VendorDashboard = () => {
 
   useEffect(() => {
     const refresh = () => void fetchWalletBalance();
-    const interval = window.setInterval(refresh, 30000);
+    const interval = window.setInterval(refresh, 5000);
     window.addEventListener("focus", refresh);
     return () => {
       window.clearInterval(interval);

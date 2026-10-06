@@ -2583,6 +2583,121 @@ app.get("/api/auth/all-users", async (req, res) => {
   }
 });
 
+// GET /api/auth/wallet-balances — staff-only internal ledger balances.
+// The service client avoids making the admin UI depend on client-side RLS
+// configuration, while this route keeps the agent visibility boundary intact.
+app.get("/api/auth/wallet-balances", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured" });
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const requestedUserId = String(req.query.userId || "").trim();
+    if (requestedUserId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedUserId)) {
+      return res.status(400).json({ error: "Invalid user ID." });
+    }
+
+    let walletQuery = admin
+      .from("wallets")
+      .select("user_id, balance, currency");
+    if (requestedUserId) walletQuery = walletQuery.eq("user_id", requestedUserId);
+
+    const { data: walletRows, error: walletError } = await walletQuery;
+    if (walletError) throw new Error(walletError.message);
+
+    let visibleWallets = walletRows || [];
+    if (actor.role === "agent" && visibleWallets.length > 0) {
+      const walletUserIds = [...new Set(visibleWallets.map((wallet) => wallet.user_id))];
+      const { data: roleRows, error: roleError } = await admin
+        .from("user_roles")
+        .select("user_id, role")
+        .in("user_id", walletUserIds);
+      if (roleError) throw new Error(roleError.message);
+
+      const rolesByUser = new Map();
+      for (const row of roleRows || []) {
+        if (!rolesByUser.has(row.user_id)) rolesByUser.set(row.user_id, new Set());
+        rolesByUser.get(row.user_id).add(row.role);
+      }
+      visibleWallets = visibleWallets.filter((wallet) => {
+        const roles = rolesByUser.get(wallet.user_id) || new Set();
+        return !roles.has("admin")
+          && !roles.has("founder")
+          && !roles.has("agent")
+          && (roles.has("client") || roles.has("vendor"));
+      });
+    }
+
+    res.json({
+      balances: visibleWallets.map((wallet) => ({
+        userId: wallet.user_id,
+        balance: wallet.balance,
+        currency: wallet.currency || "USD",
+      })),
+    });
+  } catch (err) {
+    console.error("[auth] wallet-balance lookup failed:", err.message);
+    res.status(500).json({ error: "Could not load wallet balances." });
+  }
+});
+
+// GET /api/auth/users/:userId/account — admin/founder-only read-only account overview.
+app.get("/api/auth/users/:userId/account", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured" });
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const userId = String(req.params.userId || "").trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      return res.status(400).json({ error: "Invalid user ID." });
+    }
+
+    const [
+      { data: authResult, error: authError },
+      { data: profile, error: profileError },
+      { data: roleRow, error: roleError },
+      { data: wallet, error: walletError },
+    ] = await Promise.all([
+      admin.auth.admin.getUserById(userId),
+      admin.from("profiles").select("*").eq("id", userId).maybeSingle(),
+      admin.from("user_roles").select("role").eq("user_id", userId).limit(1).maybeSingle(),
+      admin.from("wallets").select("balance, currency").eq("user_id", userId).maybeSingle(),
+    ]);
+
+    if (authError) throw new Error(authError.message);
+    if (!authResult?.user) return res.status(404).json({ error: "User account not found." });
+    if (profileError) throw new Error(profileError.message);
+    if (roleError) throw new Error(roleError.message);
+    if (walletError) throw new Error(walletError.message);
+
+    const authUser = authResult.user;
+    const metadata = authUser.user_metadata || {};
+    res.json({
+      account: {
+        id: authUser.id,
+        email: authUser.email || null,
+        fullName: profile?.full_name || metadata.full_name || null,
+        phoneNumber: profile?.phone_number || metadata.phone_number || null,
+        walletAddress: profile?.wallet_address || metadata.wallet_address || null,
+        role: roleRow?.role || metadata.account_type || metadata.role || "client",
+        disabled: Boolean(profile?.disabled),
+        kycStatus: profile?.kyc_status || "unverified",
+        createdAt: authUser.created_at || null,
+        lastSignIn: authUser.last_sign_in_at || null,
+        wallet: wallet
+          ? { balance: wallet.balance, currency: wallet.currency || "USD" }
+          : null,
+      },
+    });
+  } catch (err) {
+    console.error("[auth] user-account lookup failed:", err.message);
+    res.status(500).json({ error: "Could not load the user account." });
+  }
+});
+
 // POST /api/auth/users/:userId/verify — an admin can approve a registration
 // when the user completed an offline/WhatsApp identity check. The service key
 // stays on the server; the browser only sends the staff access token.

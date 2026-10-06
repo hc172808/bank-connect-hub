@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatEther, isAddress } from "ethers";
 import { supabase } from "@/integrations/supabase/client";
@@ -68,6 +68,15 @@ interface AdminUsersResponse {
   error?: string;
 }
 
+interface StaffWalletBalancesResponse {
+  balances?: Array<{
+    userId: string;
+    balance: number | string;
+    currency?: string | null;
+  }>;
+  error?: string;
+}
+
 interface BlockchainSettings {
   explorer_url: string | null;
   is_active: boolean;
@@ -93,6 +102,10 @@ const ManageUsers = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [walletBalancesUnavailable, setWalletBalancesUnavailable] = useState(false);
+  const [walletBalancesRefreshing, setWalletBalancesRefreshing] = useState(false);
+  const [lastWalletBalanceRefresh, setLastWalletBalanceRefresh] = useState<Date | null>(null);
+  const usersRef = useRef<User[]>([]);
+  const walletBalanceRefreshInFlight = useRef(false);
   const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
   const [newUser, setNewUser] = useState({ fullName: "", phone: "", password: "" });
   const [creating, setCreating] = useState(false);
@@ -208,12 +221,51 @@ const ManageUsers = () => {
       }));
     }
 
-    const { data: wallets, error } = await supabase
-      .from("wallets")
-      .select("user_id, balance, currency")
-      .in("user_id", visibleUsers.map((user) => user.id));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
 
-    if (error) {
+      const response = await fetch("/api/auth/wallet-balances", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      let walletsByUser: Map<string, { balance: number; currency: string | null }>;
+
+      if (response.ok) {
+        const result = await response.json() as StaffWalletBalancesResponse;
+        walletsByUser = new Map((result.balances || []).map((wallet) => [
+          wallet.userId,
+          { balance: Number(wallet.balance), currency: wallet.currency || null },
+        ]));
+      } else if (response.status === 503) {
+        // If the server service key is intentionally absent, use the session's
+        // role-scoped RLS policy as a fallback.
+        const { data: wallets, error } = await supabase
+          .from("wallets")
+          .select("user_id, balance, currency")
+          .in("user_id", visibleUsers.map((user) => user.id));
+        if (error) throw error;
+        walletsByUser = new Map((wallets || []).map((wallet) => [
+          wallet.user_id,
+          { balance: Number(wallet.balance), currency: wallet.currency || null },
+        ]));
+      } else {
+        const result = await response.json().catch(() => ({})) as StaffWalletBalancesResponse;
+        throw new Error(result.error || "Could not load wallet balances.");
+      }
+
+      setWalletBalancesUnavailable(false);
+      return loadedUsers.map((user) => {
+        const balanceRestricted = isRestrictedForAgent(user);
+        const wallet = balanceRestricted ? undefined : walletsByUser.get(user.id);
+        return {
+          ...user,
+          walletBalance: wallet?.balance ?? null,
+          walletCurrency: wallet?.currency || null,
+          hasWallet: Boolean(wallet),
+          balanceRestricted,
+        };
+      });
+    } catch (error) {
       console.error("Error fetching visible wallet balances:", error);
       setWalletBalancesUnavailable(true);
       return loadedUsers.map((user) => ({
@@ -224,20 +276,6 @@ const ManageUsers = () => {
         balanceRestricted: isRestrictedForAgent(user),
       }));
     }
-
-    setWalletBalancesUnavailable(false);
-    const walletsByUser = new Map((wallets || []).map((wallet) => [wallet.user_id, wallet]));
-    return loadedUsers.map((user) => {
-      const balanceRestricted = isRestrictedForAgent(user);
-      const wallet = balanceRestricted ? undefined : walletsByUser.get(user.id);
-      return {
-        ...user,
-        walletBalance: wallet ? Number(wallet.balance) : null,
-        walletCurrency: wallet?.currency || null,
-        hasWallet: Boolean(wallet),
-        balanceRestricted,
-      };
-    });
   }, [staffRole]);
 
   const fetchUsers = useCallback(async () => {
@@ -297,6 +335,7 @@ const ManageUsers = () => {
       }
 
       setUsers(await attachWalletBalances(loadedUsers));
+      setLastWalletBalanceRefresh(new Date());
     } catch (error) {
       console.error("Error fetching users:", error);
       toast({
@@ -309,6 +348,34 @@ const ManageUsers = () => {
     }
   }, [attachWalletBalances, toast]);
 
+  const refreshWalletBalances = useCallback(async () => {
+    const currentUsers = usersRef.current;
+    if (currentUsers.length === 0 || walletBalanceRefreshInFlight.current) return;
+
+    walletBalanceRefreshInFlight.current = true;
+    setWalletBalancesRefreshing(true);
+    try {
+      const refreshedUsers = await attachWalletBalances(currentUsers);
+      const refreshedById = new Map(refreshedUsers.map((user) => [user.id, user]));
+      setUsers((current) => current.map((user) => {
+        const refreshed = refreshedById.get(user.id);
+        return refreshed
+          ? {
+              ...user,
+              walletBalance: refreshed.walletBalance,
+              walletCurrency: refreshed.walletCurrency,
+              hasWallet: refreshed.hasWallet,
+              balanceRestricted: refreshed.balanceRestricted,
+            }
+          : user;
+      }));
+      setLastWalletBalanceRefresh(new Date());
+    } finally {
+      walletBalanceRefreshInFlight.current = false;
+      setWalletBalancesRefreshing(false);
+    }
+  }, [attachWalletBalances]);
+
   useEffect(() => {
     let disposed = false;
     queueMicrotask(() => {
@@ -320,6 +387,20 @@ const ManageUsers = () => {
       disposed = true;
     };
   }, [fetchUsers, fetchBlockchainSettings]);
+
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+
+  useEffect(() => {
+    const refresh = () => void refreshWalletBalances();
+    const interval = window.setInterval(refresh, 5000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refreshWalletBalances]);
 
   const updateUserRole = async (userId: string, newRole: "admin" | "agent" | "client" | "vendor" | "founder") => {
     try {
@@ -603,12 +684,32 @@ const ManageUsers = () => {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
                   <span>All Users ({users.length})</span>
-                  {blockchainSettings?.is_active && (
-                    <Badge variant="secondary">Blockchain Active</Badge>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {lastWalletBalanceRefresh && (
+                      <span className="hidden text-xs font-normal text-muted-foreground sm:inline" aria-live="polite">
+                        {walletBalancesUnavailable
+                          ? "Balances unavailable"
+                          : `Balances checked ${lastWalletBalanceRefresh.toLocaleTimeString()}`}
+                      </span>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1"
+                      onClick={() => void refreshWalletBalances()}
+                      disabled={walletBalancesRefreshing || users.length === 0}
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${walletBalancesRefreshing ? "animate-spin" : ""}`} />
+                      Refresh funds
+                    </Button>
+                    {blockchainSettings?.is_active && (
+                      <Badge variant="secondary">Blockchain Active</Badge>
+                    )}
+                  </div>
             </CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Users create or import their own blockchain wallet from Profile. Staff can see its public address here, never its private key. Internal balance is from the Supabase ledger; on-chain balance is read live from the configured RPC.
+                  Internal ledger balances refresh every 5 seconds. Staff can see public blockchain addresses here, never private keys; on-chain balances are read from the configured RPC.
                 </p>
           </CardHeader>
           <CardContent>
@@ -618,7 +719,7 @@ const ManageUsers = () => {
               <p className="text-center py-8 text-muted-foreground">No users found</p>
             ) : (
               <div className="overflow-x-auto">
-                  <Table className="min-w-[1500px]">
+                  <Table className="min-w-[1600px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
@@ -628,7 +729,7 @@ const ManageUsers = () => {
                       <TableHead>KYC</TableHead>
                       <TableHead>Role</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Balance</TableHead>
+                      <TableHead>Internal balance</TableHead>
                       <TableHead title="Native coin balance read live from the configured RPC">On-chain native</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -756,6 +857,19 @@ const ManageUsers = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
+                            {isAdmin && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 gap-1"
+                                onClick={() => navigate(`/admin/users/${encodeURIComponent(user.id)}/account`)}
+                                aria-label={`Open ${user.full_name || user.phone_number || "user"} account`}
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                Account
+                              </Button>
+                            )}
                             <Select
                               value={user.role}
                               onValueChange={(value) => updateUserRole(user.id, value as "admin" | "agent" | "client" | "vendor" | "founder")}

@@ -295,6 +295,8 @@
 | AD-24 | Individual and bulk internal-funds enable/disable controls | ✅ |
 | AD-25 | Founder/admin verification bypass | ✅ |
 | AD-26 | Admin dashboard count and zero-state error handling | ✅ |
+| AD-27 | Internal ledger balances refresh every 5 seconds in user dashboards and Manage Users | ✅ |
+| AD-28 | Admin/founder read-only user account view opened from Manage Users | ✅ |
 
 ---
 
@@ -415,11 +417,11 @@
 | Merchant Portal | 12 | 0 | 12 |
 | Agent Portal | 5 | 0 | 5 |
 | Business Banking | 9 | 0 | 9 |
-| Admin Portal | 19 | 0 | 19 |
+| Admin Portal | 28 | 0 | 28 |
 | AI Security | 44 | 0 | 44 |
 | Advanced Features | 16 | 0 | 16 |
 | Roles | 18 | 0 | 18 |
-| **TOTAL** | **245** | **0** | **245** |
+| **TOTAL** | **254** | **0** | **254** |
 
 > ✅ All features implemented (rule-based where no external API is required):
 > D-08 / ADV-01 → AI Financial Assistant (data-driven spending analysis + chat)
@@ -434,7 +436,7 @@
 
 ---
 
-_Last updated: 2026-06-13_
+_Last updated: 2026-10-06_
 
 ## Send Money debugging (Oct 2026)
 - [x] Ledger transfer function tested end-to-end (client to client) — works

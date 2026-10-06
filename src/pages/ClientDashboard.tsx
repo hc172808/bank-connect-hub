@@ -62,7 +62,7 @@ interface FeatureToggle {
   is_enabled: boolean;
 }
 
-const BALANCE_REFRESH_INTERVAL = 30000; // 30 seconds
+const BALANCE_REFRESH_INTERVAL = 5000; // 5 seconds
 
 const ClientDashboard = () => {
   const [wallet, setWallet] = useState<WalletData | null>(null);
