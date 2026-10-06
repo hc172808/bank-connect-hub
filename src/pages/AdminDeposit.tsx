@@ -83,7 +83,7 @@ const AdminDeposit = () => {
       if (result.success) {
         toast({
           title: "Deposit Successful",
-          description: `Added $${amount} to ${selectedUser.full_name}'s account.`,
+          description: `Added $${amount} to ${selectedUser.full_name}'s internal ledger balance.`,
         });
         setAmount("");
         setSelectedUser(null);

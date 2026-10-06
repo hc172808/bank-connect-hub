@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { NotificationBell } from "@/components/NotificationBell";
 import { AnnouncementCarousel } from "@/components/AnnouncementCarousel";
 import { ReversalHoldBanner } from "@/components/ReversalHoldBanner";
+import { OnChainBalanceCard } from "@/components/OnChainBalanceCard";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -65,6 +66,7 @@ const BALANCE_REFRESH_INTERVAL = 30000; // 30 seconds
 
 const ClientDashboard = () => {
   const [wallet, setWallet] = useState<WalletData | null>(null);
+  const [walletLoadError, setWalletLoadError] = useState(false);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [showBalance, setShowBalance] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -83,39 +85,37 @@ const ClientDashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  useEffect(() => {
-    fetchData();
+  const fetchWalletBalance = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("wallets")
+      .select("balance, currency")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Could not refresh the internal ledger balance:", error);
+      setWalletLoadError(true);
+      return;
+    }
+
+    setWallet(data);
+    setWalletLoadError(false);
   }, []);
 
-  // Live sync: refresh whenever this user's ledger wallet or transactions change
   useEffect(() => {
     if (!userId) return;
-    const channel = supabase
-      .channel(`ledger-sync-${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "wallets", filter: `user_id=eq.${userId}` },
-        () => fetchData(),
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "transactions", filter: `sender_id=eq.${userId}` },
-        () => fetchData(),
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "transactions", filter: `receiver_id=eq.${userId}` },
-        () => fetchData(),
-      )
-      .subscribe();
+    const refresh = () => void fetchWalletBalance();
+    const interval = window.setInterval(refresh, BALANCE_REFRESH_INTERVAL);
+    window.addEventListener("focus", refresh);
     return () => {
-      supabase.removeChannel(channel);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
     };
-  }, [userId]);
+  }, [userId, fetchWalletBalance]);
 
-
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserId(user.id);
@@ -154,7 +154,7 @@ const ClientDashboard = () => {
     });
 
     const [walletRes, profileRes] = await Promise.all([
-      supabase.from("wallets").select("*").eq("user_id", user.id).single(),
+      supabase.from("wallets").select("balance, currency").eq("user_id", user.id).maybeSingle(),
       supabase.from("profiles").select("full_name, wallet_address").eq("id", user.id).single(),
     ]);
     const [features, access] = await Promise.all([
@@ -162,7 +162,13 @@ const ClientDashboard = () => {
       fetchCurrentUserFeatureAccess().catch(() => ({})),
     ]);
 
-    if (walletRes.data) setWallet(walletRes.data);
+    if (walletRes.error) {
+      console.error("Could not load the internal ledger balance:", walletRes.error);
+      setWalletLoadError(true);
+    } else {
+      setWallet(walletRes.data);
+      setWalletLoadError(false);
+    }
     if (profileRes.data) setProfile(profileRes.data);
     setFeatureToggles(features);
     setUserFeatureAccess(access);
@@ -230,7 +236,37 @@ const ClientDashboard = () => {
         setTopPayees([]);
       }
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+
+  // Live sync: refresh whenever this user's ledger wallet or transactions change
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase
+      .channel(`ledger-sync-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "wallets", filter: `user_id=eq.${userId}` },
+        () => fetchWalletBalance(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `sender_id=eq.${userId}` },
+        () => fetchData(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "transactions", filter: `receiver_id=eq.${userId}` },
+        () => fetchData(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, fetchData, fetchWalletBalance]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -330,14 +366,21 @@ const ClientDashboard = () => {
                 </button>
               </div>
             </div>
-            {/* Private ledger balance — the only source of truth */}
+            {/* Internal ledger balance — separate from the blockchain wallet */}
             <div className="mt-4">
               <h2 className="text-5xl font-bold text-foreground">
                 {showBalance
-                  ? `$${wallet?.balance?.toFixed(2) || "0.00"}`
-                  : "****"}
+                  ? walletLoadError
+                    ? "Unavailable"
+                    : `${wallet?.currency || "USD"} ${Number(wallet?.balance ?? 0).toFixed(2)}`
+                  : "••••••"}
               </h2>
-              <p className="text-sm text-foreground/70 mt-1">Private Ledger Balance</p>
+              <p className="text-sm text-foreground/70 mt-1">Internal ledger balance</p>
+              {walletLoadError && (
+                <p className="text-xs text-foreground/70 mt-1" role="status">
+                  Balance could not be loaded. Use refresh to try again.
+                </p>
+              )}
               {(pendingOut > 0 || pendingIn > 0) && (
                 <div className="flex flex-wrap gap-2 mt-3">
                   {pendingOut > 0 && (
@@ -357,6 +400,10 @@ const ClientDashboard = () => {
             </div>
           </div>
         </div>
+        <OnChainBalanceCard
+          walletAddress={profile?.wallet_address || null}
+          showBalance={showBalance}
+        />
 
         {/* This Month Stats */}
         <div className="grid grid-cols-3 gap-2">

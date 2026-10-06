@@ -2,9 +2,27 @@
 set -euo pipefail
 
 # ── Load .env so VITE_ vars are available for env-config.js injection ────────
+# Preserve Replit's explicitly configured Supabase pair before loading local
+# dotenv files; a stale .env.local must not redirect a packaged app.
+_REPLIT_SUPABASE_URL="${SUPABASE_URL:-}"
+_REPLIT_SUPABASE_KEY="${SUPABASE_PUBLISHABLE_KEY:-}"
+
 # shellcheck disable=SC1091
 [[ -f ".env" ]]       && { set +u; source ".env";       set -u; }
 [[ -f ".env.local" ]] && { set +u; source ".env.local"; set -u; }
+
+# Keep packaged and Vite-fallback settings aligned with the authoritative
+# server-side values when Replit Secrets provides them.
+if [[ -n "$_REPLIT_SUPABASE_URL" ]]; then
+  SUPABASE_URL="$_REPLIT_SUPABASE_URL"
+  VITE_SUPABASE_URL="$_REPLIT_SUPABASE_URL"
+  export SUPABASE_URL VITE_SUPABASE_URL
+fi
+if [[ -n "$_REPLIT_SUPABASE_KEY" ]]; then
+  SUPABASE_PUBLISHABLE_KEY="$_REPLIT_SUPABASE_KEY"
+  VITE_SUPABASE_PUBLISHABLE_KEY="$_REPLIT_SUPABASE_KEY"
+  export SUPABASE_PUBLISHABLE_KEY VITE_SUPABASE_PUBLISHABLE_KEY
+fi
 
 # ── Auto-detect JAVA_HOME before SDK manager operations ───────────────────────
 # sdkmanager itself requires Java, including when an SDK already exists.
@@ -224,9 +242,12 @@ echo ""
 # FIX: write a static env-config.js into dist/ BEFORE cap sync so the file
 #   is packaged into the APK assets and loaded correctly on every device.
 echo "=== Injecting env-config.js into dist/ (fixes blank APK) ==="
-_SUP_URL="${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}"
-_SUP_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-${SUPABASE_PUBLISHABLE_KEY:-}}"
+_SUP_URL="${SUPABASE_URL:-${VITE_SUPABASE_URL:-}}"
+_SUP_KEY="${SUPABASE_PUBLISHABLE_KEY:-${VITE_SUPABASE_PUBLISHABLE_KEY:-}}"
 _SUP_PID="${VITE_SUPABASE_PROJECT_ID:-}"
+if [[ "$_SUP_URL" =~ ^https?://([a-z0-9]{20})\.supabase\.co/?$ ]]; then
+  _SUP_PID="${BASH_REMATCH[1]}"
+fi
 _WA_NUM="${VITE_WHATSAPP_SUPPORT_NUMBER:-}"
 
 # Warn loudly if the key vars are missing
@@ -258,7 +279,11 @@ ENVJS
 if [[ -n "$_SUP_URL" ]]; then
   echo "  ✓ dist/env-config.js written"
   echo "    Supabase URL : ${_SUP_URL:0:50}…"
-  echo "    Key (first 20): ${_SUP_KEY:0:20}…"
+  if [[ -n "$_SUP_KEY" ]]; then
+    echo "    Publishable key: configured"
+  else
+    echo "    Publishable key: missing"
+  fi
 else
   echo "  ✗ dist/env-config.js written with EMPTY values"
 fi

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
+import { OnChainBalanceCard } from "@/components/OnChainBalanceCard";
 import {
   Dialog,
   DialogContent,
@@ -60,6 +61,7 @@ interface ProfileData {
 
 interface WalletData {
   balance: number;
+  currency?: string;
 }
 
 interface Sale {
@@ -71,6 +73,7 @@ const VendorDashboard = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [wallet, setWallet] = useState<WalletData | null>(null);
+  const [walletLoadError, setWalletLoadError] = useState(false);
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [showProductDialog, setShowProductDialog] = useState(false);
@@ -91,11 +94,34 @@ const VendorDashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  useEffect(() => {
-    fetchData();
+  const fetchWalletBalance = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("wallets")
+      .select("balance, currency")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (error) {
+      console.error("Could not refresh the vendor internal ledger balance:", error);
+      setWalletLoadError(true);
+      return;
+    }
+    setWallet(data as WalletData | null);
+    setWalletLoadError(false);
   }, []);
 
-  const fetchData = async () => {
+  useEffect(() => {
+    const refresh = () => void fetchWalletBalance();
+    const interval = window.setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [fetchWalletBalance]);
+
+  const fetchData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
@@ -113,7 +139,7 @@ const VendorDashboard = () => {
         .select("full_name, store_name, wallet_address")
         .eq("id", user.id)
         .single(),
-      supabase.from("wallets").select("balance").eq("user_id", user.id).single(),
+      supabase.from("wallets").select("balance, currency").eq("user_id", user.id).maybeSingle(),
       supabase
         .from("transactions")
         .select("amount, created_at")
@@ -124,10 +150,20 @@ const VendorDashboard = () => {
 
     if (productsRes.data) setProducts(productsRes.data);
     if (profileRes.data) setProfile(profileRes.data);
-    if (walletRes.data) setWallet(walletRes.data as WalletData);
+    if (walletRes.error) {
+      console.error("Could not load the vendor internal ledger balance:", walletRes.error);
+      setWalletLoadError(true);
+    } else {
+      setWallet(walletRes.data as WalletData | null);
+      setWalletLoadError(false);
+    }
     if (salesRes.data) setSales(salesRes.data as Sale[]);
     setLoading(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
 
   const resetForm = () => {
     setProductName("");
@@ -330,20 +366,22 @@ const VendorDashboard = () => {
           </div>
         </header>
 
-        {/* Wallet Balance */}
+        {/* Internal ledger balance */}
         <Card className="mb-4 bg-gradient-to-br from-primary/15 to-primary/5 border-primary/30">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
-                  <Wallet size={14} /> Wallet Balance
+                  <Wallet size={14} /> Internal ledger balance
                 </p>
                 <p className="text-3xl font-bold mt-1" data-testid="text-balance">
-                  ${(wallet?.balance ?? 0).toFixed(2)}
+                  {walletLoadError
+                    ? "Unavailable"
+                    : `${wallet?.currency || "USD"} ${Number(wallet?.balance ?? 0).toFixed(2)}`}
                 </p>
-                {profile?.wallet_address && (
-                  <p className="text-[10px] font-mono text-muted-foreground mt-1 truncate max-w-[260px]">
-                    {profile.wallet_address}
+                {walletLoadError && (
+                  <p className="mt-1 text-xs text-muted-foreground" role="status">
+                    Could not load this balance. It will retry automatically.
                   </p>
                 )}
               </div>
@@ -361,6 +399,7 @@ const VendorDashboard = () => {
             </div>
           </CardContent>
         </Card>
+        <OnChainBalanceCard walletAddress={profile?.wallet_address || null} />
 
         {/* 7-Day Revenue Chart */}
         <Card className="mb-4">
