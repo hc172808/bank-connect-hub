@@ -528,7 +528,7 @@ BEGIN
   );
 END;
 $$;
-REVOKE ALL ON FUNCTION public.admin_add_funds(uuid, numeric) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.admin_add_funds(uuid, numeric) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_add_funds(uuid, numeric) TO authenticated;
 
 -- Process transaction
@@ -759,6 +759,7 @@ CREATE POLICY "Admins and founders can view fund audit log"
   USING (has_role(auth.uid(), 'admin') OR has_role(auth.uid(), 'founder'));
 REVOKE ALL ON TABLE public.admin_fund_audit_log FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.admin_fund_audit_log TO authenticated;
+GRANT ALL ON TABLE public.admin_fund_audit_log TO service_role;
 
 -- Transaction Fees
 CREATE POLICY "Everyone can view fees" ON public.transaction_fees FOR SELECT USING (true);

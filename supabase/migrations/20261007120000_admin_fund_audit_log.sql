@@ -33,6 +33,7 @@ CREATE POLICY "Admins and founders can view fund audit log"
 
 REVOKE ALL ON TABLE public.admin_fund_audit_log FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.admin_fund_audit_log TO authenticated;
+GRANT ALL ON TABLE public.admin_fund_audit_log TO service_role;
 
 CREATE OR REPLACE FUNCTION public.admin_add_funds(
   _user_id uuid,
@@ -51,7 +52,7 @@ DECLARE
   _currency text;
   _created_at timestamptz;
 BEGIN
-  IF NOT (
+  IF auth.uid() IS NULL OR NOT (
     public.has_role(auth.uid(), 'admin')
     OR public.has_role(auth.uid(), 'founder')
   ) THEN
@@ -119,5 +120,5 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.admin_add_funds(uuid, numeric) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.admin_add_funds(uuid, numeric) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_add_funds(uuid, numeric) TO authenticated;

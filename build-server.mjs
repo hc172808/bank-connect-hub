@@ -3014,7 +3014,7 @@ app.post("/api/admin/funds", async (req, res) => {
     if (
       !walletAfter ||
       !Number.isFinite(afterBalance) ||
-      afterBalance + 0.000001 < expectedBalance
+      Math.abs(afterBalance - expectedBalance) > 0.000001
     ) {
       return res.status(409).json({
         error: "Supabase reported success, but the internal balance did not increase by the requested amount. A transaction may still have been logged; do not retry until Funding Activity is checked.",

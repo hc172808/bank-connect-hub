@@ -297,6 +297,8 @@
 | AD-26 | Admin dashboard count and zero-state error handling | ✅ |
 | AD-27 | Internal ledger balances refresh every 5 seconds in user dashboards and Manage Users | ✅ |
 | AD-28 | Admin/founder read-only user account view opened from Manage Users | ✅ |
+| AD-29 | Admin/founder internal funding history with timestamps and before/after balances | ⏳ Supabase migration required |
+| AD-30 | Admin fund form verifies wallet balance before reporting success | ✅ |
 
 ---
 
@@ -417,11 +419,11 @@
 | Merchant Portal | 12 | 0 | 12 |
 | Agent Portal | 5 | 0 | 5 |
 | Business Banking | 9 | 0 | 9 |
-| Admin Portal | 28 | 0 | 28 |
+| Admin Portal | 29 | 1 | 30 |
 | AI Security | 44 | 0 | 44 |
 | Advanced Features | 16 | 0 | 16 |
 | Roles | 18 | 0 | 18 |
-| **TOTAL** | **254** | **0** | **254** |
+| **TOTAL** | **255** | **1** | **256** |
 
 > ✅ All features implemented (rule-based where no external API is required):
 > D-08 / ADV-01 → AI Financial Assistant (data-driven spending analysis + chat)
@@ -436,7 +438,7 @@
 
 ---
 
-_Last updated: 2026-10-06_
+_Last updated: 2026-10-07_
 
 ## Send Money debugging (Oct 2026)
 - [x] Ledger transfer function tested end-to-end (client to client) — works

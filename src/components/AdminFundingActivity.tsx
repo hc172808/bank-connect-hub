@@ -85,7 +85,10 @@ export default function AdminFundingActivity({ userId }: AdminFundingActivityPro
   }, [userId]);
 
   useEffect(() => {
-    void refresh();
+    const initialLoad = window.setTimeout(() => {
+      void refresh();
+    }, 0);
+    return () => window.clearTimeout(initialLoad);
   }, [refresh]);
 
   return (
@@ -125,6 +128,7 @@ export default function AdminFundingActivity({ userId }: AdminFundingActivityPro
                   <TableHead>Recipient</TableHead>
                   <TableHead>Added by</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Balance before</TableHead>
                   <TableHead className="text-right">Balance after</TableHead>
                   <TableHead>Record</TableHead>
                 </TableRow>
@@ -143,6 +147,9 @@ export default function AdminFundingActivity({ userId }: AdminFundingActivityPro
                     </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
                       {formatMoney(event.amount, event.currency)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(event.balanceBefore, event.currency)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatMoney(event.balanceAfter, event.currency)}

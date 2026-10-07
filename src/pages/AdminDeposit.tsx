@@ -8,11 +8,17 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 
+interface AdminDepositUser {
+  id: string;
+  full_name: string | null;
+  phone_number: string | null;
+}
+
 const AdminDeposit = () => {
   const [amount, setAmount] = useState("");
   const [userSearch, setUserSearch] = useState("");
-  const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [selectedUser, setSelectedUser] = useState<AdminDepositUser | null>(null);
+  const [searchResults, setSearchResults] = useState<AdminDepositUser[]>([]);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -88,15 +94,14 @@ const AdminDeposit = () => {
         description: result.auditRecorded
           ? `Added $${Number(amount).toLocaleString()} to ${selectedUser.full_name || "the user"} at ${timestamp}.`
           : `The balance increased to ${Number(result.balanceAfter).toLocaleString()} ${result.currency || "USD"}. This was recorded in legacy transaction history, but the detailed audit migration is not active. Do not repeat this credit.`,
-        variant: result.auditRecorded ? "default" : "destructive",
       });
       setAmount("");
       setSelectedUser(null);
       setUserSearch("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message,
+        description: error instanceof Error ? error.message : "Could not add funds.",
         variant: "destructive",
       });
     } finally {
