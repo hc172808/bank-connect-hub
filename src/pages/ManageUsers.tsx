@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { CountryPhoneInput } from "@/components/CountryPhoneInput";
 import { useAuth } from "@/hooks/useAuth";
 import { CLIENT_MENU_FEATURES } from "@/lib/clientMenuFeatures";
+import AdminFundingActivity from "@/components/AdminFundingActivity";
 import {
   fetchAdminUserFeatureAccess,
   updateAdminUserFeatureAccess,
@@ -951,6 +952,7 @@ const ManageUsers = () => {
             )}
           </CardContent>
         </Card>
+        {isAdmin && <AdminFundingActivity />}
       </main>
 
       <Dialog open={!!featureTarget} onOpenChange={(open) => { if (!open && !featureUpdating) setFeatureTarget(null); }}>

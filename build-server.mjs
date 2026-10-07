@@ -2936,7 +2936,12 @@ app.patch("/api/auth/users/:userId/role", async (req, res) => {
 app.post("/api/admin/funds", async (req, res) => {
   const { userId, amount } = req.body || {};
   const numericAmount = Number(amount);
-  if (!userId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+  if (
+    typeof userId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId) ||
+    !Number.isFinite(numericAmount) ||
+    numericAmount <= 0
+  ) {
     return res.status(400).json({ error: "userId and a positive amount are required." });
   }
   if (!adminOk() || !SUPABASE_PUBLISHABLE_KEY) {
@@ -2947,6 +2952,15 @@ app.post("/api/admin/funds", async (req, res) => {
     const admin = await getSupabaseAdminClient();
     const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
     if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { data: walletBefore, error: beforeError } = await admin
+      .from("wallets")
+      .select("balance, currency")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (beforeError) throw new Error(beforeError.message);
+    const beforeBalance = Number(walletBefore?.balance ?? 0);
+    const requestStartedAt = new Date().toISOString();
 
     const { createClient } = await import("@supabase/supabase-js");
     const userClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
@@ -2967,10 +2981,196 @@ app.post("/api/admin/funds", async (req, res) => {
     if (!result.success) {
       return res.status(403).json({ error: result.error || "The fund operation was rejected." });
     }
-    res.json({ success: true, transactionId: result.transaction_id || null });
+
+    if (result.audit_id) {
+      return res.json({
+        success: true,
+        auditRecorded: true,
+        auditId: result.audit_id,
+        transactionId: result.transaction_id || null,
+        balanceAfter: result.balance_after ?? null,
+        currency: result.currency || walletBefore?.currency || "USD",
+        createdAt: result.created_at || new Date().toISOString(),
+      });
+    }
+
+    // A legacy RPC can return success even when its UPDATE matched no wallet
+    // row. Verify the actual ledger before showing a success message.
+    const { data: walletAfter, error: afterError } = await admin
+      .from("wallets")
+      .select("balance, currency")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (afterError) {
+      return res.status(409).json({
+        error: "Supabase reported success, but the wallet balance could not be verified. The request may have been recorded; do not retry it until Funding Activity is checked.",
+        maybeProcessed: true,
+        transactionId: result.transaction_id || null,
+      });
+    }
+
+    const afterBalance = Number(walletAfter?.balance);
+    const expectedBalance = beforeBalance + numericAmount;
+    if (
+      !walletAfter ||
+      !Number.isFinite(afterBalance) ||
+      afterBalance + 0.000001 < expectedBalance
+    ) {
+      return res.status(409).json({
+        error: "Supabase reported success, but the internal balance did not increase by the requested amount. A transaction may still have been logged; do not retry until Funding Activity is checked.",
+        maybeProcessed: true,
+        transactionId: result.transaction_id || null,
+        balanceBefore: beforeBalance,
+        balanceAfter: walletAfter?.balance ?? null,
+      });
+    }
+
+    let legacyTransaction = null;
+    let transactionQuery = admin
+      .from("transactions")
+      .select("id, created_at, completed_at")
+      .eq("sender_id", actor.user.id)
+      .eq("receiver_id", userId)
+      .eq("transaction_type", "deposit")
+      .eq("description", "Admin deposit")
+      .eq("amount", numericAmount)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (result.transaction_id) {
+      transactionQuery = admin
+        .from("transactions")
+        .select("id, created_at, completed_at")
+        .eq("id", result.transaction_id)
+        .limit(1);
+    } else {
+      transactionQuery = transactionQuery.gte("created_at", requestStartedAt);
+    }
+    const { data: transactionRows } = await transactionQuery;
+    legacyTransaction = transactionRows?.[0] || null;
+
+    res.json({
+      success: true,
+      auditRecorded: false,
+      transactionId: legacyTransaction?.id || result.transaction_id || null,
+      balanceAfter: walletAfter.balance,
+      currency: walletAfter.currency || "USD",
+      createdAt: legacyTransaction?.completed_at || legacyTransaction?.created_at || null,
+      warning: "The balance increased, but the detailed funding audit migration is not active yet. The legacy transaction entry is retained.",
+    });
   } catch (err) {
     console.error("[admin-funds] error:", err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/funds/activity — admins and founders can review audited
+// credits and older Admin deposit transaction entries, including timestamps.
+app.get("/api/admin/funds/activity", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const requestedUserId = String(req.query.userId || "").trim();
+    if (
+      requestedUserId &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedUserId)
+    ) {
+      return res.status(400).json({ error: "Invalid user ID." });
+    }
+    const requestedLimit = Number.parseInt(String(req.query.limit || "100"), 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(250, Math.max(1, requestedLimit)) : 100;
+
+    let auditConfigured = true;
+    let auditRows = [];
+    let auditQuery = admin
+      .from("admin_fund_audit_log")
+      .select("id, actor_id, target_user_id, transaction_id, amount, currency, balance_before, balance_after, created_at")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (requestedUserId) auditQuery = auditQuery.eq("target_user_id", requestedUserId);
+    const { data: queriedAuditRows, error: auditError } = await auditQuery;
+    if (auditError) {
+      const missingAuditTable =
+        auditError.code === "42P01" ||
+        auditError.code === "PGRST205" ||
+        /admin_fund_audit_log.*(does not exist|schema cache)|could not find the table/i.test(auditError.message || "");
+      if (!missingAuditTable) throw new Error(auditError.message);
+      auditConfigured = false;
+    } else {
+      auditRows = queriedAuditRows || [];
+    }
+
+    let transactionQuery = admin
+      .from("transactions")
+      .select("id, sender_id, receiver_id, amount, status, transaction_type, description, created_at, completed_at")
+      .eq("transaction_type", "deposit")
+      .eq("description", "Admin deposit")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (requestedUserId) transactionQuery = transactionQuery.eq("receiver_id", requestedUserId);
+    const { data: transactions, error: transactionError } = await transactionQuery;
+    if (transactionError) throw new Error(transactionError.message);
+
+    const auditedTransactionIds = new Set(
+      auditRows.map((row) => row.transaction_id).filter(Boolean),
+    );
+    const events = [
+      ...auditRows.map((row) => ({
+        id: row.id,
+        transactionId: row.transaction_id || null,
+        actorId: row.actor_id,
+        targetId: row.target_user_id,
+        amount: row.amount,
+        currency: row.currency || "USD",
+        balanceBefore: row.balance_before,
+        balanceAfter: row.balance_after,
+        createdAt: row.created_at,
+        source: "audit",
+        status: "completed",
+      })),
+      ...(transactions || [])
+        .filter((row) => !auditedTransactionIds.has(row.id))
+        .map((row) => ({
+          id: row.id,
+          transactionId: row.id,
+          actorId: row.sender_id,
+          targetId: row.receiver_id,
+          amount: row.amount,
+          currency: "USD",
+          balanceBefore: null,
+          balanceAfter: null,
+          createdAt: row.completed_at || row.created_at,
+          source: "transaction",
+          status: row.status,
+        })),
+    ]
+      .filter((event) => event.createdAt)
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+      .slice(0, limit);
+
+    const profileIds = [...new Set(events.flatMap((event) => [event.actorId, event.targetId]))];
+    const { data: profiles } = profileIds.length
+      ? await admin.from("profiles").select("id, full_name, phone_number").in("id", profileIds)
+      : { data: [] };
+    const profileById = new Map((profiles || []).map((profile) => [
+      profile.id,
+      profile.full_name || profile.phone_number || null,
+    ]));
+
+    res.json({
+      auditConfigured,
+      events: events.map((event) => ({
+        ...event,
+        actorName: profileById.get(event.actorId) || null,
+        targetName: profileById.get(event.targetId) || null,
+      })),
+    });
+  } catch (err) {
+    console.error("[admin-funds] activity lookup failed:", err.message);
+    res.status(500).json({ error: "Could not load internal fund activity." });
   }
 });
 

@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- ============================================
 -- ENUMS
 -- ============================================
-CREATE TYPE public.app_role AS ENUM ('admin', 'agent', 'client', 'vendor');
+CREATE TYPE public.app_role AS ENUM ('admin', 'agent', 'client', 'vendor', 'founder');
 
 -- ============================================
 -- TABLES
@@ -75,6 +75,24 @@ CREATE TABLE public.transactions (
   created_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz
 );
+
+-- Admin/founder internal-funding audit trail
+CREATE TABLE public.admin_fund_audit_log (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_id uuid NOT NULL,
+  target_user_id uuid NOT NULL,
+  transaction_id uuid,
+  amount numeric NOT NULL CHECK (amount > 0),
+  currency text NOT NULL DEFAULT 'USD',
+  balance_before numeric NOT NULL,
+  balance_after numeric NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX admin_fund_audit_log_created_at_idx
+  ON public.admin_fund_audit_log (created_at DESC);
+CREATE INDEX admin_fund_audit_log_target_created_at_idx
+  ON public.admin_fund_audit_log (target_user_id, created_at DESC);
 
 -- Transaction Fees
 CREATE TABLE public.transaction_fees (
@@ -305,6 +323,7 @@ ALTER TABLE public.wallets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_wallets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_fund_audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transaction_fees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fund_requests ENABLE ROW LEVEL SECURITY;
@@ -431,26 +450,86 @@ BEGIN
 END;
 $$;
 
--- Admin add funds
+-- Admin/founder add funds with a balance snapshot and immutable audit record
 CREATE OR REPLACE FUNCTION public.admin_add_funds(_user_id uuid, _amount numeric)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
+DECLARE
+  _transaction_id uuid;
+  _audit_id uuid;
+  _balance_before numeric;
+  _balance_after numeric;
+  _currency text;
+  _created_at timestamptz;
 BEGIN
-  IF NOT public.has_role(auth.uid(), 'admin') THEN
+  IF NOT (
+    public.has_role(auth.uid(), 'admin')
+    OR public.has_role(auth.uid(), 'founder')
+  ) THEN
     RETURN jsonb_build_object('success', false, 'error', 'Unauthorized');
   END IF;
 
-  UPDATE public.wallets SET balance = balance + _amount, updated_at = now() WHERE user_id = _user_id;
+  IF _user_id IS NULL OR _amount IS NULL OR _amount <= 0 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Enter a valid user and positive amount.');
+  END IF;
 
-  INSERT INTO public.transactions (sender_id, receiver_id, amount, fee, status, transaction_type, description, completed_at)
-  VALUES (auth.uid(), _user_id, _amount, 0, 'completed', 'deposit', 'Admin deposit', now());
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = _user_id) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'User account not found.');
+  END IF;
 
-  RETURN jsonb_build_object('success', true);
+  INSERT INTO public.wallets (user_id, balance, currency)
+  VALUES (_user_id, 0, 'USD')
+  ON CONFLICT (user_id) DO NOTHING;
+
+  SELECT balance
+    INTO _balance_before
+    FROM public.wallets
+   WHERE user_id = _user_id
+   FOR UPDATE;
+
+  UPDATE public.wallets
+     SET balance = balance + _amount,
+         updated_at = now()
+   WHERE user_id = _user_id
+  RETURNING balance, currency
+    INTO _balance_after, _currency;
+
+  IF auth.uid() <> _user_id THEN
+    INSERT INTO public.transactions (
+      sender_id, receiver_id, amount, fee, status, transaction_type, description, completed_at
+    )
+    VALUES (
+      auth.uid(), _user_id, _amount, 0, 'completed', 'deposit', 'Admin deposit', now()
+    )
+    RETURNING id INTO _transaction_id;
+  END IF;
+
+  INSERT INTO public.admin_fund_audit_log (
+    actor_id, target_user_id, transaction_id, amount, currency,
+    balance_before, balance_after
+  )
+  VALUES (
+    auth.uid(), _user_id, _transaction_id, _amount, COALESCE(_currency, 'USD'),
+    _balance_before, _balance_after
+  )
+  RETURNING id, created_at INTO _audit_id, _created_at;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'audit_id', _audit_id,
+    'transaction_id', _transaction_id,
+    'balance_before', _balance_before,
+    'balance_after', _balance_after,
+    'currency', COALESCE(_currency, 'USD'),
+    'created_at', _created_at
+  );
 END;
 $$;
+REVOKE ALL ON FUNCTION public.admin_add_funds(uuid, numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_add_funds(uuid, numeric) TO authenticated;
 
 -- Process transaction
 CREATE OR REPLACE FUNCTION public.process_transaction(
@@ -671,6 +750,15 @@ CREATE POLICY "Admins can view all wallets" ON public.user_wallets FOR SELECT US
 CREATE POLICY "Users can view their own transactions" ON public.transactions FOR SELECT USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
 CREATE POLICY "Users can create transactions" ON public.transactions FOR INSERT WITH CHECK (auth.uid() = sender_id);
 CREATE POLICY "Admins can view all transactions" ON public.transactions FOR SELECT USING (has_role(auth.uid(), 'admin'));
+
+-- Admin funding audit
+CREATE POLICY "Admins and founders can view fund audit log"
+  ON public.admin_fund_audit_log
+  FOR SELECT
+  TO authenticated
+  USING (has_role(auth.uid(), 'admin') OR has_role(auth.uid(), 'founder'));
+REVOKE ALL ON TABLE public.admin_fund_audit_log FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.admin_fund_audit_log TO authenticated;
 
 -- Transaction Fees
 CREATE POLICY "Everyone can view fees" ON public.transaction_fees FOR SELECT USING (true);

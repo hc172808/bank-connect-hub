@@ -80,21 +80,19 @@ const AdminDeposit = () => {
         throw new Error(result.error || "Could not add funds.");
       }
 
-      if (result.success) {
-        toast({
-          title: "Deposit Successful",
-          description: `Added $${amount} to ${selectedUser.full_name}'s internal ledger balance.`,
-        });
-        setAmount("");
-        setSelectedUser(null);
-        setUserSearch("");
-      } else {
-        toast({
-          title: "Deposit Failed",
-          description: result.error || "Unknown error",
-          variant: "destructive",
-        });
-      }
+      const timestamp = result.createdAt
+        ? new Date(result.createdAt).toLocaleString()
+        : "timestamp is available in Funding Activity";
+      toast({
+        title: result.auditRecorded ? "Funds added and logged" : "Funds added — review audit setup",
+        description: result.auditRecorded
+          ? `Added $${Number(amount).toLocaleString()} to ${selectedUser.full_name || "the user"} at ${timestamp}.`
+          : `The balance increased to ${Number(result.balanceAfter).toLocaleString()} ${result.currency || "USD"}. This was recorded in legacy transaction history, but the detailed audit migration is not active. Do not repeat this credit.`,
+        variant: result.auditRecorded ? "default" : "destructive",
+      });
+      setAmount("");
+      setSelectedUser(null);
+      setUserSearch("");
     } catch (error: any) {
       toast({
         title: "Error",
