@@ -6,6 +6,11 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 DO $$ BEGIN CREATE TYPE public.app_role AS ENUM ('admin','agent','client','vendor'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+CREATE TABLE IF NOT EXISTS public.ledger_idempotency_keys (id text PRIMARY KEY, user_id uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE public.ledger_idempotency_keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS chain_tx_hash text, ADD COLUMN IF NOT EXISTS chain_block_number bigint, ADD COLUMN IF NOT EXISTS chain_status text NOT NULL DEFAULT 'off_chain';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS disabled boolean NOT NULL DEFAULT false;
+
 -- ===== Part 1: core functions (exported from the live database) =====
 CREATE OR REPLACE FUNCTION public.has_role(_user_id uuid, _role app_role)
  RETURNS boolean
