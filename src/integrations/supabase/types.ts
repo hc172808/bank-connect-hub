@@ -718,6 +718,24 @@ export type Database = {
         }
         Relationships: []
       }
+      ledger_idempotency_keys: {
+        Row: {
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mobile_money_providers: {
         Row: {
           color: string
@@ -1257,6 +1275,51 @@ export type Database = {
       }
     }
     Views: {
+      blockchain_settings_public: {
+        Row: {
+          chain_id: string | null
+          explorer_url: string | null
+          fee_wallet_address: string | null
+          gas_fee_gyd: number | null
+          id: string | null
+          is_active: boolean | null
+          liquidity_pool_address: string | null
+          native_coin_name: string | null
+          native_coin_symbol: string | null
+          rpc_url: string | null
+          rpc_urls: Json | null
+          updated_at: string | null
+        }
+        Insert: {
+          chain_id?: string | null
+          explorer_url?: string | null
+          fee_wallet_address?: string | null
+          gas_fee_gyd?: number | null
+          id?: string | null
+          is_active?: boolean | null
+          liquidity_pool_address?: string | null
+          native_coin_name?: string | null
+          native_coin_symbol?: string | null
+          rpc_url?: string | null
+          rpc_urls?: Json | null
+          updated_at?: string | null
+        }
+        Update: {
+          chain_id?: string | null
+          explorer_url?: string | null
+          fee_wallet_address?: string | null
+          gas_fee_gyd?: number | null
+          id?: string | null
+          is_active?: boolean | null
+          liquidity_pool_address?: string | null
+          native_coin_name?: string | null
+          native_coin_symbol?: string | null
+          rpc_url?: string | null
+          rpc_urls?: Json | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       public_vendors: {
         Row: {
           avatar_url: string | null
@@ -1310,6 +1373,16 @@ export type Database = {
         Args: {
           _amount: number
           _description?: string
+          _receiver_id: string
+          _transaction_type: string
+        }
+        Returns: Json
+      }
+      process_private_ledger_transfer_v2: {
+        Args: {
+          _amount: number
+          _description?: string
+          _idempotency_key?: string
           _receiver_id: string
           _transaction_type: string
         }
