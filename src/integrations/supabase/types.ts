@@ -1257,51 +1257,6 @@ export type Database = {
       }
     }
     Views: {
-      blockchain_settings_public: {
-        Row: {
-          chain_id: string | null
-          created_at: string
-          explorer_url: string | null
-          fee_wallet_address: string | null
-          gas_fee_gyd: number
-          is_active: boolean
-          liquidity_pool_address: string | null
-          native_coin_name: string
-          native_coin_symbol: string
-          rpc_url: string | null
-          rpc_urls: Json | null
-          updated_at: string
-        }
-        Insert: {
-          chain_id?: string | null
-          created_at?: string
-          explorer_url?: string | null
-          fee_wallet_address?: string | null
-          gas_fee_gyd?: number
-          is_active?: boolean
-          liquidity_pool_address?: string | null
-          native_coin_name?: string
-          native_coin_symbol?: string
-          rpc_url?: string | null
-          rpc_urls?: Json | null
-          updated_at?: string
-        }
-        Update: {
-          chain_id?: string | null
-          created_at?: string
-          explorer_url?: string | null
-          fee_wallet_address?: string | null
-          gas_fee_gyd?: number
-          is_active?: boolean
-          liquidity_pool_address?: string | null
-          native_coin_name?: string
-          native_coin_symbol?: string
-          rpc_url?: string | null
-          rpc_urls?: Json | null
-          updated_at?: string
-        }
-        Relationships: []
-      }
       public_vendors: {
         Row: {
           avatar_url: string | null
@@ -1355,16 +1310,6 @@ export type Database = {
         Args: {
           _amount: number
           _description?: string
-          _receiver_id: string
-          _transaction_type: string
-        }
-        Returns: Json
-      }
-      process_private_ledger_transfer_v2: {
-        Args: {
-          _amount: number
-          _description?: string
-          _idempotency_key: string
           _receiver_id: string
           _transaction_type: string
         }
