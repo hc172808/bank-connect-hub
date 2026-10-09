@@ -715,6 +715,14 @@ const AdminDashboard = () => {
               <Button
                 className="w-full justify-start gap-3 h-14 rounded-xl"
                 variant="secondary"
+                onClick={() => navigate("/admin/ai-fraud-analyst")}
+              >
+                <AlertTriangle size={20} />
+                AI Fraud Analyst
+              </Button>
+              <Button
+                className="w-full justify-start gap-3 h-14 rounded-xl"
+                variant="secondary"
                 onClick={() => navigate("/admin/announcements")}
               >
                 <Megaphone size={20} />
