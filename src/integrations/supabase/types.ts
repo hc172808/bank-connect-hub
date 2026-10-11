@@ -164,6 +164,80 @@ export type Database = {
         }
         Relationships: []
       }
+      bank_reserve: {
+        Row: {
+          balance: number
+          currency: string
+          id: number
+          low_balance_threshold: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          balance?: number
+          currency?: string
+          id?: number
+          low_balance_threshold?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          balance?: number
+          currency?: string
+          id?: number
+          low_balance_threshold?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      bank_reserve_ledger: {
+        Row: {
+          actor_id: string
+          amount: number
+          balance_after: number
+          balance_before: number
+          created_at: string
+          entry_type: string
+          id: string
+          notes: string | null
+          related_user_id: string | null
+          reserve_id: number
+        }
+        Insert: {
+          actor_id: string
+          amount: number
+          balance_after: number
+          balance_before: number
+          created_at?: string
+          entry_type: string
+          id?: string
+          notes?: string | null
+          related_user_id?: string | null
+          reserve_id?: number
+        }
+        Update: {
+          actor_id?: string
+          amount?: number
+          balance_after?: number
+          balance_before?: number
+          created_at?: string
+          entry_type?: string
+          id?: string
+          notes?: string | null
+          related_user_id?: string | null
+          reserve_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_reserve_ledger_reserve_id_fkey"
+            columns: ["reserve_id"]
+            isOneToOne: false
+            referencedRelation: "bank_reserve"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       biometric_credentials: {
         Row: {
           auth_type: string
@@ -1350,7 +1424,18 @@ export type Database = {
         Args: { _amount: number; _user_id: string }
         Returns: Json
       }
+      agent_distribute_funds: {
+        Args: { _amount: number; _description?: string; _receiver_id: string }
+        Returns: Json
+      }
       approve_fund_reversal: { Args: { _reversal_id: string }; Returns: Json }
+      approve_pending_deposit: { Args: { _deposit_id: string }; Returns: Json }
+      get_admin_dashboard_metrics: { Args: never; Returns: Json }
+      get_bank_reserve_snapshot: { Args: never; Returns: Json }
+      grant_bank_reserve_to_agent: {
+        Args: { _agent_id: string; _amount: number; _notes?: string }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1359,6 +1444,8 @@ export type Database = {
         Returns: boolean
       }
       hash_pin: { Args: { pin: string }; Returns: string }
+      internal_funds_enabled: { Args: never; Returns: boolean }
+      is_reserve_manager: { Args: { _user_id?: string }; Returns: boolean }
       log_audit_event: {
         Args: {
           _action: string
@@ -1368,6 +1455,7 @@ export type Database = {
         }
         Returns: string
       }
+      notify_reserve_low: { Args: never; Returns: undefined }
       process_pending_reversals: { Args: never; Returns: Json }
       process_private_ledger_transfer: {
         Args: {
@@ -1404,6 +1492,14 @@ export type Database = {
           _status?: string
           _transaction_id: string
           _tx_hash?: string
+        }
+        Returns: Json
+      }
+      set_bank_reserve: {
+        Args: {
+          _balance: number
+          _low_balance_threshold?: number
+          _notes?: string
         }
         Returns: Json
       }
