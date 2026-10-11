@@ -1868,6 +1868,591 @@ app.get("/api/auth/reset-status", (_req, res) => {
 /** In-memory pre-authentication OTP store. Sessions are released only after
  * the one-time code is verified. A process restart invalidates pending codes. */
 const loginOtpStore = new Map();
+const loginApprovalStore = new Map();
+const deviceLoginLocks = new Map();
+const DEVICE_LOGIN_TTL_MS = 5 * 60 * 1000;
+const DEVICE_SESSION_STALE_MS = 30 * 24 * 60 * 60 * 1000;
+const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function deviceRouteError(status, message, code = "DEVICE_LOGIN_ERROR") {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  return error;
+}
+
+function isMissingDeviceSchema(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return ["42P01", "42703", "PGRST204", "PGRST205"].includes(code) ||
+    /device_sessions|device_login_approvals|schema cache/i.test(message);
+}
+
+function normalizeDeviceInfo(value, req) {
+  const input = value && typeof value === "object" ? value : {};
+  const deviceId = String(input.deviceId || input.device_id || "").trim();
+  if (!DEVICE_ID_PATTERN.test(deviceId)) {
+    throw deviceRouteError(400, "A valid device ID is required.", "INVALID_DEVICE_ID");
+  }
+  const safeText = (candidate, fallback, maxLength = 80) =>
+    String(candidate || fallback).replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, maxLength) || fallback;
+  return {
+    deviceId,
+    deviceName: safeText(input.deviceName || input.device_name, "Unknown device"),
+    browser: safeText(input.browser, "Unknown", 60),
+    os: safeText(input.os, "Unknown", 60),
+    userAgent: safeText(req.headers["user-agent"], "", 240) || null,
+  };
+}
+
+function requestAccessToken(req) {
+  const authorization = String(req.headers.authorization || "");
+  return authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+}
+
+async function getDeviceActor(req, adminClient) {
+  const accessToken = requestAccessToken(req);
+  if (!accessToken) throw deviceRouteError(401, "Sign in is required.", "UNAUTHENTICATED");
+  let client = adminClient;
+  if (!client) {
+    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+      throw deviceRouteError(503, "Supabase authentication is not configured on the server.", "AUTH_UNAVAILABLE");
+    }
+    const { createClient } = await import("@supabase/supabase-js");
+    client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+  }
+  const { data, error } = await client.auth.getUser(accessToken);
+  if (error || !data?.user) throw deviceRouteError(401, "Your sign-in session is invalid or expired.", "INVALID_SESSION");
+  return { user: data.user, accessToken };
+}
+
+async function withDeviceUserLock(userId, callback) {
+  const previous = deviceLoginLocks.get(userId) || Promise.resolve();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const tail = previous.catch(() => {}).then(() => gate);
+  deviceLoginLocks.set(userId, tail);
+  await previous.catch(() => {});
+  try {
+    return await callback();
+  } finally {
+    release();
+    if (deviceLoginLocks.get(userId) === tail) deviceLoginLocks.delete(userId);
+  }
+}
+
+async function expireDeviceReservations(admin, userId) {
+  const now = new Date().toISOString();
+  const staleBefore = new Date(Date.now() - DEVICE_SESSION_STALE_MS).toISOString();
+  const [reservations, inactive] = await Promise.all([
+    admin.from("device_sessions")
+      .update({ revoked_at: now, pending_until: null })
+      .eq("user_id", userId)
+      .is("revoked_at", null)
+      .not("pending_until", "is", null)
+      .lte("pending_until", now),
+    admin.from("device_sessions")
+      .update({ revoked_at: now })
+      .eq("user_id", userId)
+      .is("revoked_at", null)
+      .is("pending_until", null)
+      .not("device_id", "is", null)
+      .lt("last_active_at", staleBefore),
+  ]);
+  if (reservations.error) throw reservations.error;
+  if (inactive.error) throw inactive.error;
+}
+
+async function getActiveDeviceRows(admin, userId) {
+  await expireDeviceReservations(admin, userId);
+  const { data, error } = await admin.from("device_sessions")
+    .select("id,device_id,device_name,browser,os,user_agent,is_current,last_active_at,pending_until")
+    .eq("user_id", userId)
+    .is("revoked_at", null)
+    .not("device_id", "is", null);
+  if (error) throw error;
+  const now = Date.now();
+  return (data || []).filter((row) =>
+    (!row.pending_until || new Date(row.pending_until).getTime() > now) &&
+    now - new Date(row.last_active_at).getTime() < DEVICE_SESSION_STALE_MS
+  );
+}
+
+async function registerDeviceSession(admin, userId, device, { reserve = false } = {}) {
+  const now = new Date().toISOString();
+  const pendingUntil = reserve ? new Date(Date.now() + DEVICE_LOGIN_TTL_MS).toISOString() : null;
+  const { data: existing, error: existingError } = await admin.from("device_sessions")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("device_id", device.deviceId)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  const details = {
+    device_name: device.deviceName,
+    browser: device.browser,
+    os: device.os,
+    user_agent: device.userAgent,
+    last_active_at: now,
+    pending_until: pendingUntil,
+    is_current: true,
+  };
+  if (existing?.id) {
+    const { error } = await admin.from("device_sessions").update(details).eq("id", existing.id);
+    if (error) throw error;
+    return existing.id;
+  }
+
+  const activeRows = await getActiveDeviceRows(admin, userId);
+  if (activeRows.length >= 2) {
+    throw deviceRouteError(409, "This account already has two active devices. Revoke a device in Security settings before signing in here.", "DEVICE_LIMIT");
+  }
+
+  const { data, error } = await admin.from("device_sessions")
+    .insert({ user_id: userId, device_id: device.deviceId, ...details })
+    .select("id")
+    .single();
+  if (error) {
+    if (error.code === "23505") {
+      const { data: raced, error: racedError } = await admin.from("device_sessions")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("device_id", device.deviceId)
+        .is("revoked_at", null)
+        .maybeSingle();
+      if (racedError) throw racedError;
+      if (raced?.id) return raced.id;
+    }
+    if (error.code === "23514") {
+      throw deviceRouteError(409, "This account already has two active devices. Revoke a device in Security settings before signing in here.", "DEVICE_LIMIT");
+    }
+    throw error;
+  }
+  return data.id;
+}
+
+function legacyDeviceGate(user, device) {
+  const activeDeviceId = String(user.user_metadata?.active_device_id || "");
+  if (activeDeviceId && activeDeviceId !== device.deviceId) {
+    throw deviceRouteError(
+      503,
+      "Two-device approval is not configured yet. Apply the device login approval migration before signing in on another device.",
+      "DEVICE_APPROVAL_NOT_CONFIGURED",
+    );
+  }
+}
+
+async function createDeviceApproval(admin, user, device, session) {
+  const now = Date.now();
+  for (const [token, entry] of loginApprovalStore) {
+    if (entry.expiresAt <= now) loginApprovalStore.delete(token);
+  }
+  const requestToken = crypto.randomBytes(32).toString("base64url");
+  const expiresAt = new Date(now + DEVICE_LOGIN_TTL_MS).toISOString();
+  await admin.from("device_login_approvals")
+    .update({ status: "expired", decided_at: new Date(now).toISOString() })
+    .eq("user_id", user.id)
+    .eq("status", "pending")
+    .lte("expires_at", new Date(now).toISOString());
+  const { data, error } = await admin.from("device_login_approvals")
+    .insert({
+      user_id: user.id,
+      device_id: device.deviceId,
+      device_name: device.deviceName,
+      browser: device.browser,
+      os: device.os,
+      user_agent: device.userAgent,
+      token_hash: hashOtp(requestToken),
+      expires_at: expiresAt,
+    })
+    .select("id")
+    .single();
+  if (error?.code === "23505") {
+    throw deviceRouteError(409, "A sign-in request is already waiting for approval. Check your other signed-in device or wait a few minutes.", "APPROVAL_ALREADY_PENDING");
+  }
+  if (error) throw error;
+  loginApprovalStore.set(requestToken, {
+    requestId: data.id,
+    userId: user.id,
+    device,
+    session,
+    expiresAt: Date.parse(expiresAt),
+  });
+  return { approvalRequired: true, requestToken, expiresIn: DEVICE_LOGIN_TTL_MS / 1000 };
+}
+
+async function prepareDeviceLogin(session, user, device) {
+  if (!adminOk()) {
+    legacyDeviceGate(user, device);
+    return { session };
+  }
+  try {
+    const admin = await getSupabaseAdminClient();
+    return await withDeviceUserLock(user.id, async () => {
+      const activeRows = await getActiveDeviceRows(admin, user.id);
+      const sameDevice = activeRows.find((row) => row.device_id === device.deviceId);
+      if (sameDevice) {
+        await registerDeviceSession(admin, user.id, device);
+        return { session };
+      }
+      if (activeRows.length === 0) {
+        legacyDeviceGate(user, device);
+        await registerDeviceSession(admin, user.id, device, { reserve: true });
+        return { session };
+      }
+      if (activeRows.length >= 2) {
+        throw deviceRouteError(409, "This account already has two active devices. Revoke a device in Security settings before signing in here.", "DEVICE_LIMIT");
+      }
+      return await createDeviceApproval(admin, user, device, session);
+    });
+  } catch (error) {
+    if (isMissingDeviceSchema(error)) {
+      legacyDeviceGate(user, device);
+      return { session };
+    }
+    throw error;
+  }
+}
+
+function sendDeviceLoginError(res, error, fallbackMessage = "Unable to verify this device login.") {
+  const status = Number(error?.status) || (isMissingDeviceSchema(error) ? 503 : 500);
+  const message = error?.status ? error.message :
+    isMissingDeviceSchema(error)
+      ? "Two-device approval is not configured yet. Apply the device login approval migration before signing in on another device."
+      : fallbackMessage;
+  res.status(status).json({ error: message, code: error?.code || "DEVICE_LOGIN_ERROR" });
+}
+
+async function requireTrustedDevice(admin, userId, deviceId) {
+  await expireDeviceReservations(admin, userId);
+  const { data, error } = await admin.from("device_sessions")
+    .select("id,device_id")
+    .eq("user_id", userId)
+    .eq("device_id", deviceId)
+    .is("revoked_at", null)
+    .is("pending_until", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw deviceRouteError(403, "This device is not an approved active session.", "UNTRUSTED_DEVICE");
+  return data;
+}
+
+// POST /api/auth/request-device-login { phone, password, device }
+app.post("/api/auth/request-device-login", async (req, res) => {
+  const { phone, password } = req.body || {};
+  if (!phone || !password) return res.status(400).json({ error: "Phone number and password are required." });
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    return res.status(503).json({ error: "Supabase authentication is not configured on the server." });
+  }
+  let device;
+  try {
+    device = normalizeDeviceInfo(req.body?.device, req);
+    const { createClient } = await import("@supabase/supabase-js");
+    const authClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    let authData = null;
+    let lastError = null;
+    for (const email of phoneEmailCandidates(phone)) {
+      const result = await authClient.auth.signInWithPassword({ email, password });
+      if (!result.error && result.data.session && result.data.user) {
+        authData = result.data;
+        break;
+      }
+      lastError = result.error;
+    }
+    if (!authData) return res.status(401).json({ error: lastError?.message || "Invalid phone number or password." });
+    const result = await prepareDeviceLogin(authData.session, authData.user, device);
+    res.status(result.approvalRequired ? 202 : 200).json(result);
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to sign in. Check your credentials and try again.");
+  }
+});
+
+// Device sessions are created and changed only by this server endpoint.
+app.post("/api/auth/device-session/claim", async (req, res) => {
+  let device;
+  try {
+    device = normalizeDeviceInfo(req.body, req);
+    const admin = adminOk() ? await getSupabaseAdminClient() : null;
+    const { user } = await getDeviceActor(req, admin);
+    if (!admin) {
+      legacyDeviceGate(user, device);
+      return res.json({ ok: true, legacyFallback: true });
+    }
+
+    const approvalToken = String(req.body?.approvalToken || "");
+    const approvalEntry = approvalToken ? loginApprovalStore.get(approvalToken) : null;
+    if (approvalEntry && approvalEntry.userId === user.id && approvalEntry.device.deviceId === device.deviceId) {
+      const { data: approval, error: approvalError } = await admin.from("device_login_approvals")
+        .select("id,status,expires_at")
+        .eq("id", approvalEntry.requestId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (approvalError) throw approvalError;
+      if (approval?.status !== "approved" || Date.parse(approval.expires_at) <= Date.now()) {
+        throw deviceRouteError(403, "The login request has not been approved or has expired.", "APPROVAL_NOT_GRANTED");
+      }
+    }
+
+    await withDeviceUserLock(user.id, async () => {
+      const activeRows = await getActiveDeviceRows(admin, user.id);
+      const sameDevice = activeRows.find((row) => row.device_id === device.deviceId);
+      if (sameDevice) {
+        await registerDeviceSession(admin, user.id, device);
+      } else if (approvalEntry && approvalEntry.userId === user.id && approvalEntry.device.deviceId === device.deviceId) {
+        await registerDeviceSession(admin, user.id, device);
+      } else if (activeRows.length === 0) {
+        legacyDeviceGate(user, device);
+        await registerDeviceSession(admin, user.id, device);
+      } else {
+        throw deviceRouteError(403, "This device needs approval from a currently signed-in device.", "APPROVAL_REQUIRED");
+      }
+
+      if (approvalEntry && approvalEntry.userId === user.id && approvalEntry.device.deviceId === device.deviceId) {
+        const { error: updateError } = await admin.from("device_login_approvals")
+          .update({ status: "completed", decided_at: new Date().toISOString() })
+          .eq("id", approvalEntry.requestId)
+          .eq("user_id", user.id)
+          .eq("status", "approved");
+        if (updateError) throw updateError;
+        loginApprovalStore.delete(approvalToken);
+      }
+    });
+    const { data: current } = await admin.from("device_sessions")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("device_id", device.deviceId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    res.json({ ok: true, sessionId: current?.id || null });
+  } catch (error) {
+    if (isMissingDeviceSchema(error)) {
+      try {
+        const { user } = await getDeviceActor(req, null);
+        legacyDeviceGate(user, device || normalizeDeviceInfo(req.body, req));
+        return res.json({ ok: true, legacyFallback: true });
+      } catch (fallbackError) {
+        return sendDeviceLoginError(res, fallbackError);
+      }
+    }
+    sendDeviceLoginError(res, error, "Unable to approve this device session.");
+  }
+});
+
+app.post("/api/auth/device-session/check", async (req, res) => {
+  let device;
+  try {
+    device = normalizeDeviceInfo(req.body, req);
+    const admin = adminOk() ? await getSupabaseAdminClient() : null;
+    const { user } = await getDeviceActor(req, admin);
+    if (!admin) {
+      legacyDeviceGate(user, device);
+      return res.json({ valid: true, legacyFallback: true });
+    }
+    await expireDeviceReservations(admin, user.id);
+    const { data: current, error } = await admin.from("device_sessions")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("device_id", device.deviceId)
+      .is("revoked_at", null)
+      .is("pending_until", null)
+      .maybeSingle();
+    if (error) throw error;
+    if (!current) return res.json({ valid: false });
+    const { error: touchError } = await admin.from("device_sessions")
+      .update({ last_active_at: new Date().toISOString() })
+      .eq("id", current.id);
+    if (touchError) throw touchError;
+    res.json({ valid: true });
+  } catch (error) {
+    if (isMissingDeviceSchema(error)) {
+      try {
+        const { user } = await getDeviceActor(req, null);
+        legacyDeviceGate(user, device || normalizeDeviceInfo(req.body, req));
+        return res.json({ valid: true, legacyFallback: true });
+      } catch (fallbackError) {
+        return sendDeviceLoginError(res, fallbackError);
+      }
+    }
+    sendDeviceLoginError(res, error, "Unable to verify this device session.");
+  }
+});
+
+app.post("/api/auth/device-session/revoke", async (req, res) => {
+  try {
+    const deviceId = String(req.body?.deviceId || "");
+    const sessionId = String(req.body?.sessionId || "");
+    if (!sessionId) return res.status(400).json({ error: "A device session ID is required." });
+    const admin = await getSupabaseAdminClient();
+    const { user } = await getDeviceActor(req, admin);
+    const { data, error } = await admin.from("device_sessions")
+      .update({ revoked_at: new Date().toISOString(), pending_until: null })
+      .eq("id", sessionId)
+      .eq("user_id", user.id)
+      .is("revoked_at", null)
+      .select("id,device_id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: "That active device session was not found." });
+    res.json({ ok: true, revokedCurrentDevice: data.device_id === deviceId });
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to revoke this device session.");
+  }
+});
+
+app.post("/api/auth/device-session/revoke-all", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const { user } = await getDeviceActor(req, admin);
+    const { error } = await admin.from("device_sessions")
+      .update({ revoked_at: new Date().toISOString(), pending_until: null })
+      .eq("user_id", user.id)
+      .is("revoked_at", null);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to revoke all device sessions.");
+  }
+});
+
+app.get("/api/auth/device-login/requests", async (req, res) => {
+  try {
+    const device = normalizeDeviceInfo({ deviceId: req.query.deviceId }, req);
+    if (!adminOk()) return res.json({ available: false, requests: [] });
+    const admin = await getSupabaseAdminClient();
+    const { user } = await getDeviceActor(req, admin);
+    await requireTrustedDevice(admin, user.id, device.deviceId);
+    const { data, error } = await admin.from("device_login_approvals")
+      .select("id,device_name,browser,os,created_at,expires_at")
+      .eq("user_id", user.id)
+      .eq("status", "pending")
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: true })
+      .limit(3);
+    if (error) throw error;
+    res.set("Cache-Control", "no-store");
+    res.json({ available: true, requests: data || [] });
+  } catch (error) {
+    if (isMissingDeviceSchema(error)) return res.json({ available: false, requests: [] });
+    sendDeviceLoginError(res, error, "Unable to check for pending login requests.");
+  }
+});
+
+app.post("/api/auth/device-login/respond", async (req, res) => {
+  try {
+    const device = normalizeDeviceInfo(req.body, req);
+    const requestId = String(req.body?.requestId || "");
+    const allow = req.body?.allow === true;
+    if (!requestId) return res.status(400).json({ error: "A login request ID is required." });
+    const admin = await getSupabaseAdminClient();
+    const { user } = await getDeviceActor(req, admin);
+    await requireTrustedDevice(admin, user.id, device.deviceId);
+    const { data: request, error: requestError } = await admin.from("device_login_approvals")
+      .select("id,device_id,status,expires_at")
+      .eq("id", requestId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (requestError) throw requestError;
+    if (!request || request.status !== "pending") {
+      return res.status(409).json({ error: "This login request is no longer waiting for a decision." });
+    }
+    if (request.device_id === device.deviceId) {
+      return res.status(403).json({ error: "A device cannot approve its own login request." });
+    }
+    if (Date.parse(request.expires_at) <= Date.now()) {
+      await admin.from("device_login_approvals")
+        .update({ status: "expired", decided_at: new Date().toISOString() })
+        .eq("id", request.id)
+        .eq("status", "pending");
+      return res.status(410).json({ error: "This login request has expired." });
+    }
+    if (allow) {
+      const activeRows = await getActiveDeviceRows(admin, user.id);
+      if (activeRows.length >= 2) {
+        return res.status(409).json({ error: "This account already has two active devices. Revoke one before approving another." });
+      }
+    }
+    const { data: updated, error: updateError } = await admin.from("device_login_approvals")
+      .update({
+        status: allow ? "approved" : "denied",
+        decided_at: new Date().toISOString(),
+        decided_by_device_id: device.deviceId,
+      })
+      .eq("id", request.id)
+      .eq("user_id", user.id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+    if (updateError) throw updateError;
+    if (!updated) return res.status(409).json({ error: "This login request has already been handled." });
+    res.json({ ok: true, status: allow ? "approved" : "denied" });
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to respond to this login request.");
+  }
+});
+
+app.post("/api/auth/device-login/status", async (req, res) => {
+  const requestToken = String(req.body?.requestToken || "");
+  if (requestToken.length < 40 || requestToken.length > 100) {
+    return res.status(400).json({ error: "Invalid login request token." });
+  }
+  const entry = loginApprovalStore.get(requestToken);
+  if (!entry) return res.status(410).json({ status: "expired", error: "This login request expired. Start again." });
+  if (entry.expiresAt <= Date.now()) {
+    loginApprovalStore.delete(requestToken);
+    return res.status(410).json({ status: "expired" });
+  }
+  try {
+    const admin = await getSupabaseAdminClient();
+    const { data, error } = await admin.from("device_login_approvals")
+      .select("status,expires_at")
+      .eq("id", entry.requestId)
+      .eq("user_id", entry.userId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data || Date.parse(data.expires_at) <= Date.now()) {
+      loginApprovalStore.delete(requestToken);
+      return res.status(410).json({ status: "expired" });
+    }
+    if (data.status === "denied" || data.status === "cancelled" || data.status === "expired") {
+      loginApprovalStore.delete(requestToken);
+      return res.json({ status: data.status });
+    }
+    if (data.status === "approved") {
+      res.set("Cache-Control", "no-store");
+      return res.json({ status: "approved", session: entry.session, approvalToken: requestToken });
+    }
+    if (data.status === "completed") {
+      loginApprovalStore.delete(requestToken);
+      return res.json({ status: "approved" });
+    }
+    res.json({ status: "pending" });
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to check this login request.");
+  }
+});
+
+app.post("/api/auth/device-login/cancel", async (req, res) => {
+  const requestToken = String(req.body?.requestToken || "");
+  if (requestToken.length < 40 || requestToken.length > 100) return res.json({ ok: true });
+  const entry = loginApprovalStore.get(requestToken);
+  if (!entry) return res.json({ ok: true });
+  try {
+    const admin = await getSupabaseAdminClient();
+    await admin.from("device_login_approvals")
+      .update({ status: "cancelled", decided_at: new Date().toISOString() })
+      .eq("id", entry.requestId)
+      .eq("status", "pending");
+  } catch {
+    // The request token is unguessable; removing its in-memory session is still safe.
+  }
+  loginApprovalStore.delete(requestToken);
+  res.json({ ok: true });
+});
 
 // POST /api/auth/request-login-otp { phone, password }
 app.post("/api/auth/request-login-otp", async (req, res) => {
@@ -1881,6 +2466,7 @@ app.post("/api/auth/request-login-otp", async (req, res) => {
   }
 
   try {
+    const device = normalizeDeviceInfo(req.body?.device, req);
     const { createClient } = await import("@supabase/supabase-js");
     const authClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -1911,6 +2497,7 @@ app.post("/api/auth/request-login-otp", async (req, res) => {
       attempts: 0,
       session: authData.session,
       user: authData.user,
+      device,
     });
 
     try {
@@ -1933,7 +2520,7 @@ app.post("/api/auth/request-login-otp", async (req, res) => {
 });
 
 // POST /api/auth/verify-login-otp { challengeId, code }
-app.post("/api/auth/verify-login-otp", (req, res) => {
+app.post("/api/auth/verify-login-otp", async (req, res) => {
   const { challengeId, code } = req.body || {};
   const entry = loginOtpStore.get(String(challengeId || ""));
   if (!entry) return res.status(400).json({ error: "This login code has expired. Request a new one." });
@@ -1951,7 +2538,12 @@ app.post("/api/auth/verify-login-otp", (req, res) => {
   }
 
   loginOtpStore.delete(challengeId);
-  res.json({ ok: true, session: entry.session, user: entry.user });
+  try {
+    const result = await prepareDeviceLogin(entry.session, entry.user, entry.device);
+    res.status(result.approvalRequired ? 202 : 200).json(result);
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to finish login verification.");
+  }
 });
 
 // POST /api/auth/request-reset  { phone, countryCode }

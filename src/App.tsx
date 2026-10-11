@@ -14,6 +14,7 @@ import { useAppLock } from "./hooks/useAppLock";
 import { useNewReleaseAlert } from "./hooks/useNewReleaseAlert";
 import { AppLockScreen } from "./components/AppLockScreen";
 import { DisplacedSessionDialog } from "./components/DisplacedSessionDialog";
+import { DeviceLoginApprovalPrompt } from "./components/DeviceLoginApprovalPrompt";
 import { MobileBrowserVerifyDialog } from "./components/MobileBrowserVerifyDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RoleGuard } from "./components/RoleGuard";
@@ -414,7 +415,7 @@ const InternalFundsGate = ({ children }: { children: React.ReactNode }) => {
 // Rendered as a sibling of AppRoutes so they're always in the tree and never
 // blocked by early returns inside AppRoutes.
 const GlobalOverlays = () => {
-  const { user, loading, displacedByDevice } = useAuth();
+  const { user, session, loading, displacedByDevice } = useAuth();
   const [showDisplaced, setShowDisplaced] = useState(false);
   const navigate = useNavigate();
 
@@ -430,6 +431,7 @@ const GlobalOverlays = () => {
   return (
     <>
       <DisplacedSessionDialog open={showDisplaced} onClose={handleDisplacedClose} />
+      <DeviceLoginApprovalPrompt accessToken={!loading && user ? session?.access_token : undefined} />
       <MobileBrowserVerifyDialog isLoggedIn={!loading && !!user} />
     </>
   );

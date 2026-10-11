@@ -21,12 +21,13 @@ export function DisplacedSessionDialog({ open, onClose }: Props) {
           <div className="flex items-center justify-center w-14 h-14 rounded-full bg-orange-100">
             <AlertCircle className="text-orange-500" size={30} />
           </div>
-          <DialogTitle className="text-lg">Signed Out</DialogTitle>
+          <DialogTitle className="text-lg">This device needs approval</DialogTitle>
           <DialogDescription className="text-sm leading-relaxed">
-            Your account was signed in on another device. For your security,
-            this session has been ended.
+            This device's session was revoked or was not approved. If you just
+            tried to sign in, approve the request on your other signed-in device
+            and try again.
             <br /><br />
-            If this wasn't you, change your password immediately.
+            If you did not start the request, change your password immediately.
           </DialogDescription>
         </DialogHeader>
         <Button className="w-full mt-2" onClick={onClose}>

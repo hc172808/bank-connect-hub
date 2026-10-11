@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { claimDeviceSession, getOrCreateDeviceId } from "@/hooks/useDeviceSession";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,6 @@ import { toast } from "sonner";
 import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Trash2, Bell, BellOff, Lock, AlertTriangle, LogIn, Clock, Timer } from "lucide-react";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
-import { UAParser } from "ua-parser-js";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useAppLockSettings } from "@/hooks/useAppLock";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -131,6 +131,8 @@ interface DeviceSession {
   os: string | null;
   ip_address: string | null;
   is_current: boolean;
+  device_id: string | null;
+  pending_until: string | null;
   last_active_at: string;
   created_at: string;
 }
@@ -143,6 +145,7 @@ const generateBackupCodes = () =>
 
 const SecuritySettings = () => {
   const navigate = useNavigate();
+  const [currentDeviceId] = useState(() => getOrCreateDeviceId());
   const [loading, setLoading] = useState(true);
   const [twoFAEnabled, setTwoFAEnabled] = useState(false);
   const [setupMode, setSetupMode] = useState(false);
@@ -164,6 +167,7 @@ const SecuritySettings = () => {
     if (!confirm("EMERGENCY LOCK: This will immediately sign you out of ALL devices and sessions. No transactions will be possible until you contact support. Continue?")) return;
     setLockLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
     if (user) {
       await supabase.rpc("log_audit_event" as never, {
         _action: "emergency_account_lock",
@@ -171,16 +175,29 @@ const SecuritySettings = () => {
         _entity_id: user.id,
       } as never);
     }
+    if (session?.access_token) {
+      try {
+        await fetch("/api/auth/device-session/revoke-all", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+      } catch {
+        // Global Supabase sign-out remains the fallback if device cleanup is unavailable.
+      }
+    }
     await supabase.auth.signOut({ scope: "global" });
     toast.success("Account locked. All sessions terminated. Contact support to unlock.");
     setLockLoading(false);
     window.location.href = "/auth";
   };
 
-  const load = async () => {
+  async function load() {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     setUserEmail(user.email || "");
 
     const { data: tfa } = await supabase
@@ -190,14 +207,14 @@ const SecuritySettings = () => {
       .maybeSingle();
     setTwoFAEnabled(!!(tfa as { enabled?: boolean } | null)?.enabled);
 
-    await ensureCurrentSession(user.id);
+    await ensureCurrentSession();
     const { data: ds } = await supabase
       .from("device_sessions" as never)
       .select("*")
       .eq("user_id", user.id)
       .is("revoked_at", null)
       .order("last_active_at", { ascending: false });
-    setSessions((ds as DeviceSession[]) || []);
+    setSessions(((ds as DeviceSession[]) || []).filter((session) => !session.pending_until));
 
     // SEC-06: Load recent security alerts from audit log
     const { data: alerts } = await supabase
@@ -207,7 +224,7 @@ const SecuritySettings = () => {
       .order("created_at", { ascending: false })
       .limit(10);
     if (alerts) {
-      setRecentAlerts(alerts.map((a: any) => ({
+      setRecentAlerts(alerts.map((a) => ({
         action: a.action,
         created_at: a.created_at,
         ip: a.ip_address,
@@ -215,39 +232,12 @@ const SecuritySettings = () => {
     }
 
     setLoading(false);
-  };
+  }
 
-  const ensureCurrentSession = async (userId: string) => {
-    const sessionKey = `device_session_${userId}`;
-    let id = localStorage.getItem(sessionKey);
-    const parser = new UAParser(navigator.userAgent);
-    const browser = parser.getBrowser().name || "Unknown";
-    const os = parser.getOS().name || "Unknown";
-    const device = parser.getDevice().model || `${os} Device`;
-
-    if (id) {
-      await supabase
-        .from("device_sessions" as never)
-        .update({ last_active_at: new Date().toISOString() } as never)
-        .eq("id", id);
-    } else {
-      const { data } = await supabase
-        .from("device_sessions" as never)
-        .insert({
-          user_id: userId,
-          device_name: device,
-          browser,
-          os,
-          user_agent: navigator.userAgent,
-          is_current: true,
-        } as never)
-        .select("id")
-        .single();
-      if (data) {
-        localStorage.setItem(sessionKey, (data as { id: string }).id);
-      }
-    }
-  };
+  async function ensureCurrentSession() {
+    const approved = await claimDeviceSession();
+    if (!approved) toast.error("This device is not approved or has been revoked. Sign in again and approve it on your other device.");
+  }
 
   const startSetup = async () => {
     const newSecret = new OTPAuth.Secret({ size: 20 }).base32;
@@ -317,12 +307,31 @@ const SecuritySettings = () => {
   };
 
   const revokeSession = async (id: string) => {
-    await supabase
-      .from("device_sessions" as never)
-      .update({ revoked_at: new Date().toISOString() } as never)
-      .eq("id", id);
-    toast.success("Session revoked");
-    setSessions(sessions.filter((s) => s.id !== id));
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      toast.error("Your sign-in session has expired.");
+      return;
+    }
+    try {
+      const response = await fetch("/api/auth/device-session/revoke", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ sessionId: id, deviceId: currentDeviceId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Unable to revoke this device.");
+      toast.success("Session revoked");
+      setSessions((current) => current.filter((deviceSession) => deviceSession.id !== id));
+      if (result.revokedCurrentDevice) {
+        await supabase.auth.signOut();
+        navigate("/auth", { replace: true });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
   };
 
   return (
@@ -384,7 +393,7 @@ const SecuritySettings = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Smartphone className="h-5 w-5" /> Active Sessions</CardTitle>
-            <CardDescription>Devices currently signed in to your account.</CardDescription>
+            <CardDescription>Up to two devices can stay signed in. Revoke a device here before adding another.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
@@ -394,14 +403,16 @@ const SecuritySettings = () => {
                 <div>
                   <p className="font-medium text-sm">
                     {s.browser} on {s.os}
-                    {s.is_current && <Badge variant="secondary" className="ml-2">Current</Badge>}
+                    {(s.device_id ? s.device_id === currentDeviceId : s.is_current) && (
+                      <Badge variant="secondary" className="ml-2">Current</Badge>
+                    )}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Last active: {new Date(s.last_active_at).toLocaleString()}
                   </p>
                 </div>
-                {!s.is_current && (
-                  <Button size="icon" variant="ghost" onClick={() => revokeSession(s.id)}>
+                {!(s.device_id ? s.device_id === currentDeviceId : s.is_current) && (
+                  <Button size="icon" variant="ghost" onClick={() => revokeSession(s.id)} data-testid={`button-revoke-device-${s.id}`}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 )}

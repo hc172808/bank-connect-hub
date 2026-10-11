@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, initSupabase } from "@/integrations/supabase/client";
+import { getDeviceInfo, PENDING_LOGIN_APPROVAL_KEY } from "@/hooks/useDeviceSession";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -238,6 +239,7 @@ export default function ForgotPassword() {
 
       // Try to find stored password for auto sign-in
       let autoSignedIn = false;
+      let approvalRequested = false;
       // Look for stored auth data by scanning localStorage for credential links
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
@@ -248,17 +250,42 @@ export default function ForgotPassword() {
         const encPass = localStorage.getItem(`biometric_auth_${credId}`);
         if (!encPass) continue;
         const storedPass = atob(encPass);
-        const digits = identifiedPhone.replace(/\D+/g, "");
-        const emailVariants = [
-          `${identifiedPhone.replace("+", "")}@vbank.com`,
-          `${digits}@vbank.com`,
-        ].filter((x, i, a) => a.indexOf(x) === i);
-
-        for (const em of emailVariants) {
-          const { error } = await supabase.auth.signInWithPassword({ email: em, password: storedPass });
-          if (!error) { autoSignedIn = true; break; }
+        const loginResponse = await fetch("/api/auth/request-device-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone: identifiedPhone,
+            password: storedPass,
+            device: getDeviceInfo(),
+          }),
+        });
+        const loginResult = await loginResponse.json().catch(() => ({}));
+        if (loginResult.approvalRequired && loginResult.requestToken) {
+          sessionStorage.setItem(PENDING_LOGIN_APPROVAL_KEY, loginResult.requestToken);
+          approvalRequested = true;
+          break;
         }
+        if (loginResponse.status === 401) continue;
+        if (!loginResponse.ok || !loginResult.session) {
+          throw new Error(loginResult.error || "This device could not be approved for sign-in.");
+        }
+        await initSupabase();
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: loginResult.session.access_token,
+          refresh_token: loginResult.session.refresh_token,
+        });
+        if (sessionError) throw sessionError;
+        autoSignedIn = true;
         if (autoSignedIn) break;
+      }
+
+      if (approvalRequested) {
+        toast({
+          title: "Approval requested",
+          description: "Allow this sign-in on a device where you are already signed in.",
+        });
+        navigate("/auth");
+        return;
       }
 
       if (autoSignedIn) {

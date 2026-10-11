@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase, initSupabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -15,23 +15,14 @@ import {
   getBiometricAuthData,
   hasStoredBiometric,
 } from "@/lib/biometricAuth";
+import { getDeviceInfo, PENDING_LOGIN_APPROVAL_KEY } from "@/hooks/useDeviceSession";
 
 type AuthMode = "signin" | "signup";
 type AccountType = "client" | "vendor";
-type LoginStep = "credentials" | "otp";
+type LoginStep = "credentials" | "otp" | "approval";
 
 const phoneToEmail = (e164: string) => `${e164.replace("+", "")}@vbank.com`;
-const phoneEmailCandidates = (value: string) => {
-  const raw = value.replace(/\D/g, "");
-  const normalized = raw.length === 7 ? `592${raw}` : raw;
-  return [...new Set([
-    `${normalized}@vbank.com`,
-    `${raw}@vbank.com`,
-    `${raw.replace(/^592/, "")}@vbank.com`,
-    `${normalized}@virtualbank.app`,
-    `${raw}@virtualbank.app`,
-  ].filter((email) => !email.startsWith("@")))];
-};
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 const Auth = () => {
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -41,12 +32,18 @@ const Auth = () => {
   const [accountType, setAccountType] = useState<AccountType>("client");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [loginStep, setLoginStep] = useState<LoginStep>("credentials");
+  const [approvalToken, setApprovalToken] = useState<string | null>(
+    () => sessionStorage.getItem(PENDING_LOGIN_APPROVAL_KEY),
+  );
+  const [loginStep, setLoginStep] = useState<LoginStep>(
+    () => sessionStorage.getItem(PENDING_LOGIN_APPROVAL_KEY) ? "approval" : "credentials",
+  );
   const [loginChallenge, setLoginChallenge] = useState("");
   const [loginOtp, setLoginOtp] = useState("");
   const [loginMaskedPhone, setLoginMaskedPhone] = useState("");
   const [supportWhatsapp, setSupportWhatsapp] = useState("");
   const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const approvalPollInFlight = useRef(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -61,12 +58,96 @@ const Auth = () => {
       .catch(() => {});
   }, []);
 
+  const setPendingApproval = (token: string) => {
+    sessionStorage.setItem(PENDING_LOGIN_APPROVAL_KEY, token);
+    setApprovalToken(token);
+    setLoginStep("approval");
+    setLoginOtp("");
+    toast({
+      title: "Approval requested",
+      description: "Allow this sign-in on a device where you are already signed in. The request expires in 5 minutes.",
+    });
+  };
+
+  const cancelDeviceApproval = async () => {
+    const token = approvalToken || sessionStorage.getItem(PENDING_LOGIN_APPROVAL_KEY);
+    if (token) {
+      try {
+        await fetch("/api/auth/device-login/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestToken: token }),
+        });
+      } catch {
+        // The server-side request still expires automatically.
+      }
+    }
+    sessionStorage.removeItem(PENDING_LOGIN_APPROVAL_KEY);
+    setApprovalToken(null);
+    setLoginStep("credentials");
+  };
+
+  useEffect(() => {
+    if (mode !== "signin" || loginStep !== "approval" || !approvalToken) return;
+    let active = true;
+    const poll = async () => {
+      if (approvalPollInFlight.current) return;
+      approvalPollInFlight.current = true;
+      try {
+        const response = await fetch("/api/auth/device-login/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestToken: approvalToken }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!active) return;
+        if (result.status === "pending") return;
+        if (result.status === "approved" && result.session) {
+          await initSupabase();
+          const { error } = await supabase.auth.setSession({
+            access_token: result.session.access_token,
+            refresh_token: result.session.refresh_token,
+          });
+          if (error) throw error;
+          setApprovalToken(null);
+          setLoginStep("credentials");
+          toast({ title: "Login approved", description: "This device is now signed in." });
+          return;
+        }
+        if (result.status === "denied" || result.status === "cancelled" || result.status === "expired" || response.status === 410) {
+          sessionStorage.removeItem(PENDING_LOGIN_APPROVAL_KEY);
+          setApprovalToken(null);
+          setLoginStep("credentials");
+          toast({
+            variant: "destructive",
+            title: result.status === "denied" ? "Login denied" : "Approval request expired",
+            description: result.status === "denied"
+              ? "The signed-in device denied this login request."
+              : "Start the sign-in again to request approval.",
+          });
+        } else if (!response.ok) {
+          throw new Error(result.error || "Could not check the approval request.");
+        }
+      } catch {
+        // Retry on the next poll; brief network interruptions should not cancel a valid request.
+      } finally {
+        approvalPollInFlight.current = false;
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 2500);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [approvalToken, loginStep, mode, toast]);
+
   const requestLoginOtp = async (phone: string, secret: string) => {
     await initSupabase();
     const response = await fetch("/api/auth/request-login-otp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone, password: secret }),
+      body: JSON.stringify({ phone, password: secret, device: getDeviceInfo() }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || "Could not send the WhatsApp code.");
@@ -92,6 +173,10 @@ const Auth = () => {
         body: JSON.stringify({ challengeId: loginChallenge, code: loginOtp.trim() }),
       });
       const result = await response.json().catch(() => ({}));
+      if (result.approvalRequired && result.requestToken) {
+        setPendingApproval(result.requestToken);
+        return;
+      }
       if (!response.ok || !result.session) throw new Error(result.error || "The verification code is invalid.");
       const { error } = await supabase.auth.setSession({
         access_token: result.session.access_token,
@@ -99,8 +184,8 @@ const Auth = () => {
       });
       if (error) throw error;
       toast({ title: "Welcome back!", description: "Your login was verified." });
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Verification failed", description: error.message });
+    } catch (error: unknown) {
+      toast({ variant: "destructive", title: "Verification failed", description: errorMessage(error) });
     } finally {
       setLoading(false);
     }
@@ -135,8 +220,8 @@ const Auth = () => {
 
       await requestLoginOtp(authData.phone, authData.password);
       toast({ title: `${type === "face" ? "Face ID" : "Fingerprint"} accepted`, description: "Confirm the WhatsApp code to finish signing in." });
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Error", description: error.message });
+    } catch (error: unknown) {
+      toast({ variant: "destructive", title: "Error", description: errorMessage(error) });
     } finally {
       setLoading(false);
     }
@@ -144,6 +229,7 @@ const Auth = () => {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === "signin" && loginStep === "approval") return;
     setLoading(true);
 
     try {
@@ -170,8 +256,8 @@ const Auth = () => {
           if (!availability.ok) {
             console.warn("[auth] Phone availability check skipped:", availabilityResult.error || availability.statusText);
           }
-        } catch (availabilityError: any) {
-          if (availabilityError?.message?.includes("already registered")) throw availabilityError;
+        } catch (availabilityError: unknown) {
+          if (availabilityError instanceof Error && availabilityError.message.includes("already registered")) throw availabilityError;
           console.warn("[auth] Phone availability check unavailable; continuing signup.", availabilityError);
         }
 
@@ -223,25 +309,32 @@ const Auth = () => {
 
         const whatsappSettings = await fetchWhatsAppSettings();
         if (!whatsappSettings.loginEnabled) {
-          let lastError: { message?: string } | null = null;
-          let signedIn = false;
-          for (const email of phoneEmailCandidates(phoneNumber)) {
-            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-            if (!error && data.session) {
-              signedIn = true;
-              break;
-            }
-            lastError = error;
+          const response = await fetch("/api/auth/request-device-login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phone: phoneNumber, password, device: getDeviceInfo() }),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (result.approvalRequired && result.requestToken) {
+            setPendingApproval(result.requestToken);
+            return;
           }
-          if (!signedIn) throw new Error(lastError?.message || "Invalid phone number or password.");
-          toast({ title: "Welcome back!", description: "WhatsApp login verification is currently disabled." });
+          if (!response.ok || !result.session) {
+            throw new Error(result.error || "Invalid phone number or password.");
+          }
+          const { error } = await supabase.auth.setSession({
+            access_token: result.session.access_token,
+            refresh_token: result.session.refresh_token,
+          });
+          if (error) throw error;
+          toast({ title: "Welcome back!", description: "Signed in on this device." });
         } else {
           await requestLoginOtp(phoneNumber, password);
         }
         return;
       }
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Error", description: error.message });
+    } catch (error: unknown) {
+      toast({ variant: "destructive", title: "Error", description: errorMessage(error) });
     } finally {
       setLoading(false);
     }
@@ -267,17 +360,40 @@ const Auth = () => {
                 </div>
               </div>
               <h1 className="text-3xl font-bold text-foreground mb-2">
-                {mode === "signin" ? "Sign in" : "Register Now"}
+                {mode === "signin"
+                  ? loginStep === "approval" ? "Approve this sign-in" : "Sign in"
+                  : "Register Now"}
               </h1>
               <p className="text-muted-foreground">
-                {mode === "signin"
-                  ? "Hello! Enter your details to sign in to your account."
-                  : "Create your account to get started."}
+                {mode === "signin" && loginStep === "approval"
+                  ? "Your account stays signed out here until you approve it on your other device."
+                  : mode === "signin"
+                    ? "Hello! Enter your details to sign in to your account."
+                    : "Create your account to get started."}
               </p>
             </div>
 
             <form onSubmit={mode === "signin" && loginStep === "otp" ? handleVerifyLoginOtp : handleAuth} className="space-y-6">
-              {mode === "signin" && loginStep === "otp" ? (
+              {mode === "signin" && loginStep === "approval" ? (
+                <div className="space-y-5">
+                  <div className="rounded-2xl bg-primary/10 p-5 text-center">
+                    <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-primary" />
+                    <h2 className="font-semibold text-lg">Waiting for approval</h2>
+                    <p className="text-sm text-muted-foreground mt-2" data-testid="status-login-approval">
+                      Open the device where you are already signed in and choose Allow. If approved, both devices stay signed in. This request expires in 5 minutes.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void cancelDeviceApproval()}
+                    className="w-full h-14 rounded-xl"
+                    data-testid="button-cancel-login-approval"
+                  >
+                    Cancel sign-in request
+                  </Button>
+                </div>
+              ) : mode === "signin" && loginStep === "otp" ? (
                 <div className="space-y-5">
                   <div className="rounded-2xl bg-primary/10 p-5 text-center">
                     <ShieldCheck className="mx-auto mb-3 h-10 w-10 text-primary" />
@@ -450,40 +566,42 @@ const Auth = () => {
               )}
             </form>
 
-            <div className="mt-8 text-center space-y-3">
-              <p className="text-muted-foreground text-sm">
-                {mode === "signin" ? "Don't have an account?" : "Already have an account?"}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setMode(mode === "signin" ? "signup" : "signin");
-                  setLoginStep("credentials");
-                  setLoginChallenge("");
-                  setLoginOtp("");
-                }}
-                className="w-full h-12 rounded-xl font-semibold"
-              >
-                {mode === "signin" ? "Register Now" : "Sign In"}
-              </Button>
-              {mode === "signin" && (
+            {!(mode === "signin" && loginStep === "approval") && (
+              <div className="mt-8 text-center space-y-3">
+                <p className="text-muted-foreground text-sm">
+                  {mode === "signin" ? "Don't have an account?" : "Already have an account?"}
+                </p>
                 <Button
                   type="button"
-                  variant="ghost"
-                  className="w-full gap-2 text-primary"
+                  variant="outline"
                   onClick={() => {
-                    if (!supportWhatsapp) {
-                      toast({ variant: "destructive", title: "Agent chat is not configured", description: "Ask an administrator to configure the WhatsApp support number." });
-                      return;
-                    }
-                    window.open(buildWhatsAppLink(supportWhatsapp, "Hello, I need help signing in to NETLIFE CASH."), "_blank", "noopener,noreferrer");
+                    setMode(mode === "signin" ? "signup" : "signin");
+                    setLoginStep("credentials");
+                    setLoginChallenge("");
+                    setLoginOtp("");
                   }}
+                  className="w-full h-12 rounded-xl font-semibold"
                 >
-                  <MessageCircle size={18} /> Chat with an agent
+                  {mode === "signin" ? "Register Now" : "Sign In"}
                 </Button>
-              )}
-            </div>
+                {mode === "signin" && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full gap-2 text-primary"
+                    onClick={() => {
+                      if (!supportWhatsapp) {
+                        toast({ variant: "destructive", title: "Agent chat is not configured", description: "Ask an administrator to configure the WhatsApp support number." });
+                        return;
+                      }
+                      window.open(buildWhatsAppLink(supportWhatsapp, "Hello, I need help signing in to NETLIFE CASH."), "_blank", "noopener,noreferrer");
+                    }}
+                  >
+                    <MessageCircle size={18} /> Chat with an agent
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

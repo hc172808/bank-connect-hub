@@ -1,19 +1,21 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase, initSupabase } from '@/integrations/supabase/client';
-import { claimDeviceSession, checkDeviceSession, getOrCreateDeviceId } from './useDeviceSession';
+import { useState, useEffect, useRef, useCallback } from "react";
+import { User, Session } from "@supabase/supabase-js";
+import { supabase, initSupabase } from "@/integrations/supabase/client";
+import { claimDeviceSession, checkDeviceSession, getOrCreateDeviceId } from "./useDeviceSession";
 
-// ── Session audit logging ─────────────────────────────────────────────────────
 async function logSessionEvent(
   action: string,
   userId: string,
-  metadata: Record<string, unknown> = {}
+  metadata: Record<string, unknown> = {},
 ) {
   try {
-    await (supabase.from('audit_logs') as any).insert({
+    const auditLogs = supabase.from("audit_logs") as unknown as {
+      insert: (row: Record<string, unknown>) => Promise<unknown>;
+    };
+    await auditLogs.insert({
       action,
       actor_id: userId,
-      entity_type: 'session',
+      entity_type: "session",
       entity_id: userId,
       user_agent: navigator.userAgent.slice(0, 200),
       metadata: {
@@ -23,11 +25,11 @@ async function logSessionEvent(
       },
     });
   } catch {
-    // Non-critical — never block auth flow on logging failure
+    // Audit logging is best-effort and never blocks authentication.
   }
 }
 
-export type UserRole = 'admin' | 'founder' | 'agent' | 'client' | 'vendor';
+export type UserRole = "admin" | "founder" | "agent" | "client" | "vendor";
 
 export interface AuthState {
   user: User | null;
@@ -35,6 +37,22 @@ export interface AuthState {
   role: UserRole | null;
   loading: boolean;
   displacedByDevice: boolean;
+}
+
+async function fetchUserRole(userId: string, metaFallback?: string): Promise<UserRole | null> {
+  const { data, error } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  if (!error && data?.role) return data.role as UserRole;
+
+  const validRoles: UserRole[] = ["admin", "founder", "agent", "client", "vendor"];
+  if (metaFallback && validRoles.includes(metaFallback as UserRole)) {
+    return metaFallback as UserRole;
+  }
+  return "client";
 }
 
 export const useAuth = () => {
@@ -49,30 +67,9 @@ export const useAuth = () => {
   const checkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasSessionRef = useRef(false);
   const currentUserIdRef = useRef<string | null>(null);
-
-  const fetchUserRole = async (userId: string, metaFallback?: string): Promise<UserRole | null> => {
-    const { data, error } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', userId)
-      .limit(1)
-      .maybeSingle();
-    if (!error && data?.role) {
-      return data.role as UserRole;
-    }
-    // Fall back to user_metadata.account_type when the user_roles table is
-    // unavailable or the row hasn't been created yet (e.g. during initial setup).
-    const validRoles: UserRole[] = ['admin', 'founder', 'agent', 'client', 'vendor'];
-    if (metaFallback && validRoles.includes(metaFallback as UserRole)) {
-      return metaFallback as UserRole;
-    }
-    // A user can authenticate successfully before the profile/role trigger has
-    // been applied to the Supabase project, especially for accounts created
-    // before deployment. Treat such users as clients only. This avoids
-    // blocking the account while ensuring missing data can never grant admin,
-    // agent, or vendor access.
-    return 'client';
-  };
+  const processedTokenRef = useRef<string | null>(null);
+  const authGenerationRef = useRef(0);
+  const deviceDeniedRef = useRef(false);
 
   const stopDeviceCheck = useCallback(() => {
     if (checkIntervalRef.current) {
@@ -84,14 +81,51 @@ export const useAuth = () => {
   const doDeviceCheck = useCallback(async () => {
     if (!hasSessionRef.current) return;
     const result = await checkDeviceSession();
-    if (result === 'displaced') {
-      stopDeviceCheck();
-      const uid = currentUserIdRef.current;
-      if (uid) {
-        void logSessionEvent('session.displaced', uid, {
-          reason: 'Another device claimed this session',
-        });
-      }
+    if (result !== "displaced") return;
+
+    stopDeviceCheck();
+    deviceDeniedRef.current = true;
+    const userId = currentUserIdRef.current;
+    if (userId) {
+      void logSessionEvent("session.displaced", userId, {
+        reason: "This device session was revoked or is no longer approved",
+      });
+    }
+    await supabase.auth.signOut();
+    hasSessionRef.current = false;
+    currentUserIdRef.current = null;
+    setAuthState({
+      user: null,
+      session: null,
+      role: null,
+      loading: false,
+      displacedByDevice: true,
+    });
+  }, [stopDeviceCheck]);
+
+  const startDeviceCheck = useCallback(() => {
+    stopDeviceCheck();
+    checkIntervalRef.current = setInterval(() => void doDeviceCheck(), 30_000);
+  }, [doDeviceCheck, stopDeviceCheck]);
+
+  const processSession = useCallback(async (session: Session) => {
+    if (!session.user || processedTokenRef.current === session.access_token) return;
+    processedTokenRef.current = session.access_token;
+    const generation = ++authGenerationRef.current;
+    hasSessionRef.current = false;
+    stopDeviceCheck();
+    setAuthState({
+      user: null,
+      session: null,
+      role: null,
+      loading: true,
+      displacedByDevice: false,
+    });
+
+    const approved = await claimDeviceSession(session.access_token);
+    if (generation !== authGenerationRef.current) return;
+    if (!approved) {
+      deviceDeniedRef.current = true;
       await supabase.auth.signOut();
       hasSessionRef.current = false;
       currentUserIdRef.current = null;
@@ -102,101 +136,134 @@ export const useAuth = () => {
         loading: false,
         displacedByDevice: true,
       });
+      return;
     }
-  }, [stopDeviceCheck]);
 
-  const startDeviceCheck = useCallback(() => {
-    stopDeviceCheck();
-    checkIntervalRef.current = setInterval(doDeviceCheck, 30_000);
-  }, [doDeviceCheck, stopDeviceCheck]);
+    deviceDeniedRef.current = false;
+    hasSessionRef.current = true;
+    currentUserIdRef.current = session.user.id;
+    startDeviceCheck();
+    void logSessionEvent("session.sign_in", session.user.id, {
+      email: session.user.email,
+      provider: session.user.app_metadata?.provider ?? "email",
+    });
+
+    const { data: { session: latestSession } } = await supabase.auth.getSession();
+    const acceptedSession = latestSession || session;
+    const role = await fetchUserRole(
+      acceptedSession.user.id,
+      acceptedSession.user.user_metadata?.account_type as string | undefined,
+    );
+    if (generation !== authGenerationRef.current) return;
+    setAuthState({
+      user: acceptedSession.user,
+      session: acceptedSession,
+      role,
+      loading: false,
+      displacedByDevice: false,
+    });
+  }, [startDeviceCheck, stopDeviceCheck]);
 
   useEffect(() => {
-    const safetyTimer = setTimeout(() => {
-      setAuthState(prev => prev.loading ? { ...prev, loading: false } : prev);
-    }, 8000);
+    let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
 
-    // Check on window focus / tab visibility
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && hasSessionRef.current) {
-        doDeviceCheck();
+      if (document.visibilityState === "visible" && hasSessionRef.current) {
+        void doDeviceCheck();
       }
     };
-    document.addEventListener('visibilitychange', onVisibilityChange);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
-    initSupabase().then(() => {
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        async (event, session) => {
-          setAuthState(prev => ({
-            ...prev,
-            session,
-            user: session?.user ?? null,
-            displacedByDevice: false,
-          }));
-
-          if (event === 'SIGNED_IN' && session?.user) {
-            hasSessionRef.current = true;
-            currentUserIdRef.current = session.user.id;
-            // Claim this device as the active session for this user
-            await claimDeviceSession();
-            startDeviceCheck();
-            void logSessionEvent('session.sign_in', session.user.id, {
-              email: session.user.email,
-              provider: session.user.app_metadata?.provider ?? 'email',
-            });
-          }
-
-          if (event === 'SIGNED_OUT') {
-            const uid = currentUserIdRef.current;
-            hasSessionRef.current = false;
-            currentUserIdRef.current = null;
-            stopDeviceCheck();
-            if (uid) void logSessionEvent('session.sign_out', uid);
-          }
-
-          if (session?.user) {
-            setTimeout(async () => {
-              const meta = session.user.user_metadata?.account_type as string | undefined;
-              const role = await fetchUserRole(session.user.id, meta);
-              setAuthState(prev => ({ ...prev, role, loading: false }));
-            }, 0);
-          } else {
-            setAuthState(prev => ({ ...prev, role: null, loading: false }));
-          }
+    void initSupabase().then(() => {
+      if (cancelled) return;
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT") {
+          const userId = currentUserIdRef.current;
+          const denied = deviceDeniedRef.current;
+          deviceDeniedRef.current = false;
+          authGenerationRef.current += 1;
+          processedTokenRef.current = null;
+          hasSessionRef.current = false;
+          currentUserIdRef.current = null;
+          stopDeviceCheck();
+          if (userId) void logSessionEvent("session.sign_out", userId);
+          setAuthState({
+            user: null,
+            session: null,
+            role: null,
+            loading: false,
+            displacedByDevice: denied,
+          });
+          return;
         }
-      );
 
-      // Check existing (persisted) session
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        setAuthState(prev => ({
-          ...prev,
-          session,
-          user: session?.user ?? null,
-        }));
+        if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session?.user) {
+          void processSession(session);
+          return;
+        }
 
         if (session?.user) {
-          hasSessionRef.current = true;
-          const meta = session.user.user_metadata?.account_type as string | undefined;
-          fetchUserRole(session.user.id, meta).then(role => {
-            setAuthState(prev => ({ ...prev, role, loading: false }));
+          setAuthState((prev) => ({
+            ...prev,
+            session,
+            user: session.user,
+          }));
+        } else if (event === "INITIAL_SESSION") {
+          setAuthState({
+            user: null,
+            session: null,
+            role: null,
+            loading: false,
+            displacedByDevice: false,
           });
-          // Start device check for existing session (don't re-claim)
-          startDeviceCheck();
+        }
+      });
+      unsubscribe = () => subscription.unsubscribe();
+
+      void supabase.auth.getSession().then(({ data: { session } }) => {
+        if (cancelled) return;
+        if (session?.user) {
+          void processSession(session);
         } else {
-          setAuthState({ user: null, session: null, role: null, loading: false, displacedByDevice: false });
+          setAuthState({
+            user: null,
+            session: null,
+            role: null,
+            loading: false,
+            displacedByDevice: false,
+          });
         }
       }).catch(() => {
-        setAuthState({ user: null, session: null, role: null, loading: false, displacedByDevice: false });
+        if (!cancelled) {
+          setAuthState({
+            user: null,
+            session: null,
+            role: null,
+            loading: false,
+            displacedByDevice: false,
+          });
+        }
       });
-
-      return () => subscription.unsubscribe();
+    }).catch(() => {
+      if (!cancelled) {
+        setAuthState({
+          user: null,
+          session: null,
+          role: null,
+          loading: false,
+          displacedByDevice: false,
+        });
+      }
     });
 
     return () => {
-      clearTimeout(safetyTimer);
+      cancelled = true;
+      unsubscribe?.();
       stopDeviceCheck();
-      document.removeEventListener('visibilitychange', onVisibilityChange);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, []);
+  }, [doDeviceCheck, processSession, stopDeviceCheck]);
 
   return authState;
 };
