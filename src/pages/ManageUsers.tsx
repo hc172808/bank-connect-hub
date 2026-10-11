@@ -283,12 +283,19 @@ const ManageUsers = () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
-      const response = await fetch("/api/auth/all-users", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      const result = await response.json().catch(() => ({})) as AdminUsersResponse;
+      let response: Response | null = null;
+      let result: AdminUsersResponse = {};
+      try {
+        response = await fetch("/api/auth/all-users", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        result = await response.json().catch(() => ({})) as AdminUsersResponse;
+      } catch (apiError) {
+        console.info("Admin users API unavailable; using the authenticated profile list:", apiError);
+      }
+
       let loadedUsers: User[];
-      if (response.ok) {
+      if (response?.ok) {
         loadedUsers = (result.users || []).map((item) => ({
           id: item.id,
           email: item.email || null,
