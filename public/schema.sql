@@ -730,7 +730,7 @@ CREATE POLICY "Everyone can view vendor store names" ON public.profiles FOR SELE
   USING (EXISTS (SELECT 1 FROM user_roles WHERE user_roles.user_id = profiles.id AND user_roles.role = 'vendor'));
 
 -- Wallets
-CREATE POLICY "Users can view their own wallet" ON public.wallets FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can view their own wallet" ON public.wallets FOR SELECT TO authenticated USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert their own wallet" ON public.wallets FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update their own wallet" ON public.wallets FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Agents can view client wallets" ON public.wallets FOR SELECT USING (has_role(auth.uid(), 'agent') OR has_role(auth.uid(), 'admin'));

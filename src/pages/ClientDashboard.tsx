@@ -101,7 +101,7 @@ const ClientDashboard = () => {
     }
 
     setWallet(data);
-    setWalletLoadError(false);
+    setWalletLoadError(!data);
   }, []);
 
   useEffect(() => {
@@ -167,7 +167,7 @@ const ClientDashboard = () => {
       setWalletLoadError(true);
     } else {
       setWallet(walletRes.data);
-      setWalletLoadError(false);
+      setWalletLoadError(!walletRes.data);
     }
     if (profileRes.data) setProfile(profileRes.data);
     setFeatureToggles(features);
@@ -370,7 +370,7 @@ const ClientDashboard = () => {
             <div className="mt-4">
               <h2 className="text-5xl font-bold text-foreground">
                 {showBalance
-                  ? walletLoadError
+                  ? walletLoadError || !wallet
                     ? "Unavailable"
                     : `${wallet?.currency || "USD"} ${Number(wallet?.balance ?? 0).toFixed(2)}`
                   : "••••••"}
