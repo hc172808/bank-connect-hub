@@ -44,6 +44,7 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+REVOKE ALL ON FUNCTION public.enforce_two_active_device_sessions() FROM PUBLIC;
 
 DROP TRIGGER IF EXISTS trg_enforce_two_active_device_sessions
   ON public.device_sessions;
@@ -79,16 +80,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS device_login_approvals_one_pending_per_user
   WHERE status = 'pending';
 
 ALTER TABLE public.device_login_approvals ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.device_login_approvals FROM anon, authenticated;
+REVOKE ALL ON public.device_login_approvals FROM PUBLIC, anon, authenticated;
 GRANT ALL ON public.device_login_approvals TO service_role;
 
 -- Only the server can create, activate, or revoke device-session rows.
 DROP POLICY IF EXISTS "Users manage their own sessions" ON public.device_sessions;
+DROP POLICY IF EXISTS "Users view their own sessions" ON public.device_sessions;
 CREATE POLICY "Users view their own sessions"
   ON public.device_sessions
   FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
 
-REVOKE INSERT, UPDATE, DELETE ON public.device_sessions FROM anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE ON public.device_sessions FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.device_sessions TO authenticated;

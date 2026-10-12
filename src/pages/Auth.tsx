@@ -114,6 +114,12 @@ const Auth = () => {
           toast({ title: "Login approved", description: "This device is now signed in." });
           return;
         }
+        if (result.status === "completed") {
+          sessionStorage.removeItem(PENDING_LOGIN_APPROVAL_KEY);
+          setApprovalToken(null);
+          setLoginStep("credentials");
+          return;
+        }
         if (result.status === "denied" || result.status === "cancelled" || result.status === "expired" || response.status === 410) {
           sessionStorage.removeItem(PENDING_LOGIN_APPROVAL_KEY);
           setApprovalToken(null);

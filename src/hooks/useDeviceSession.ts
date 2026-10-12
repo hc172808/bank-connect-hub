@@ -72,7 +72,12 @@ export async function claimDeviceSession(accessToken?: string): Promise<boolean>
       body: JSON.stringify({ ...getDeviceInfo(), approvalToken }),
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok || result.ok !== true) return false;
+    if (!response.ok || result.ok !== true) {
+      if (approvalToken && [403, 409, 410].includes(response.status)) {
+        sessionStorage.removeItem(PENDING_LOGIN_APPROVAL_KEY);
+      }
+      return false;
+    }
 
     if (result.sessionId) {
       const userId = session?.user.id || (await supabase.auth.getUser()).data.user?.id;

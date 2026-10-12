@@ -1885,7 +1885,8 @@ function isMissingDeviceSchema(error) {
   const code = String(error?.code || "");
   const message = String(error?.message || "");
   return ["42P01", "42703", "PGRST204", "PGRST205"].includes(code) ||
-    /device_sessions|device_login_approvals|schema cache/i.test(message);
+    (/(device_sessions|device_login_approvals)/i.test(message) &&
+      /(does not exist|not found|could not find|schema cache)/i.test(message));
 }
 
 function normalizeDeviceInfo(value, req) {
@@ -2052,11 +2053,12 @@ async function createDeviceApproval(admin, user, device, session) {
   }
   const requestToken = crypto.randomBytes(32).toString("base64url");
   const expiresAt = new Date(now + DEVICE_LOGIN_TTL_MS).toISOString();
-  await admin.from("device_login_approvals")
+  const { error: expireError } = await admin.from("device_login_approvals")
     .update({ status: "expired", decided_at: new Date(now).toISOString() })
     .eq("user_id", user.id)
     .eq("status", "pending")
     .lte("expires_at", new Date(now).toISOString());
+  if (expireError) throw expireError;
   const { data, error } = await admin.from("device_login_approvals")
     .insert({
       user_id: user.id,
@@ -2118,6 +2120,7 @@ async function prepareDeviceLogin(session, user, device) {
 }
 
 function sendDeviceLoginError(res, error, fallbackMessage = "Unable to verify this device login.") {
+  res.set("Cache-Control", "no-store");
   const status = Number(error?.status) || (isMissingDeviceSchema(error) ? 503 : 500);
   const message = error?.status ? error.message :
     isMissingDeviceSchema(error)
@@ -2142,6 +2145,7 @@ async function requireTrustedDevice(admin, userId, deviceId) {
 
 // POST /api/auth/request-device-login { phone, password, device }
 app.post("/api/auth/request-device-login", async (req, res) => {
+  res.set("Cache-Control", "no-store");
   const { phone, password } = req.body || {};
   if (!phone || !password) return res.status(400).json({ error: "Phone number and password are required." });
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
@@ -2396,12 +2400,38 @@ app.post("/api/auth/device-login/respond", async (req, res) => {
 });
 
 app.post("/api/auth/device-login/status", async (req, res) => {
+  res.set("Cache-Control", "no-store");
   const requestToken = String(req.body?.requestToken || "");
   if (requestToken.length < 40 || requestToken.length > 100) {
     return res.status(400).json({ error: "Invalid login request token." });
   }
   const entry = loginApprovalStore.get(requestToken);
-  if (!entry) return res.status(410).json({ status: "expired", error: "This login request expired. Start again." });
+  if (!entry) {
+    try {
+      const admin = await getSupabaseAdminClient();
+      const { data, error } = await admin.from("device_login_approvals")
+        .select("id,status")
+        .eq("token_hash", hashOtp(requestToken))
+        .maybeSingle();
+      if (error) throw error;
+      if (data?.status === "completed") return res.json({ status: "completed" });
+      if (data && ["denied", "cancelled", "expired"].includes(data.status)) {
+        return res.json({ status: data.status });
+      }
+      if (data && ["pending", "approved"].includes(data.status)) {
+        const { error: expireError } = await admin.from("device_login_approvals")
+          .update({ status: "expired", decided_at: new Date().toISOString() })
+          .eq("id", data.id)
+          .in("status", ["pending", "approved"]);
+        if (expireError) throw expireError;
+      }
+    } catch (error) {
+      if (!isMissingDeviceSchema(error)) {
+        return sendDeviceLoginError(res, error, "Unable to check this login request.");
+      }
+    }
+    return res.status(410).json({ status: "expired", error: "This login request expired. Start again." });
+  }
   if (entry.expiresAt <= Date.now()) {
     loginApprovalStore.delete(requestToken);
     return res.status(410).json({ status: "expired" });
@@ -2428,7 +2458,7 @@ app.post("/api/auth/device-login/status", async (req, res) => {
     }
     if (data.status === "completed") {
       loginApprovalStore.delete(requestToken);
-      return res.json({ status: "approved" });
+      return res.json({ status: "completed" });
     }
     res.json({ status: "pending" });
   } catch (error) {
@@ -2440,15 +2470,17 @@ app.post("/api/auth/device-login/cancel", async (req, res) => {
   const requestToken = String(req.body?.requestToken || "");
   if (requestToken.length < 40 || requestToken.length > 100) return res.json({ ok: true });
   const entry = loginApprovalStore.get(requestToken);
-  if (!entry) return res.json({ ok: true });
   try {
     const admin = await getSupabaseAdminClient();
-    await admin.from("device_login_approvals")
+    let query = admin.from("device_login_approvals")
       .update({ status: "cancelled", decided_at: new Date().toISOString() })
-      .eq("id", entry.requestId)
+      .eq("token_hash", hashOtp(requestToken))
       .eq("status", "pending");
+    if (entry?.requestId) query = query.eq("id", entry.requestId);
+    const { error } = await query;
+    if (error) throw error;
   } catch {
-    // The request token is unguessable; removing its in-memory session is still safe.
+    // The request expires automatically if the database is unavailable.
   }
   loginApprovalStore.delete(requestToken);
   res.json({ ok: true });
@@ -2521,6 +2553,7 @@ app.post("/api/auth/request-login-otp", async (req, res) => {
 
 // POST /api/auth/verify-login-otp { challengeId, code }
 app.post("/api/auth/verify-login-otp", async (req, res) => {
+  res.set("Cache-Control", "no-store");
   const { challengeId, code } = req.body || {};
   const entry = loginOtpStore.get(String(challengeId || ""));
   if (!entry) return res.status(400).json({ error: "This login code has expired. Request a new one." });

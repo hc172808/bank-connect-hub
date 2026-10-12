@@ -21,3 +21,4 @@
 - [Client menu access](client-menu-access.md) — regular-user menu visibility combines global Feature Toggles with per-user access; admins/founders bypass both
 - [System Doctor safety](system-doctor.md) — xAI receives only sanitized diagnostics after admin opt-in; it cannot execute repairs or change financial data
 - [Wallet balance visibility](wallet-balance-visibility.md) — Agents see client/vendor balances only; admins and founders see all
+- [Two-device login approval](two-device-login.md) — a signed-in device approves second-device login; approval preserves both sessions, with a two-device cap

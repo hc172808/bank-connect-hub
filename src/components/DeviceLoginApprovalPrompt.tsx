@@ -28,11 +28,13 @@ interface Props {
 export function DeviceLoginApprovalPrompt({ accessToken }: Props) {
   const [requests, setRequests] = useState<DeviceLoginRequest[]>([]);
   const [requestsForToken, setRequestsForToken] = useState<string | null>(null);
+  const [dismissedRequestId, setDismissedRequestId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const device = useMemo(() => getDeviceInfo(), []);
   const { toast } = useToast();
   const request = accessToken && requestsForToken === accessToken ? requests[0] : undefined;
+  const open = !!request && request.id !== dismissedRequestId;
 
   const refresh = useCallback(async () => {
     if (!accessToken || inFlight.current) return;
@@ -64,10 +66,15 @@ export function DeviceLoginApprovalPrompt({ accessToken }: Props) {
     void refresh();
     const timer = setInterval(() => void refresh(), 4000);
     const onFocus = () => void refresh();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
     window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       clearInterval(timer);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [accessToken, refresh]);
 
@@ -105,12 +112,13 @@ export function DeviceLoginApprovalPrompt({ accessToken }: Props) {
   };
 
   return (
-    <Dialog open={!!request} onOpenChange={() => {}}>
-      <DialogContent
-        className="max-w-sm"
-        onPointerDownOutside={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => event.preventDefault()}
-      >
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && request) setDismissedRequestId(request.id);
+      }}
+    >
+      <DialogContent className="max-w-sm">
         {request && (
           <>
             <DialogHeader className="items-center text-center">
