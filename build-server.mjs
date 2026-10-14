@@ -1922,6 +1922,7 @@ async function getDeviceActor(req, adminClient) {
     const { createClient } = await import("@supabase/supabase-js");
     client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
   }
   const { data, error } = await client.auth.getUser(accessToken);
@@ -2166,6 +2167,7 @@ app.post("/api/auth/request-device-login", async (req, res) => {
     const { createClient } = await import("@supabase/supabase-js");
     const authClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
     let authData = null;
     let lastError = null;
@@ -2511,6 +2513,7 @@ app.post("/api/auth/request-login-otp", async (req, res) => {
     const { createClient } = await import("@supabase/supabase-js");
     const authClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
 
     let authData = null;
@@ -2773,9 +2776,9 @@ app.post("/api/auth/register", async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: "email and password required" });
   if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
 
-  let supabaseUrl = process.env.VITE_SUPABASE_URL;
-  let anonKey    = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  let serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  let supabaseUrl = SUPABASE_URL;
+  let anonKey    = SUPABASE_PUBLISHABLE_KEY;
+  let serviceKey = SUPABASE_ADMIN_KEY;
 
   // Fallback: parse .env file if env vars not set
   if (!supabaseUrl || !anonKey) {
@@ -2800,6 +2803,7 @@ app.post("/api/auth/register", async (req, res) => {
     if (serviceKey) {
       const adminClient = createClient(supabaseUrl, serviceKey, {
         auth: { autoRefreshToken: false, persistSession: false },
+        realtime: { transport: WebSocket },
       });
       const { data, error } = await adminClient.auth.admin.createUser({
         email,
@@ -2816,7 +2820,9 @@ app.post("/api/auth/register", async (req, res) => {
     }
 
     // Fallback: anon signUp (user will need email confirmation if Supabase requires it)
-    const client = createClient(supabaseUrl, anonKey);
+    const client = createClient(supabaseUrl, anonKey, {
+      realtime: { transport: WebSocket },
+    });
     const { data, error } = await client.auth.signUp({
       email,
       password,
@@ -3079,7 +3085,9 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(503).json({ error: "Supabase is not configured on this server." });
     }
 
-    const client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+    const client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      realtime: { transport: WebSocket },
+    });
     const { data, error } = await client.auth.signUp({
       email: String(email).trim().toLowerCase(),
       password: String(password),
@@ -3604,6 +3612,7 @@ app.post("/api/admin/funds", async (req, res) => {
         },
       },
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
     });
     const { data, error } = await userClient.rpc("admin_add_funds", {
       _user_id: userId,
