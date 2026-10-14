@@ -18,7 +18,7 @@ A full-stack digital wallet and financial services web app built with React + Vi
 - **Build server**: Node.js Express (`build-server.mjs`) on port **3001** — handles APK builds, SMS, email, push notifications
 
 ## Running the app
-The `Start application` workflow runs `npm run dev`, which starts:
+Click Run (`Start application`) or run `npm run dev`. This starts:
 1. Vite dev server on port **5000** (the main app)
 2. Build server on port **3001** (API for APK builder, SMS, email, push)
 
