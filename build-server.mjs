@@ -2122,6 +2122,15 @@ async function prepareDeviceLogin(session, user, device) {
 function sendDeviceLoginError(res, error, fallbackMessage = "Unable to verify this device login.") {
   res.set("Cache-Control", "no-store");
   const status = Number(error?.status) || (isMissingDeviceSchema(error) ? 503 : 500);
+  if (!error?.status) {
+    const code = String(error?.code || "UNKNOWN").slice(0, 40);
+    const message = String(error?.message || "Unknown device login failure")
+      .replace(/[\r\n]+/g, " ")
+      .replace(/\b[^\s@]+@[^\s@]+\b/g, "[email]")
+      .replace(/\+?\d[\d\s().-]{5,}\d/g, "[phone]")
+      .slice(0, 240);
+    console.error(`[device-login] Internal failure (${code}): ${message}`);
+  }
   const message = error?.status ? error.message :
     isMissingDeviceSchema(error)
       ? "Two-device approval is not configured yet. Apply the device login approval migration before signing in on another device."
