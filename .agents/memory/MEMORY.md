@@ -22,3 +22,4 @@
 - [System Doctor safety](system-doctor.md) — xAI receives only sanitized diagnostics after admin opt-in; it cannot execute repairs or change financial data
 - [Wallet balance visibility](wallet-balance-visibility.md) — Agents see client/vendor balances only; admins and founders see all
 - [Two-device login approval](two-device-login.md) — a signed-in device approves second-device login; approval preserves both sessions, with a two-device cap
+- [Supabase database connectivity](supabase-connection-ipv6.md) — use an IPv4-compatible pooler URL when direct Supabase PostgreSQL resolves to IPv6 only
