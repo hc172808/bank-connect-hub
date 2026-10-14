@@ -85,6 +85,7 @@ GRANT ALL ON public.device_login_approvals TO service_role;
 
 -- Only the server can create, activate, or revoke device-session rows.
 DROP POLICY IF EXISTS "Users manage their own sessions" ON public.device_sessions;
+DROP POLICY IF EXISTS "Users manage own sessions" ON public.device_sessions;
 DROP POLICY IF EXISTS "Users view their own sessions" ON public.device_sessions;
 CREATE POLICY "Users view their own sessions"
   ON public.device_sessions
@@ -92,5 +93,5 @@ CREATE POLICY "Users view their own sessions"
   TO authenticated
   USING (auth.uid() = user_id);
 
-REVOKE INSERT, UPDATE, DELETE ON public.device_sessions FROM PUBLIC, anon, authenticated;
+REVOKE ALL PRIVILEGES ON public.device_sessions FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.device_sessions TO authenticated;
