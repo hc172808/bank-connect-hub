@@ -24,6 +24,7 @@ interface Reversal {
   approved_by: string | null;
   funds_held_at: string | null;
   funds_returned_at: string | null;
+  reversal_transaction_id: string | null;
 }
 
 interface UserProfile {
@@ -93,92 +94,26 @@ const ManageReversals = () => {
     return p.full_name || p.phone_number || id.slice(0, 8) + "…";
   };
 
-  /**
-   * Approve: directly transfer funds from recipient → requester wallet
-   * and mark the reversal as completed immediately.
-   */
   const handleApprove = async (rev: Reversal) => {
     setLoading(rev.id);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      // 1. Fetch recipient wallet (the one we deduct from)
-      const { data: recipientWallet, error: rwErr } = await supabase
-        .from("wallets")
-        .select("id, balance")
-        .eq("user_id", rev.recipient_id)
-        .single();
-
-      if (rwErr || !recipientWallet) throw new Error("Could not find recipient wallet");
-      if (recipientWallet.balance < rev.amount) {
-        throw new Error(`Recipient only has $${recipientWallet.balance.toFixed(2)} — cannot reverse $${rev.amount.toFixed(2)}`);
-      }
-
-      // 2. Fetch requester wallet (the one we credit)
-      const { data: requesterWallet, error: rqErr } = await supabase
-        .from("wallets")
-        .select("id, balance")
-        .eq("user_id", rev.requester_id)
-        .single();
-
-      if (rqErr || !requesterWallet) throw new Error("Could not find requester wallet");
-
-      const now = new Date().toISOString();
-
-      // 3. Deduct from recipient
-      const { error: deductErr } = await supabase
-        .from("wallets")
-        .update({ balance: recipientWallet.balance - rev.amount, updated_at: now })
-        .eq("id", recipientWallet.id);
-
-      if (deductErr) throw new Error("Failed to deduct from recipient: " + deductErr.message);
-
-      // 4. Credit to requester
-      const { error: creditErr } = await supabase
-        .from("wallets")
-        .update({ balance: requesterWallet.balance + rev.amount, updated_at: now })
-        .eq("id", requesterWallet.id);
-
-      if (creditErr) {
-        // Rollback deduction
-        await supabase
-          .from("wallets")
-          .update({ balance: recipientWallet.balance, updated_at: now })
-          .eq("id", recipientWallet.id);
-        throw new Error("Failed to credit requester: " + creditErr.message);
-      }
-
-      // 5. Mark reversal completed
-      const { error: revErr } = await supabase
-        .from("fund_reversals")
-        .update({
-          status: "completed",
-          approved_at: now,
-          approved_by: user.id,
-          funds_held_at: now,
-          funds_returned_at: now,
-        })
-        .eq("id", rev.id);
-
-      if (revErr) throw new Error("Reversal record update failed: " + revErr.message);
-
-      // 6. Create a reversal transaction record so it shows in history
-      await supabase.from("transactions").insert({
-        sender_id: rev.recipient_id,
-        receiver_id: rev.requester_id,
-        amount: rev.amount,
-        transaction_type: "reversal",
-        status: "completed",
-        description: `Reversal: ${rev.reason || "Funds returned"}`,
-        fee: 0,
-      }).throwOnError();
-
-      toast({
-        title: "Reversal Completed ✓",
-        description: `$${rev.amount.toFixed(2)} returned to ${userName(rev.requester_id)} immediately.`,
+      const { data, error } = await supabase.rpc("approve_fund_reversal", {
+        _reversal_id: rev.id,
       });
-      fetchReversals();
+      if (error) throw error;
+      const result = data as { success?: boolean; error?: string; return_at?: string } | null;
+      if (!result?.success) {
+        throw new Error(result?.error || "The reversal could not be approved.");
+      }
+
+      const returnAt = result.return_at
+        ? new Date(result.return_at).toLocaleString()
+        : "after the one-hour hold";
+      toast({
+        title: "Reversal Approved",
+        description: `$${rev.amount.toFixed(2)} is held and scheduled to return to ${userName(rev.requester_id)} at ${returnAt}.`,
+      });
+      await fetchReversals();
     } catch (error: any) {
       toast({ title: "Reversal Failed", description: error.message, variant: "destructive" });
     } finally {
@@ -189,20 +124,17 @@ const ManageReversals = () => {
   const handleReject = async (rev: Reversal) => {
     setLoading(rev.id);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const { error } = await supabase
-        .from("fund_reversals")
-        .update({
-          status: "rejected",
-          approved_by: user?.id,
-          approved_at: new Date().toISOString(),
-        })
-        .eq("id", rev.id);
-
+      const { data, error } = await supabase.rpc("reject_fund_reversal", {
+        _reversal_id: rev.id,
+      });
       if (error) throw error;
+      const result = data as { success?: boolean; error?: string } | null;
+      if (!result?.success) {
+        throw new Error(result?.error || "The reversal could not be rejected.");
+      }
 
       toast({ title: "Reversal Rejected", description: "The requester will be notified." });
-      fetchReversals();
+      await fetchReversals();
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
@@ -225,7 +157,7 @@ const ManageReversals = () => {
                 <RotateCcw className="h-6 w-6" /> Fund Reversals
               </h1>
               <p className="text-sm text-muted-foreground">
-                Review and process refund requests
+                Approval places funds on hold for one hour before automatic return.
               </p>
             </div>
           </div>
@@ -237,9 +169,10 @@ const ManageReversals = () => {
 
         {/* Stats row */}
         {reversals.length > 0 && (
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: "Pending", count: reversals.filter(r => r.status === "pending").length, color: "text-yellow-600" },
+              { label: "On hold", count: reversals.filter(r => r.status === "approved").length, color: "text-blue-600" },
               { label: "Completed", count: reversals.filter(r => r.status === "completed").length, color: "text-green-600" },
               { label: "Rejected", count: reversals.filter(r => r.status === "rejected").length, color: "text-red-600" },
             ].map(({ label, count, color }) => (
@@ -272,6 +205,9 @@ const ManageReversals = () => {
                 )}
                 {rev.status === "completed" && (
                   <div className="h-1 bg-green-500" />
+                )}
+                {rev.status === "approved" && (
+                  <div className="h-1 bg-blue-500" />
                 )}
                 <CardContent className="p-5">
                   {/* Amount + status */}
@@ -323,6 +259,14 @@ const ManageReversals = () => {
                     </div>
                   )}
 
+                  {rev.status === "approved" && rev.funds_held_at && (
+                    <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 rounded p-2 mb-3">
+                      <Clock className="h-3.5 w-3.5 shrink-0" />
+                      Funds are held. Scheduled return:{" "}
+                      {new Date(new Date(rev.funds_held_at).getTime() + 60 * 60 * 1000).toLocaleString()}
+                    </div>
+                  )}
+
                   {/* Action buttons — only for pending */}
                   {rev.status === "pending" && (
                     <div className="flex gap-2 pt-3 border-t">
@@ -335,7 +279,7 @@ const ManageReversals = () => {
                         {loading === rev.id
                           ? <Loader2 className="h-4 w-4 animate-spin" />
                           : <CheckCircle className="h-4 w-4" />}
-                        Approve &amp; Return Funds
+                         Approve &amp; Hold for 1 Hour
                       </Button>
                       <Button
                         size="sm"

@@ -39,18 +39,29 @@ export interface AuthState {
   displacedByDevice: boolean;
 }
 
-async function fetchUserRole(userId: string, metaFallback?: string): Promise<UserRole | null> {
+async function fetchUserRole(userId: string): Promise<UserRole> {
   const { data, error } = await supabase
     .from("user_roles")
     .select("role")
     .eq("user_id", userId)
-    .limit(1)
-    .maybeSingle();
-  if (!error && data?.role) return data.role as UserRole;
+    .limit(20);
+
+  if (error) {
+    console.error("[auth] Could not load the signed-in user's database role:", error.message);
+    return "client";
+  }
 
   const validRoles: UserRole[] = ["admin", "founder", "agent", "client", "vendor"];
-  if (metaFallback && validRoles.includes(metaFallback as UserRole)) {
-    return metaFallback as UserRole;
+  const roles = new Set(
+    (data ?? [])
+      .map((row) => row.role)
+      .filter((role): role is UserRole => validRoles.includes(role as UserRole)),
+  );
+
+  // Some accounts have more than one role. Resolve deterministically so an
+  // additional client role cannot hide the account's staff role.
+  for (const role of ["founder", "admin", "agent", "vendor", "client"] as const) {
+    if (roles.has(role)) return role;
   }
   return "client";
 }
@@ -150,10 +161,7 @@ export const useAuth = () => {
 
     const { data: { session: latestSession } } = await supabase.auth.getSession();
     const acceptedSession = latestSession || session;
-    const role = await fetchUserRole(
-      acceptedSession.user.id,
-      acceptedSession.user.user_metadata?.account_type as string | undefined,
-    );
+    const role = await fetchUserRole(acceptedSession.user.id);
     if (generation !== authGenerationRef.current) return;
     setAuthState({
       user: acceptedSession.user,

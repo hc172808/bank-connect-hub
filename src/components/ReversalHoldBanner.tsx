@@ -28,20 +28,32 @@ export const ReversalHoldBanner = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    void (async () => {
+    let active = true;
+    const load = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!active) return;
+      if (!user) {
+        setUid(null);
+        setItems([]);
+        return;
+      }
       setUid(user.id);
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("fund_reversals")
         .select("*")
         .in("status", ["pending", "approved"])
         .or(`requester_id.eq.${user.id},recipient_id.eq.${user.id}`)
         .order("created_at", { ascending: false });
-      setItems((data as Reversal[]) || []);
-    })();
+      if (active && !error) setItems((data as Reversal[]) || []);
+    };
+    void load();
     const t = setInterval(() => setTick((v) => v + 1), 1000);
-    return () => clearInterval(t);
+    const refresh = setInterval(() => void load(), 20_000);
+    return () => {
+      active = false;
+      clearInterval(t);
+      clearInterval(refresh);
+    };
   }, []);
 
   if (!uid || items.length === 0) return null;

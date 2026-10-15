@@ -50,26 +50,24 @@ const RequestReversal = () => {
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      // Check if already requested
-      const existing = myReversals.find(r => r.transaction_id === selectedTx.id);
+      const existing = myReversals.find(
+        r => r.transaction_id === selectedTx.id && r.status !== "rejected",
+      );
       if (existing) {
         toast({ title: "Already Requested", description: "You already have a reversal request for this transaction.", variant: "destructive" });
         setLoading(false);
         return;
       }
 
-      const { error } = await supabase.from("fund_reversals").insert({
-        transaction_id: selectedTx.id,
-        requester_id: user.id,
-        recipient_id: selectedTx.receiver_id,
-        amount: selectedTx.amount,
-        reason: reason || "Sent to wrong user",
+      const { data, error } = await supabase.rpc("request_fund_reversal", {
+        _transaction_id: selectedTx.id,
+        _reason: reason.trim() || null,
       });
-
       if (error) throw error;
+      const result = data as { success?: boolean; error?: string } | null;
+      if (!result?.success) {
+        throw new Error(result?.error || "The reversal request could not be submitted.");
+      }
 
       toast({ title: "Reversal Requested", description: "An admin or agent will review your request. Funds will be returned within 1 hour after approval." });
       setSelectedTx(null);
@@ -92,7 +90,8 @@ const RequestReversal = () => {
     }
   };
 
-  const alreadyRequested = (txId: string) => myReversals.some(r => r.transaction_id === txId);
+  const alreadyRequested = (txId: string) =>
+    myReversals.some(r => r.transaction_id === txId && r.status !== "rejected");
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -168,6 +167,7 @@ const RequestReversal = () => {
               <Label>Reason for Reversal</Label>
               <Input
                 placeholder="e.g. Sent to wrong person"
+                maxLength={500}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
               />

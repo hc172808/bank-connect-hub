@@ -669,6 +669,7 @@ export type Database = {
           requester_id: string
           status: string
           transaction_id: string
+          reversal_transaction_id: string | null
         }
         Insert: {
           amount: number
@@ -684,6 +685,7 @@ export type Database = {
           requester_id: string
           status?: string
           transaction_id: string
+          reversal_transaction_id?: string | null
         }
         Update: {
           amount?: number
@@ -699,6 +701,7 @@ export type Database = {
           requester_id?: string
           status?: string
           transaction_id?: string
+          reversal_transaction_id?: string | null
         }
         Relationships: []
       }
@@ -1429,6 +1432,11 @@ export type Database = {
         Returns: Json
       }
       approve_fund_reversal: { Args: { _reversal_id: string }; Returns: Json }
+      reject_fund_reversal: { Args: { _reversal_id: string }; Returns: Json }
+      request_fund_reversal: {
+        Args: { _reason?: string | null; _transaction_id: string }
+        Returns: Json
+      }
       approve_pending_deposit: { Args: { _deposit_id: string }; Returns: Json }
       get_admin_dashboard_metrics: { Args: never; Returns: Json }
       get_bank_reserve_snapshot: { Args: never; Returns: Json }

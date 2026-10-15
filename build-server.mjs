@@ -1889,6 +1889,38 @@ function isMissingDeviceSchema(error) {
       /(does not exist|not found|could not find|schema cache)/i.test(message));
 }
 
+function isMissingAppSettingsSchema(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return ["42P01", "PGRST205"].includes(code) &&
+    /app_settings/i.test(message);
+}
+
+function parseBooleanSetting(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") return value.toLowerCase() === "true";
+  if (value && typeof value === "object" && "value" in value) {
+    return parseBooleanSetting(value.value, fallback);
+  }
+  return fallback;
+}
+
+async function isWhatsAppLoginVerificationEnabled(publicClient) {
+  const client = adminOk() ? await getSupabaseAdminClient() : publicClient;
+  const { data, error } = await client
+    .from("app_settings")
+    .select("value")
+    .eq("key", "whatsapp_login_verification_enabled")
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingAppSettingsSchema(error)) return false;
+    throw error;
+  }
+  return parseBooleanSetting(data?.value, false);
+}
+
 function normalizeDeviceInfo(value, req) {
   const input = value && typeof value === "object" ? value : {};
   const deviceId = String(input.deviceId || input.device_id || "").trim();
@@ -2178,6 +2210,20 @@ app.post("/api/auth/request-device-login", async (req, res) => {
       auth: { autoRefreshToken: false, persistSession: false },
       realtime: { transport: WebSocket },
     });
+    let loginVerificationEnabled;
+    try {
+      loginVerificationEnabled = await isWhatsAppLoginVerificationEnabled(authClient);
+    } catch (settingsError) {
+      console.error("[device-login] Unable to verify login security settings:", settingsError.message);
+      return res.status(503).json({ error: "Unable to check login security settings. Please try again shortly." });
+    }
+    if (loginVerificationEnabled) {
+      return res.status(403).json({
+        code: "WHATSAPP_VERIFICATION_REQUIRED",
+        error: "WhatsApp login verification is required. Request a verification code to continue.",
+      });
+    }
+
     let authData = null;
     let lastError = null;
     for (const email of phoneEmailCandidates(phone)) {

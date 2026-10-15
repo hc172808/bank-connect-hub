@@ -60,13 +60,23 @@ export const QRScanner = ({ onScanSuccess, onClose }: QRScannerProps) => {
     setIsStarting(true);
     scanHandledRef.current = false;
     try {
-      const cameras = await Html5Qrcode.getCameras();
-      if (cameras.length === 0) throw new Error("No camera was found.");
-      const camera =
-        cameras.find(({ label }) => /back|rear|environment/i.test(label)) || cameras[0];
+      // Camera enumeration is unreliable in some Android WebViews until the
+      // user grants permission. Prefer the rear camera when listed, but fall
+      // back to a facingMode request so the browser can open it directly.
+      let cameraSource: string | MediaTrackConstraints = {
+        facingMode: { ideal: "environment" },
+      };
+      try {
+        const cameras = await Html5Qrcode.getCameras();
+        const camera =
+          cameras.find(({ label }) => /back|rear|environment/i.test(label)) || cameras[0];
+        if (camera) cameraSource = camera.id;
+      } catch (enumerationError) {
+        console.warn("Could not enumerate cameras; requesting the rear camera directly.", enumerationError);
+      }
 
       await scanner.start(
-        camera.id,
+        cameraSource,
         {
           fps: 10,
           qrbox: { width: 250, height: 250 },

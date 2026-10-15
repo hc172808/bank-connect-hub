@@ -11,6 +11,7 @@ export const useDashboardHome = (): string => {
       return "/vendor";
     case "agent":
       return "/agent";
+    case "founder":
     case "admin":
       return "/admin";
     case "client":

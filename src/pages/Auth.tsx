@@ -321,6 +321,10 @@ const Auth = () => {
             body: JSON.stringify({ phone: phoneNumber, password, device: getDeviceInfo() }),
           });
           const result = await response.json().catch(() => ({}));
+          if (result.code === "WHATSAPP_VERIFICATION_REQUIRED") {
+            await requestLoginOtp(phoneNumber, password);
+            return;
+          }
           if (result.approvalRequired && result.requestToken) {
             setPendingApproval(result.requestToken);
             return;
