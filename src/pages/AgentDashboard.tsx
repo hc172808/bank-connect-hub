@@ -16,7 +16,24 @@ import { requestNotificationPermission, subscribeToTransactionNotifications, sub
 import { format, startOfDay, startOfMonth, subDays } from "date-fns";
 
 interface ProfileData { full_name: string; phone_number: string | null; }
-interface Client { id: string; full_name: string; phone_number: string | null; created_at: string; }
+interface Client {
+  id: string;
+  full_name: string | null;
+  phone_number: string | null;
+  created_at: string;
+  walletBalance: number | null;
+  walletCurrency: string | null;
+  hasWallet: boolean;
+}
+interface VisibleWalletBalance {
+  userId: string;
+  balance: number | string | null;
+  currency: string | null;
+}
+interface VisibleWalletBalancesResponse {
+  balances?: VisibleWalletBalance[];
+  error?: string;
+}
 interface TxRow { amount: number; transaction_type: string; created_at: string; status: string; description: string | null; fee: number | null; sender_id: string; receiver_id: string; }
 interface DayBar { label: string; volume: number; count: number; }
 
@@ -24,6 +41,7 @@ const AgentDashboard = () => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [userId, setUserId] = useState("");
   const [clients, setClients] = useState<Client[]>([]);
+  const [clientBalancesUnavailable, setClientBalancesUnavailable] = useState(false);
   const [txRows, setTxRows] = useState<TxRow[]>([]);
   const [monthCommission, setMonthCommission] = useState(0);
   const [todayTxCount, setTodayTxCount] = useState(0);
@@ -43,9 +61,12 @@ const AgentDashboard = () => {
 
     const sevenDaysAgo = subDays(new Date(), 7).toISOString();
 
-    const [profileRes, clientsRes, txRes, pendingRes] = await Promise.all([
+    const [profileRes, clientDepositsRes, txRes, pendingRes] = await Promise.all([
       supabase.from("profiles").select("full_name, phone_number").eq("id", user.id).single(),
-      (supabase.from("profiles") as any).select("id, full_name, phone_number, created_at").eq("agent_id", user.id).order("created_at", { ascending: false }).limit(20),
+      supabase.from("pending_deposits").select("user_id")
+        .eq("agent_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(100),
       supabase.from("transactions").select("amount, transaction_type, created_at, status, description, fee, sender_id, receiver_id")
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
         .gte("created_at", sevenDaysAgo)
@@ -56,8 +77,145 @@ const AgentDashboard = () => {
     ]);
 
     if (profileRes.data) setProfile(profileRes.data);
-    if (clientsRes.data) setClients(clientsRes.data as Client[]);
     if (pendingRes.count !== null) setPendingCount(pendingRes.count);
+
+    if (clientDepositsRes.error) {
+      console.error("Error fetching agent client deposits:", clientDepositsRes.error);
+      setClients([]);
+      setClientBalancesUnavailable(true);
+      toast({
+        variant: "destructive",
+        title: "Could not load your clients",
+        description: clientDepositsRes.error.message,
+      });
+    } else {
+      // pending_deposits is the persisted agent-to-client relationship. profiles
+      // has no agent_id column in the project schema.
+      const clientIds = [...new Set((clientDepositsRes.data || []).map((row) => row.user_id))].slice(0, 20);
+      if (clientIds.length === 0) {
+        setClients([]);
+        setClientBalancesUnavailable(false);
+      } else {
+        const { data: clientRoleRows, error: clientRolesError } = await supabase
+          .from("user_roles")
+          .select("user_id, role")
+          .in("user_id", clientIds);
+
+        if (clientRolesError) {
+          console.error("Error fetching agent client roles:", clientRolesError);
+          setClients([]);
+          setClientBalancesUnavailable(true);
+          toast({
+            variant: "destructive",
+            title: "Could not load your clients",
+            description: "Client account roles could not be verified.",
+          });
+        } else {
+          const rolesByUserId = new Map<string, Set<string>>();
+          for (const row of clientRoleRows || []) {
+            const roles = rolesByUserId.get(row.user_id) || new Set<string>();
+            roles.add(row.role);
+            rolesByUserId.set(row.user_id, roles);
+          }
+
+          const visibleClientIds = clientIds.filter((clientId) => {
+            const roles = rolesByUserId.get(clientId) || new Set<string>();
+            const isStaff = roles.has("agent") || roles.has("admin") || roles.has("founder");
+            return !isStaff && (roles.has("client") || roles.has("vendor"));
+          });
+
+          if (visibleClientIds.length === 0) {
+            setClients([]);
+            setClientBalancesUnavailable(false);
+          } else {
+            const { data: clientProfiles, error: clientProfilesError } = await supabase
+              .from("profiles")
+              .select("id, full_name, phone_number, created_at")
+              .in("id", visibleClientIds);
+
+            if (clientProfilesError) {
+              console.error("Error fetching agent client profiles:", clientProfilesError);
+              setClients([]);
+              setClientBalancesUnavailable(true);
+              toast({
+                variant: "destructive",
+                title: "Could not load your clients",
+                description: clientProfilesError.message,
+              });
+            } else {
+              let walletRows: VisibleWalletBalance[] = [];
+              let walletError: Error | null = null;
+
+              try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
+
+                const response = await fetch("/api/auth/wallet-balances", {
+                  headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+
+                if (response.ok) {
+                  const result = await response.json() as VisibleWalletBalancesResponse;
+                  if (!Array.isArray(result.balances)) {
+                    throw new Error("The wallet balance response was invalid.");
+                  }
+                  walletRows = result.balances.filter((row) => visibleClientIds.includes(row.userId));
+                } else if (response.status === 503) {
+                  // Fall back to the same session's role-scoped wallet RLS.
+                  const { data, error } = await supabase
+                    .from("wallets")
+                    .select("user_id, balance, currency")
+                    .in("user_id", visibleClientIds);
+                  if (error) throw error;
+                  walletRows = (data || []).map((row) => ({
+                    userId: row.user_id,
+                    balance: Number(row.balance),
+                    currency: row.currency || null,
+                  }));
+                } else {
+                  const result = await response.json().catch(() => ({})) as VisibleWalletBalancesResponse;
+                  throw new Error(result.error || "Could not load client wallet balances.");
+                }
+              } catch (error) {
+                walletError = error instanceof Error ? error : new Error("Could not load client wallet balances.");
+                console.error("Error fetching agent client wallet balances:", walletError);
+              }
+
+              const profilesById = new Map((clientProfiles || []).map((client) => [client.id, client]));
+              const walletsByUserId = new Map<string, { balance: number | null; currency: string | null }>();
+              for (const wallet of walletRows) {
+                const amount = wallet.balance === null ? null : Number(wallet.balance);
+                walletsByUserId.set(wallet.userId, {
+                  balance: amount !== null && Number.isFinite(amount) ? amount : null,
+                  currency: wallet.currency || null,
+                });
+              }
+
+              setClients(visibleClientIds.flatMap((clientId) => {
+                const client = profilesById.get(clientId);
+                if (!client) return [];
+                const wallet = walletsByUserId.get(clientId);
+                return [{
+                  ...client,
+                  walletBalance: wallet?.balance ?? null,
+                  walletCurrency: wallet?.currency ?? null,
+                  hasWallet: Boolean(wallet),
+                }];
+              }));
+              setClientBalancesUnavailable(Boolean(walletError));
+
+              if (walletError) {
+                toast({
+                  variant: "destructive",
+                  title: "Client balances unavailable",
+                  description: walletError.message,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
 
     if (txRes.data) {
       const rows = txRes.data as TxRow[];
@@ -100,10 +258,12 @@ const AgentDashboard = () => {
         toast({ title: `💬 ${senderName}`, description: text });
       });
     }
-  }, [navigate]);
+  }, [navigate, toast]);
 
   useEffect(() => {
-    fetchAll();
+    // fetchAll awaits authentication and network calls before updating state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchAll();
     return () => { /* cleanup handled by pushNotifications */ };
   }, [fetchAll]);
 
@@ -273,9 +433,9 @@ const AgentDashboard = () => {
             {clients.length === 0 ? (
               <div className="text-center py-6">
                 <Users size={32} className="mx-auto mb-2 text-muted-foreground opacity-30" />
-                <p className="text-sm text-muted-foreground">No clients registered yet</p>
+                <p className="text-sm text-muted-foreground">No clients linked through your deposit requests yet</p>
                 <Button size="sm" className="mt-3 gap-1" onClick={() => navigate("/agent-deposit")}>
-                  <Plus size={14} /> Register First Client
+                  <Plus size={14} /> Start a Client Deposit
                 </Button>
               </div>
             ) : (
@@ -289,14 +449,25 @@ const AgentDashboard = () => {
                       {(c.full_name || "?")[0].toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{c.full_name}</p>
+                      <p className="font-medium text-sm truncate">{c.full_name || "Unnamed client"}</p>
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
                         <Phone size={10} /> {c.phone_number || "—"}
                       </p>
                     </div>
-                    <Badge variant="outline" className="text-[10px] shrink-0">
-                      {format(new Date(c.created_at), "d MMM")}
-                    </Badge>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold tabular-nums">
+                         {clientBalancesUnavailable
+                           ? "Unavailable"
+                           : !c.hasWallet
+                             ? "No wallet"
+                             : c.walletBalance === null
+                               ? "Unavailable"
+                             : `${c.walletCurrency || "USD"} ${c.walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                         {format(new Date(c.created_at), "d MMM")}
+                      </p>
+                    </div>
                   </div>
                 ))}
                 {clients.length > 8 && (
