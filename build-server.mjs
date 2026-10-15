@@ -2036,7 +2036,12 @@ async function registerDeviceSession(admin, userId, device, { reserve = false } 
   return data.id;
 }
 
+function deviceLoginApprovalEnabled(user) {
+  return user?.user_metadata?.device_login_approval_enabled === true;
+}
+
 function legacyDeviceGate(user, device) {
+  if (!deviceLoginApprovalEnabled(user)) return;
   const activeDeviceId = String(user.user_metadata?.active_device_id || "");
   if (activeDeviceId && activeDeviceId !== device.deviceId) {
     throw deviceRouteError(
@@ -2108,6 +2113,10 @@ async function prepareDeviceLogin(session, user, device) {
       }
       if (activeRows.length >= 2) {
         throw deviceRouteError(409, "This account already has two active devices. Revoke a device in Security settings before signing in here.", "DEVICE_LIMIT");
+      }
+      if (!deviceLoginApprovalEnabled(user)) {
+        await registerDeviceSession(admin, user.id, device);
+        return { session };
       }
       return await createDeviceApproval(admin, user, device, session);
     });
@@ -2222,6 +2231,10 @@ app.post("/api/auth/device-session/claim", async (req, res) => {
         await registerDeviceSession(admin, user.id, device);
       } else if (activeRows.length === 0) {
         legacyDeviceGate(user, device);
+        await registerDeviceSession(admin, user.id, device);
+      } else if (activeRows.length >= 2) {
+        throw deviceRouteError(409, "This account already has two active devices. Revoke a device in Security settings before signing in here.", "DEVICE_LIMIT");
+      } else if (!deviceLoginApprovalEnabled(user)) {
         await registerDeviceSession(admin, user.id, device);
       } else {
         throw deviceRouteError(403, "This device needs approval from a currently signed-in device.", "APPROVAL_REQUIRED");

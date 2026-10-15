@@ -46,6 +46,7 @@ export function getDeviceInfo() {
 async function legacyDeviceCheck() {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return "no_session" as const;
+  if (user.user_metadata?.device_login_approval_enabled !== true) return "valid" as const;
   const activeDeviceId = String(user.user_metadata?.active_device_id || "");
   return !activeDeviceId || activeDeviceId === getOrCreateDeviceId()
     ? "valid" as const
@@ -88,6 +89,7 @@ export async function claimDeviceSession(accessToken?: string): Promise<boolean>
     if (result.legacyFallback) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return false;
+      if (user.user_metadata?.device_login_approval_enabled !== true) return true;
       const activeDeviceId = String(user.user_metadata?.active_device_id || "");
       if (activeDeviceId && activeDeviceId !== getOrCreateDeviceId()) return false;
       if (!activeDeviceId) {

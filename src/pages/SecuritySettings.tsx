@@ -155,6 +155,8 @@ const SecuritySettings = () => {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [sessions, setSessions] = useState<DeviceSession[]>([]);
   const [userEmail, setUserEmail] = useState("");
+  const [deviceLoginApprovalEnabled, setDeviceLoginApprovalEnabled] = useState(false);
+  const [deviceApprovalSaving, setDeviceApprovalSaving] = useState(false);
   const [accountLocked, setAccountLocked] = useState(false);
   const [lockLoading, setLockLoading] = useState(false);
   const [recentAlerts, setRecentAlerts] = useState<{ action: string; created_at: string; ip?: string }[]>([]);
@@ -199,6 +201,7 @@ const SecuritySettings = () => {
       return;
     }
     setUserEmail(user.email || "");
+    setDeviceLoginApprovalEnabled(user.user_metadata?.device_login_approval_enabled === true);
 
     const { data: tfa } = await supabase
       .from("two_factor_auth" as never)
@@ -233,6 +236,24 @@ const SecuritySettings = () => {
 
     setLoading(false);
   }
+
+  const updateDeviceLoginApproval = async (enabled: boolean) => {
+    setDeviceApprovalSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: { device_login_approval_enabled: enabled },
+      });
+      if (error) throw error;
+      setDeviceLoginApprovalEnabled(enabled);
+      toast.success(enabled
+        ? "Approval for new devices is on."
+        : "Approval for new devices is off.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update device approval.");
+    } finally {
+      setDeviceApprovalSaving(false);
+    }
+  };
 
   async function ensureCurrentSession() {
     const approved = await claimDeviceSession();
@@ -389,6 +410,34 @@ const SecuritySettings = () => {
         <PushNotificationCard />
 
         <AppLockCard />
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Smartphone className="h-5 w-5" /> New-device approval
+            </CardTitle>
+            <CardDescription>
+              Approval is off by default. When enabled, a device already signed in must approve sign-ins from new devices.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="device-login-approval">Require approval for new devices</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  This changes the approval requirement only; the two-device limit still applies.
+                </p>
+              </div>
+              <Switch
+                id="device-login-approval"
+                aria-label="Require approval for new devices"
+                checked={deviceLoginApprovalEnabled}
+                disabled={loading || deviceApprovalSaving}
+                onCheckedChange={(enabled) => void updateDeviceLoginApproval(enabled)}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
