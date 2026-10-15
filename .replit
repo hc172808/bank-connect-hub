@@ -58,6 +58,7 @@ outputType = "console"
 PORT = "3000"
 NODE_ENV = "development"
 VITE_SUPABASE_PROJECT_ID = "nrmzexwkeoekbqigdwod"
+SUPABASE_URL = "https://nrmzexwkeoekbqigdwod.supabase.co"
 
 [[ports]]
 localPort = 3001
