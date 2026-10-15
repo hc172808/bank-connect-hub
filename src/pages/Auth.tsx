@@ -157,6 +157,20 @@ const Auth = () => {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || "Could not send the WhatsApp code.");
+    if (result.approvalRequired && result.requestToken) {
+      setPendingApproval(result.requestToken);
+      return;
+    }
+    if (result.session) {
+      const { error } = await supabase.auth.setSession({
+        access_token: result.session.access_token,
+        refresh_token: result.session.refresh_token,
+      });
+      if (error) throw error;
+      toast({ title: "Welcome back!", description: "Signed in without WhatsApp verification." });
+      return;
+    }
+    if (!result.challengeId) throw new Error("Login verification could not be started.");
     setLoginChallenge(result.challengeId);
     setLoginMaskedPhone(result.masked || phone);
     setLoginOtp("");
@@ -293,13 +307,22 @@ const Auth = () => {
         });
         if (loginError) throw loginError;
 
-        toast({
-          title: "Account created!",
-          description: "Your account is ready. Complete WhatsApp verification next.",
-        });
+        const whatsappSettings = await fetchWhatsAppSettings();
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          navigate("/verify-whatsapp?new=1");
+          if (whatsappSettings.enabled) {
+            toast({
+              title: "Account created!",
+              description: "Your account is ready. Complete WhatsApp verification next.",
+            });
+            navigate("/verify-whatsapp?new=1");
+          } else {
+            toast({
+              title: "Account created!",
+              description: "WhatsApp verification is turned off. Your account is ready to use.",
+            });
+            navigate("/", { replace: true });
+          }
         } else {
           toast({
             title: "Sign in to continue",

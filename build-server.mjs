@@ -2556,6 +2556,28 @@ app.post("/api/auth/device-login/cancel", async (req, res) => {
   res.json({ ok: true });
 });
 
+async function isWhatsAppLoginVerificationEnabled() {
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) return false;
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
+    });
+    const { data, error } = await client
+      .from("app_settings")
+      .select("value")
+      .eq("key", "whatsapp_login_verification_enabled")
+      .maybeSingle();
+    if (error) throw error;
+    if (data?.value === true) return true;
+    return typeof data?.value === "string" && data.value.trim().toLowerCase() === "true";
+  } catch (error) {
+    console.warn("[login-otp] Could not read the WhatsApp login setting; defaulting to disabled:", error.message);
+    return false;
+  }
+}
+
 // POST /api/auth/request-login-otp { phone, password }
 app.post("/api/auth/request-login-otp", async (req, res) => {
   const { phone, password } = req.body || {};
@@ -2563,7 +2585,8 @@ app.post("/api/auth/request-login-otp", async (req, res) => {
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     return res.status(503).json({ error: "Supabase authentication is not configured on the server." });
   }
-  if (!whatsappOk()) {
+  const requireWhatsAppCode = await isWhatsAppLoginVerificationEnabled();
+  if (requireWhatsAppCode && !whatsappOk()) {
     return res.status(503).json({ error: "WhatsApp login verification is not configured. Add TWILIO_WHATSAPP_FROM on the server." });
   }
 
@@ -2587,6 +2610,11 @@ app.post("/api/auth/request-login-otp", async (req, res) => {
     }
     if (!authData) {
       return res.status(401).json({ error: lastError?.message || "Invalid phone number or password." });
+    }
+
+    if (!requireWhatsAppCode) {
+      const result = await prepareDeviceLogin(authData.session, authData.user, device);
+      return res.status(result.approvalRequired ? 202 : 200).json({ ok: true, ...result });
     }
 
     const e164 = phoneToE164(authData.user.user_metadata?.phone_number || phone);
@@ -2617,6 +2645,9 @@ app.post("/api/auth/request-login-otp", async (req, res) => {
     const masked = `${e164.slice(0, 3)}${"*".repeat(Math.max(0, e164.length - 7))}${e164.slice(-4)}`;
     res.json({ ok: true, challengeId, masked, expiresIn: 300 });
   } catch (err) {
+    if (!requireWhatsAppCode) {
+      return sendDeviceLoginError(res, err, "Unable to sign in. Check your credentials and try again.");
+    }
     console.error("[login-otp] request error:", err.message);
     res.status(500).json({ error: "Unable to start login verification." });
   }
@@ -2826,79 +2857,6 @@ try {
   }
 } catch(e) { log("Network error: " + e.message, "err"); }
 </script></body></html>`);
-});
-
-// POST /api/auth/register — public registration endpoint (email confirmation bypass)
-// Uses service role key if available so users can log in immediately without email confirmation.
-app.post("/api/auth/register", async (req, res) => {
-  const { email, password, metadata = {} } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: "email and password required" });
-  if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
-
-  let supabaseUrl = SUPABASE_URL;
-  let anonKey    = SUPABASE_PUBLISHABLE_KEY;
-  let serviceKey = SUPABASE_ADMIN_KEY;
-
-  // Fallback: parse .env file if env vars not set
-  if (!supabaseUrl || !anonKey) {
-    try {
-      const dotenv = fs.readFileSync(path.join(__dirname, ".env"), "utf8");
-      const parse = (key) => {
-        const m = dotenv.match(new RegExp(`^${key}="?([^"\\n]+)"?`, "m"));
-        return m?.[1] || "";
-      };
-      supabaseUrl = supabaseUrl || parse("VITE_SUPABASE_URL");
-      anonKey     = anonKey    || parse("VITE_SUPABASE_PUBLISHABLE_KEY");
-      serviceKey  = serviceKey || parse("SUPABASE_SERVICE_ROLE_KEY");
-    } catch {}
-  }
-
-  if (!supabaseUrl || !anonKey) return res.status(503).json({ error: "Supabase not configured" });
-
-  try {
-    const { createClient } = await import("@supabase/supabase-js");
-
-    // Prefer admin client (service role) — creates user with email already confirmed
-    if (serviceKey) {
-      const adminClient = createClient(supabaseUrl, serviceKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-        realtime: { transport: WebSocket },
-      });
-      const { data, error } = await adminClient.auth.admin.createUser({
-        email,
-        password,
-        user_metadata: metadata,
-        email_confirm: true,
-      });
-      if (error) throw new Error(error.message);
-      // Ensure user_roles row exists (trigger may already handle this)
-      await adminClient.from("user_roles")
-        .upsert({ user_id: data.user.id, role: metadata.account_type || "client" })
-        .catch(() => {});
-      return res.json({ ok: true, userId: data.user.id, confirmed: true });
-    }
-
-    // Fallback: anon signUp (user will need email confirmation if Supabase requires it)
-    const client = createClient(supabaseUrl, anonKey, {
-      realtime: { transport: WebSocket },
-    });
-    const { data, error } = await client.auth.signUp({
-      email,
-      password,
-      options: { data: metadata },
-    });
-    if (error) throw new Error(error.message);
-    const userId = data.user?.id;
-    if (userId) {
-      await client.from("user_roles")
-        .upsert({ user_id: userId, role: metadata.account_type || "client" })
-        .catch(() => {});
-    }
-    return res.json({ ok: true, userId, confirmed: !!data.session, needsConfirmation: !data.session });
-  } catch (err) {
-    console.error("[register]", err.message);
-    res.status(500).json({ error: err.message });
-  }
 });
 
 // POST /api/auth/create-user — create a new user (localhost only, temp utility)
@@ -3112,6 +3070,7 @@ app.post("/api/auth/register", async (req, res) => {
     phone_number: String(metadata.phone_number || "").trim(),
     account_type: metadata.account_type === "vendor" ? "vendor" : "client",
   };
+  const internalPhoneEmail = /@(vbank\.com|virtualbank\.app)$/i.test(String(email).trim());
 
   try {
     const { createClient } = await import("@supabase/supabase-js");
@@ -3138,6 +3097,12 @@ app.post("/api/auth/register", async (req, res) => {
       if (roleError) console.warn("[register] user_roles upsert:", roleError.message);
 
       return res.json({ ok: true, userId: data.user.id, confirmed: true });
+    }
+
+    if (internalPhoneEmail) {
+      return res.status(503).json({
+        error: "Phone registration needs the Supabase service-role key on the server so the account can be confirmed. No account was created.",
+      });
     }
 
     if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
