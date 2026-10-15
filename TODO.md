@@ -438,12 +438,13 @@
 
 ---
 
-_Last updated: 2026-10-07_
+_Last updated: 2026-10-15_
 
 ## Send Money debugging (Oct 2026)
 - [x] Ledger transfer function tested end-to-end (client to client) — works
-- [x] Login "failed to fetch" fixed (app no longer uses placeholder server address)
+- [x] Login targets the configured Supabase project; the failed-to-fetch placeholder issue is fixed
+- [x] Confirm admin account ending 6421651 is active on the configured Supabase project
 - [x] Admins/founders can now send without KYC approval
 - [ ] Approve KYC for clients who need to send (only Jack hector is verified) — Admin > KYC Review
-- [ ] Re-enable disabled accounts if intended: Kenrick hecctor (6421651, admin) and Mark Hector — Admin > Manage Users
+- [ ] Re-enable Mark Hector only if intended — Admin > Manage Users
 - [ ] Wire Send Money to the live GYDS node once it's running on the server
