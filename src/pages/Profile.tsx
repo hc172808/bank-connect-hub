@@ -971,7 +971,19 @@ export default function Profile() {
               className="w-full justify-start gap-2"
               onClick={async () => {
                 try {
-                  await supabase.auth.signOut({ scope: 'global' });
+                  const { data: { session } } = await supabase.auth.getSession();
+                  if (session?.access_token) {
+                    try {
+                      await fetch("/api/auth/device-session/revoke-all", {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${session.access_token}` },
+                      });
+                    } catch {
+                      // Supabase global sign-out still ends the account's auth sessions.
+                    }
+                  }
+                  const { error } = await supabase.auth.signOut({ scope: 'global' });
+                  if (error) throw error;
                   toast({ title: 'Signed out everywhere', description: 'All sessions on every device were ended.' });
                   navigate('/auth');
                 } catch (e: any) {

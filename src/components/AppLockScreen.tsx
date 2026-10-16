@@ -55,7 +55,7 @@ export function AppLockScreen({ onUnlock }: Props) {
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     window.location.href = "/auth";
   };
 

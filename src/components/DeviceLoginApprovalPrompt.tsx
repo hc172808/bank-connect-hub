@@ -127,7 +127,7 @@ export function DeviceLoginApprovalPrompt({ accessToken }: Props) {
               </div>
               <DialogTitle>Allow this device to sign in?</DialogTitle>
               <DialogDescription>
-                If you allow it, both devices stay signed in. Your account can have up to two active devices.
+                If you allow it, both devices stay signed in. You can manage your signed-in devices in Security settings.
               </DialogDescription>
             </DialogHeader>
 

@@ -102,7 +102,7 @@ export const useAuth = () => {
         reason: "This device session was revoked or is no longer approved",
       });
     }
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     hasSessionRef.current = false;
     currentUserIdRef.current = null;
     setAuthState({
@@ -137,7 +137,7 @@ export const useAuth = () => {
     if (generation !== authGenerationRef.current) return;
     if (!approved) {
       deviceDeniedRef.current = true;
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
       hasSessionRef.current = false;
       currentUserIdRef.current = null;
       setAuthState({

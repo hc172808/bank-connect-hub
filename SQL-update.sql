@@ -4184,6 +4184,19 @@ REVOKE ALL PRIVILEGES ON public.device_sessions FROM PUBLIC, anon, authenticated
 GRANT SELECT ON public.device_sessions TO authenticated;
 
 
+-- ===== Source migration: 20261016110000_unlimited_device_sessions.sql =====
+-- Keep device approval optional, but do not cap the number of signed-in devices.
+DO $$
+BEGIN
+  IF to_regclass('public.device_sessions') IS NOT NULL THEN
+    EXECUTE 'DROP TRIGGER IF EXISTS trg_enforce_two_active_device_sessions ON public.device_sessions';
+  END IF;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.enforce_two_active_device_sessions();
+
+
 -- ===== Fresh-project compatibility and app RPCs =====
 -- Fresh-project-only compatibility and app RPCs.
 -- The generator keeps this after the ordered migration chain so the final

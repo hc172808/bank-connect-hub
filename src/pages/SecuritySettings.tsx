@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { claimDeviceSession, getOrCreateDeviceId } from "@/hooks/useDeviceSession";
+import { claimDeviceSession, getDeviceInfo, getOrCreateDeviceId } from "@/hooks/useDeviceSession";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Trash2, Bell, BellOff, Lock, AlertTriangle, LogIn, Clock, Timer } from "lucide-react";
+import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Bell, BellOff, Lock, AlertTriangle, LogIn, LogOut, Clock, Timer } from "lucide-react";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
@@ -157,12 +157,23 @@ const SecuritySettings = () => {
   const [userEmail, setUserEmail] = useState("");
   const [deviceLoginApprovalEnabled, setDeviceLoginApprovalEnabled] = useState(false);
   const [deviceApprovalSaving, setDeviceApprovalSaving] = useState(false);
+  const [revokingOthers, setRevokingOthers] = useState(false);
   const [accountLocked, setAccountLocked] = useState(false);
   const [lockLoading, setLockLoading] = useState(false);
   const [recentAlerts, setRecentAlerts] = useState<{ action: string; created_at: string; ip?: string }[]>([]);
 
   useEffect(() => {
     void load();
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => void refreshSessions();
+    const interval = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+    };
   }, []);
 
   const emergencyLock = async () => {
@@ -211,13 +222,7 @@ const SecuritySettings = () => {
     setTwoFAEnabled(!!(tfa as { enabled?: boolean } | null)?.enabled);
 
     await ensureCurrentSession();
-    const { data: ds } = await supabase
-      .from("device_sessions" as never)
-      .select("*")
-      .eq("user_id", user.id)
-      .is("revoked_at", null)
-      .order("last_active_at", { ascending: false });
-    setSessions(((ds as DeviceSession[]) || []).filter((session) => !session.pending_until));
+    await refreshSessions(user.id);
 
     // SEC-06: Load recent security alerts from audit log
     const { data: alerts } = await supabase
@@ -235,6 +240,18 @@ const SecuritySettings = () => {
     }
 
     setLoading(false);
+  }
+
+  async function refreshSessions(userId?: string) {
+    const resolvedUserId = userId || (await supabase.auth.getUser()).data.user?.id;
+    if (!resolvedUserId) return;
+    const { data: ds } = await supabase
+      .from("device_sessions" as never)
+      .select("*")
+      .eq("user_id", resolvedUserId)
+      .is("revoked_at", null)
+      .order("last_active_at", { ascending: false });
+    setSessions(((ds as DeviceSession[]) || []).filter((session) => !session.pending_until));
   }
 
   const updateDeviceLoginApproval = async (enabled: boolean) => {
@@ -347,11 +364,47 @@ const SecuritySettings = () => {
       toast.success("Session revoked");
       setSessions((current) => current.filter((deviceSession) => deviceSession.id !== id));
       if (result.revokedCurrentDevice) {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: "local" });
         navigate("/auth", { replace: true });
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const revokeOtherSessions = async () => {
+    if (!confirm("Sign out all other devices? This device will stay signed in.")) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      toast.error("Your sign-in session has expired.");
+      return;
+    }
+    setRevokingOthers(true);
+    try {
+      const response = await fetch("/api/auth/device-session/revoke-others", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(getDeviceInfo()),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Unable to sign out other devices.");
+      setSessions((current) =>
+        current.filter((deviceSession) =>
+          deviceSession.device_id
+            ? deviceSession.device_id === currentDeviceId
+            : deviceSession.is_current
+        )
+      );
+      toast.success(result.revokedCount
+        ? `Signed out ${result.revokedCount} other device${result.revokedCount === 1 ? "" : "s"}.`
+        : "No other active devices were signed in.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRevokingOthers(false);
     }
   };
 
@@ -417,7 +470,7 @@ const SecuritySettings = () => {
               <Smartphone className="h-5 w-5" /> New-device approval
             </CardTitle>
             <CardDescription>
-              Approval is off by default. When enabled, a device already signed in must approve sign-ins from new devices.
+                Approval is off by default. When enabled, a device already signed in must approve sign-ins from new devices. There is no device-count limit.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -425,7 +478,7 @@ const SecuritySettings = () => {
               <div>
                 <Label htmlFor="device-login-approval">Require approval for new devices</Label>
                 <p className="text-xs text-muted-foreground mt-1">
-                  This changes the approval requirement only; the two-device limit still applies.
+                  This controls approval only. You can stay signed in on as many devices as you need.
                 </p>
               </div>
               <Switch
@@ -442,9 +495,20 @@ const SecuritySettings = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Smartphone className="h-5 w-5" /> Active Sessions</CardTitle>
-            <CardDescription>Up to two devices can stay signed in. Revoke a device here before adding another.</CardDescription>
+            <CardDescription>There is no device limit. Review signed-in devices and sign out any you no longer use.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => void revokeOtherSessions()}
+              disabled={loading || revokingOthers || sessions.filter((s) =>
+                s.device_id ? s.device_id !== currentDeviceId : !s.is_current
+              ).length === 0}
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              {revokingOthers ? "Signing out other devices…" : "Sign out all other devices"}
+            </Button>
             {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
             {!loading && sessions.length === 0 && <p className="text-sm text-muted-foreground">No active sessions.</p>}
             {sessions.map((s) => (
@@ -461,8 +525,16 @@ const SecuritySettings = () => {
                   </p>
                 </div>
                 {!(s.device_id ? s.device_id === currentDeviceId : s.is_current) && (
-                  <Button size="icon" variant="ghost" onClick={() => revokeSession(s.id)} data-testid={`button-revoke-device-${s.id}`}>
-                    <Trash2 className="h-4 w-4" />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => revokeSession(s.id)}
+                    aria-label={`Sign out ${s.device_name || `${s.browser} on ${s.os}`}`}
+                    title="Sign out this device"
+                    data-testid={`button-revoke-device-${s.id}`}
+                  >
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Sign out
                   </Button>
                 )}
               </div>

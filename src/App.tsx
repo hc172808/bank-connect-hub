@@ -712,7 +712,7 @@ const AppRoutes = () => {
             type="button"
             onClick={async () => {
               const { supabase } = await import("@/integrations/supabase/client");
-              await supabase.auth.signOut();
+              await supabase.auth.signOut({ scope: "local" });
             }}
             className="mt-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm shadow hover:opacity-90"
           >

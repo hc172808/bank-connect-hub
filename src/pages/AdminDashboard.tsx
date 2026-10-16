@@ -195,7 +195,7 @@ const AdminDashboard = () => {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     toast({ title: "Signed out successfully" });
     navigate("/auth");
   };

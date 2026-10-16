@@ -2040,11 +2040,6 @@ async function registerDeviceSession(admin, userId, device, { reserve = false } 
     return existing.id;
   }
 
-  const activeRows = await getActiveDeviceRows(admin, userId);
-  if (activeRows.length >= 2) {
-    throw deviceRouteError(409, "This account already has two active devices. Revoke a device in Security settings before signing in here.", "DEVICE_LIMIT");
-  }
-
   const { data, error } = await admin.from("device_sessions")
     .insert({ user_id: userId, device_id: device.deviceId, ...details })
     .select("id")
@@ -2060,8 +2055,12 @@ async function registerDeviceSession(admin, userId, device, { reserve = false } 
       if (racedError) throw racedError;
       if (raced?.id) return raced.id;
     }
-    if (error.code === "23514") {
-      throw deviceRouteError(409, "This account already has two active devices. Revoke a device in Security settings before signing in here.", "DEVICE_LIMIT");
+    if (error.code === "23514" && /two active devices/i.test(String(error.message || ""))) {
+      throw deviceRouteError(
+        503,
+        "The database still has the old two-device limit. Apply the unlimited-device SQL migration, then try again.",
+        "DEVICE_LIMIT_MIGRATION_REQUIRED",
+      );
     }
     throw error;
   }
@@ -2142,9 +2141,6 @@ async function prepareDeviceLogin(session, user, device) {
         legacyDeviceGate(user, device);
         await registerDeviceSession(admin, user.id, device, { reserve: true });
         return { session };
-      }
-      if (activeRows.length >= 2) {
-        throw deviceRouteError(409, "This account already has two active devices. Revoke a device in Security settings before signing in here.", "DEVICE_LIMIT");
       }
       if (!deviceLoginApprovalEnabled(user)) {
         await registerDeviceSession(admin, user.id, device);
@@ -2278,8 +2274,6 @@ app.post("/api/auth/device-session/claim", async (req, res) => {
       } else if (activeRows.length === 0) {
         legacyDeviceGate(user, device);
         await registerDeviceSession(admin, user.id, device);
-      } else if (activeRows.length >= 2) {
-        throw deviceRouteError(409, "This account already has two active devices. Revoke a device in Security settings before signing in here.", "DEVICE_LIMIT");
       } else if (!deviceLoginApprovalEnabled(user)) {
         await registerDeviceSession(admin, user.id, device);
       } else {
@@ -2378,6 +2372,25 @@ app.post("/api/auth/device-session/revoke", async (req, res) => {
   }
 });
 
+app.post("/api/auth/device-session/revoke-others", async (req, res) => {
+  try {
+    const device = normalizeDeviceInfo(req.body, req);
+    const admin = await getSupabaseAdminClient();
+    const { user } = await getDeviceActor(req, admin);
+    await requireTrustedDevice(admin, user.id, device.deviceId);
+    const { data, error } = await admin.from("device_sessions")
+      .update({ revoked_at: new Date().toISOString(), pending_until: null })
+      .eq("user_id", user.id)
+      .is("revoked_at", null)
+      .or(`device_id.neq.${device.deviceId},device_id.is.null`)
+      .select("id");
+    if (error) throw error;
+    res.json({ ok: true, revokedCount: data?.length || 0 });
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to sign out other devices.");
+  }
+});
+
 app.post("/api/auth/device-session/revoke-all", async (req, res) => {
   try {
     const admin = await getSupabaseAdminClient();
@@ -2443,12 +2456,6 @@ app.post("/api/auth/device-login/respond", async (req, res) => {
         .eq("id", request.id)
         .eq("status", "pending");
       return res.status(410).json({ error: "This login request has expired." });
-    }
-    if (allow) {
-      const activeRows = await getActiveDeviceRows(admin, user.id);
-      if (activeRows.length >= 2) {
-        return res.status(409).json({ error: "This account already has two active devices. Revoke one before approving another." });
-      }
     }
     const { data: updated, error: updateError } = await admin.from("device_login_approvals")
       .update({
