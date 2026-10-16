@@ -470,7 +470,7 @@ const SecuritySettings = () => {
               <Smartphone className="h-5 w-5" /> New-device approval
             </CardTitle>
             <CardDescription>
-                Approval is off by default. When enabled, a device already signed in must approve sign-ins from new devices. There is no device-count limit.
+                Regular accounts can have two active devices. Admin and founder accounts are unlimited. New-device approval is optional.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -478,7 +478,7 @@ const SecuritySettings = () => {
               <div>
                 <Label htmlFor="device-login-approval">Require approval for new devices</Label>
                 <p className="text-xs text-muted-foreground mt-1">
-                  This controls approval only. You can stay signed in on as many devices as you need.
+                  When enabled, a device already signed in must approve a new sign-in. Device limits still depend on your account role.
                 </p>
               </div>
               <Switch
@@ -495,7 +495,7 @@ const SecuritySettings = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Smartphone className="h-5 w-5" /> Active Sessions</CardTitle>
-            <CardDescription>There is no device limit. Review signed-in devices and sign out any you no longer use.</CardDescription>
+            <CardDescription>Regular accounts can have two active devices; admins and founders have no limit. Review sessions and sign out devices you no longer use.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <Button

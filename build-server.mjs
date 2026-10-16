@@ -2056,10 +2056,29 @@ async function registerDeviceSession(admin, userId, device, { reserve = false } 
       if (raced?.id) return raced.id;
     }
     if (error.code === "23514" && /two active devices/i.test(String(error.message || ""))) {
+      const { data: elevatedRoles, error: roleError } = await admin.from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .in("role", ["admin", "founder"])
+        .limit(1);
+      if (roleError) {
+        throw deviceRouteError(
+          503,
+          "Unable to verify this account's device limit. Please try again.",
+          "DEVICE_ROLE_CHECK_FAILED",
+        );
+      }
+      if ((elevatedRoles || []).length > 0) {
+        throw deviceRouteError(
+          503,
+          "Supabase still applies the two-device cap to admins and founders. Apply the role-based device-limit SQL migration, then try again.",
+          "DEVICE_LIMIT_MIGRATION_REQUIRED",
+        );
+      }
       throw deviceRouteError(
-        503,
-        "The database still has the old two-device limit. Apply the unlimited-device SQL migration, then try again.",
-        "DEVICE_LIMIT_MIGRATION_REQUIRED",
+        403,
+        "Regular accounts can have at most two active devices. Sign out another device in Security settings, then try again.",
+        "DEVICE_LIMIT_REACHED",
       );
     }
     throw error;
