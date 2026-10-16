@@ -1907,18 +1907,31 @@ function parseBooleanSetting(value, fallback = false) {
 }
 
 async function isWhatsAppLoginVerificationEnabled(publicClient) {
-  const client = adminOk() ? await getSupabaseAdminClient() : publicClient;
-  const { data, error } = await client
-    .from("app_settings")
-    .select("value")
-    .eq("key", "whatsapp_login_verification_enabled")
-    .maybeSingle();
+  try {
+    let client = adminOk() ? await getSupabaseAdminClient() : publicClient;
+    if (!client) {
+      if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) return false;
+      const { createClient } = await import("@supabase/supabase-js");
+      client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+        realtime: { transport: WebSocket },
+      });
+    }
 
-  if (error) {
-    if (isMissingAppSettingsSchema(error)) return false;
-    throw error;
+    const { data, error } = await client
+      .from("app_settings")
+      .select("value")
+      .eq("key", "whatsapp_login_verification_enabled")
+      .maybeSingle();
+    if (error) {
+      if (isMissingAppSettingsSchema(error)) return false;
+      throw error;
+    }
+    return parseBooleanSetting(data?.value, false);
+  } catch (error) {
+    console.warn("[login-otp] Could not read the WhatsApp login setting; defaulting to disabled:", error?.message || error);
+    return false;
   }
-  return parseBooleanSetting(data?.value, false);
 }
 
 function normalizeDeviceInfo(value, req) {
@@ -2581,28 +2594,6 @@ app.post("/api/auth/device-login/cancel", async (req, res) => {
   loginApprovalStore.delete(requestToken);
   res.json({ ok: true });
 });
-
-async function isWhatsAppLoginVerificationEnabled() {
-  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) return false;
-  try {
-    const { createClient } = await import("@supabase/supabase-js");
-    const client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      realtime: { transport: WebSocket },
-    });
-    const { data, error } = await client
-      .from("app_settings")
-      .select("value")
-      .eq("key", "whatsapp_login_verification_enabled")
-      .maybeSingle();
-    if (error) throw error;
-    if (data?.value === true) return true;
-    return typeof data?.value === "string" && data.value.trim().toLowerCase() === "true";
-  } catch (error) {
-    console.warn("[login-otp] Could not read the WhatsApp login setting; defaulting to disabled:", error.message);
-    return false;
-  }
-}
 
 // POST /api/auth/request-login-otp { phone, password }
 app.post("/api/auth/request-login-otp", async (req, res) => {

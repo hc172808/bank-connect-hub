@@ -24,3 +24,4 @@
 - [Wallet balance visibility](wallet-balance-visibility.md) — Agents see client/vendor balances only; admins and founders see all
 - [Role-based device limits](two-device-login.md) — regular accounts get two active devices; admins/founders are unlimited, with optional approval and user-controlled sign-out
 - [Supabase database connectivity](supabase-connection-ipv6.md) — use an IPv4-compatible pooler URL when direct Supabase PostgreSQL resolves to IPv6 only
+- [Vite preview HMR](vite-preview-hmr.md) — let Vite detect the preview websocket host/protocol; hardcoding TLS localhost broke hot reload
