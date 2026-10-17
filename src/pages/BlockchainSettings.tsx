@@ -11,6 +11,8 @@ import { ArrowLeft, Save, Link2, Coins, Globe, Hash, Wallet, Key, Percent, Plus,
 import { Badge } from "@/components/ui/badge";
 import { testAllRpcs, testRpc, type RpcTestResult } from "@/lib/rpcFallback";
 
+const WALLET_TEST_RPC_URL = "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc";
+
 interface BlockchainSettingsData {
   id: string;
   rpc_url: string;
@@ -64,7 +66,7 @@ export default function BlockchainSettings() {
   const [settings, setSettings] = useState<BlockchainSettingsData>({
     id: "",
     rpc_url: "https://rpc.netlifegy.com",
-    rpc_urls: [],
+    rpc_urls: [WALLET_TEST_RPC_URL],
     chain_id: "198282",
     native_coin_symbol: "GYDS",
     native_coin_name: "GYDS Coin",
@@ -99,10 +101,13 @@ export default function BlockchainSettings() {
     }
     if (data) {
       const rpcUrlsRaw = data.rpc_urls as unknown;
+      const savedRpcUrls = Array.isArray(rpcUrlsRaw) ? (rpcUrlsRaw as string[]) : [];
       setSettings({
         id: data.id,
         rpc_url: data.rpc_url || "https://rpc.netlifegy.com",
-        rpc_urls: Array.isArray(rpcUrlsRaw) ? (rpcUrlsRaw as string[]) : [],
+        rpc_urls: savedRpcUrls.includes(WALLET_TEST_RPC_URL)
+          ? savedRpcUrls
+          : [...savedRpcUrls, WALLET_TEST_RPC_URL],
         chain_id: data.chain_id || "",
         native_coin_symbol: data.native_coin_symbol || "GYD",
         native_coin_name: data.native_coin_name || "GYD Coin",
@@ -334,6 +339,9 @@ export default function BlockchainSettings() {
                     <Link2 className="w-4 h-4" />
                     Backup RPC Nodes
                   </label>
+                  <p className="text-xs text-muted-foreground">
+                    The wallet test endpoint is included as a backup. Test it here; promote it and save only if you want it to become the primary wallet RPC.
+                  </p>
                   <div className="space-y-2">
                     {settings.rpc_urls.map((url, idx) => (
                       <div key={idx} className="space-y-1">
@@ -345,6 +353,9 @@ export default function BlockchainSettings() {
                                 : <XCircle className="w-4 h-4 text-destructive shrink-0" />
                               : <div className="w-4 h-4 rounded-full bg-muted-foreground/20 shrink-0" />}
                             <span className="text-sm truncate flex-1">{url}</span>
+                            {url === WALLET_TEST_RPC_URL && (
+                              <Badge variant="outline" className="shrink-0">Wallet test</Badge>
+                            )}
                             {rpcStatuses[url]?.latencyMs && rpcStatuses[url].reachable && (
                               <span className="text-xs text-muted-foreground">{rpcStatuses[url].latencyMs}ms</span>
                             )}
