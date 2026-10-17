@@ -1,4 +1,5 @@
 import { ethers } from "ethers";
+import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { supabase } from "@/integrations/supabase/client";
 
 const RPC_TIMEOUT_MS = 8000;
@@ -81,6 +82,19 @@ export interface RpcTestResult {
   error?: string;
 }
 
+function parseRpcResponse(data: unknown): { result?: unknown; error?: { message?: unknown } } | null {
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch {
+      return null;
+    }
+  }
+  return data && typeof data === "object"
+    ? data as { result?: unknown; error?: { message?: unknown } }
+    : null;
+}
+
 const rpcStatusCache: Map<string, RpcStatus> = new Map();
 const RPC_CHECK_INTERVAL = 60_000;
 
@@ -89,6 +103,7 @@ const RPC_CHECK_INTERVAL = 60_000;
  */
 export async function testRpc(url: string): Promise<RpcTestResult> {
   const start = Date.now();
+  const nativeRequest = Capacitor.isNativePlatform();
 
   try {
     const { data: { session } } = await supabase.auth.getSession();
@@ -96,42 +111,81 @@ export async function testRpc(url: string): Promise<RpcTestResult> {
       return { url, reachable: false, error: "Sign in as an admin or founder to test this RPC." };
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS + 1_000);
-    try {
-      const response = await fetch("/api/blockchain/rpc-test", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ url }),
-        signal: controller.signal,
+    let status: number;
+    let rpcBody: ReturnType<typeof parseRpcResponse>;
+
+    if (nativeRequest) {
+      // Capacitor's native HTTP client bypasses WebView CORS preflight.
+      // Bundled APKs have no same-origin app server to proxy through.
+      const response = await CapacitorHttp.post({
+        url,
+        headers: { "Content-Type": "application/json" },
+        data: { jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] },
+        connectTimeout: RPC_TIMEOUT_MS,
+        readTimeout: RPC_TIMEOUT_MS,
+        disableRedirects: true,
       });
-      const json = await response.json().catch(() => null);
-      if (!response.ok || json?.ok !== true) {
-        return {
-          url,
-          reachable: false,
-          httpStatus: response.status,
-          latencyMs: Date.now() - start,
-          error: json?.error || httpStatusLabel(response.status),
-        };
+      status = response.status;
+      rpcBody = parseRpcResponse(response.data);
+    } else {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS + 1_000);
+      try {
+        const response = await fetch("/api/blockchain/rpc-test", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ url }),
+          signal: controller.signal,
+        });
+        status = response.status;
+        const body = await response.json().catch(() => null);
+        if (!response.ok || body?.ok !== true) {
+          return {
+            url,
+            reachable: false,
+            httpStatus: status,
+            latencyMs: Date.now() - start,
+            error: body?.error || httpStatusLabel(status),
+          };
+        }
+        rpcBody = { result: body.result };
+      } finally {
+        clearTimeout(timeout);
       }
-      if (typeof json.result !== "string") {
-        return {
-          url,
-          reachable: false,
-          httpStatus: response.status,
-          latencyMs: Date.now() - start,
-          error: "The RPC returned an invalid chain ID.",
-        };
-      }
-      const chainId = BigInt(json.result).toString();
-      return { url, reachable: true, chainId, latencyMs: Date.now() - start, httpStatus: response.status };
-    } finally {
-      clearTimeout(timeout);
     }
+
+    if (status < 200 || status >= 300) {
+      return {
+        url,
+        reachable: false,
+        httpStatus: status,
+        latencyMs: Date.now() - start,
+        error: `RPC responded with HTTP ${status}.`,
+      };
+    }
+    if (rpcBody?.error) {
+      return {
+        url,
+        reachable: false,
+        httpStatus: status,
+        latencyMs: Date.now() - start,
+        error: String(rpcBody.error.message || "The RPC rejected the chain ID request."),
+      };
+    }
+    if (typeof rpcBody?.result !== "string" || !/^0x[0-9a-f]+$/i.test(rpcBody.result)) {
+      return {
+        url,
+        reachable: false,
+        httpStatus: status,
+        latencyMs: Date.now() - start,
+        error: "The RPC returned an invalid chain ID.",
+      };
+    }
+    const chainId = BigInt(rpcBody.result).toString();
+    return { url, reachable: true, chainId, latencyMs: Date.now() - start, httpStatus: status };
   } catch (err: any) {
     const msg: string = err?.message || String(err);
     const isTimeout = err?.name === "AbortError" || msg.toLowerCase().includes("timeout");
@@ -139,7 +193,11 @@ export async function testRpc(url: string): Promise<RpcTestResult> {
       url,
       reachable: false,
       latencyMs: Date.now() - start,
-      error: isTimeout ? "Connection timed out" : "Could not reach the RPC test service.",
+      error: isTimeout
+        ? "Connection timed out."
+        : nativeRequest
+          ? "Could not reach this RPC endpoint from the app."
+          : "Could not reach the RPC test service.",
     };
   }
 }

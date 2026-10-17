@@ -3,8 +3,8 @@ name: RPC test proxy
 description: Browser-safe testing of externally hosted JSON-RPC nodes.
 ---
 
-Use the app's authenticated server-side RPC test route instead of sending JSON-RPC test requests directly from the browser to third-party Replit endpoints. Keep admin/founder authorization on the proxy and reject local/private targets.
+Use the app's authenticated server-side RPC test route for web browsers, with admin/founder authorization and private-target rejection. Bundled Capacitor apps have no same-origin server route; use Capacitor's native HTTP client there to avoid WebView CORS preflight.
 
-**Why:** The supplied Replit RPC endpoint accepted a JSON-RPC POST and returned `Access-Control-Allow-Origin`, but its OPTIONS preflight omitted that header. Browsers therefore rejected the cross-origin JSON request as “Failed to fetch.”
+**Why:** The supplied Replit RPC endpoint accepted JSON-RPC POSTs, but its OPTIONS preflight omitted `Access-Control-Allow-Origin`. Browsers reject the request, and a bundled APK cannot reach the app's relative server proxy.
 
-**How to apply:** Route admin RPC checks through the same-origin app API, validate the URL server-side, and do not change the wallet's primary RPC unless the user explicitly requests it.
+**How to apply:** Branch by runtime: proxy web checks through the same-origin API and use native HTTP only inside Capacitor; do not change the wallet's primary RPC unless the user explicitly requests it.
