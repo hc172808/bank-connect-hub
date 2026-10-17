@@ -3,12 +3,69 @@ import { supabase } from "@/integrations/supabase/client";
 const DEVICE_ID_KEY = "vbank_device_id";
 export const PENDING_LOGIN_APPROVAL_KEY = "vbank_pending_login_approval";
 
-export function getOrCreateDeviceId(): string {
-  let id = localStorage.getItem(DEVICE_ID_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(DEVICE_ID_KEY, id);
+const DEVICE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+let inMemoryDeviceId: string | null = null;
+
+function isValidDeviceId(value: string | null): value is string {
+  return Boolean(value && DEVICE_ID_PATTERN.test(value));
+}
+
+function readStoredDeviceId(storageName: "localStorage" | "sessionStorage"): string | null {
+  try {
+    const value = globalThis[storageName]?.getItem(DEVICE_ID_KEY) ?? null;
+    return isValidDeviceId(value) ? value : null;
+  } catch {
+    return null;
   }
+}
+
+function storeDeviceId(storageName: "localStorage" | "sessionStorage", deviceId: string) {
+  try {
+    globalThis[storageName]?.setItem(DEVICE_ID_KEY, deviceId);
+  } catch {
+    // Keep the ID in memory if browser storage is unavailable.
+  }
+}
+
+function createDeviceId(): string {
+  const secureCrypto = globalThis.crypto;
+  if (typeof secureCrypto?.randomUUID === "function") {
+    const id = secureCrypto.randomUUID();
+    if (isValidDeviceId(id)) return id;
+  }
+
+  if (typeof secureCrypto?.getRandomValues === "function") {
+    const bytes = secureCrypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
+  throw new Error("Secure device ID generation is unavailable in this browser.");
+}
+
+export function getOrCreateDeviceId(): string {
+  if (isValidDeviceId(inMemoryDeviceId)) return inMemoryDeviceId;
+
+  const localId = readStoredDeviceId("localStorage");
+  if (localId) {
+    inMemoryDeviceId = localId;
+    return localId;
+  }
+
+  const sessionId = readStoredDeviceId("sessionStorage");
+  if (sessionId) {
+    inMemoryDeviceId = sessionId;
+    storeDeviceId("localStorage", sessionId);
+    return sessionId;
+  }
+
+  const id = createDeviceId();
+  inMemoryDeviceId = id;
+  storeDeviceId("localStorage", id);
+  storeDeviceId("sessionStorage", id);
   return id;
 }
 
