@@ -25,4 +25,4 @@
 - [Role-based device limits](two-device-login.md) — regular accounts get two active devices; admins/founders are unlimited, with optional approval and user-controlled sign-out
 - [Supabase database connectivity](supabase-connection-ipv6.md) — use an IPv4-compatible pooler URL when direct Supabase PostgreSQL resolves to IPv6 only
 - [Vite preview HMR](vite-preview-hmr.md) — let Vite detect the preview websocket host/protocol; hardcoding TLS localhost broke hot reload
-- [RPC test connectivity](rpc-testing.md) — browsers need the authenticated server proxy; bundled Capacitor apps need native HTTP to bypass upstream CORS
+- [RPC test connectivity](rpc-testing.md) — web balance reads use an authenticated proxy; bundled apps use native HTTP, with the test RPC kept read-only

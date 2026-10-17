@@ -3,6 +3,8 @@ import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { supabase } from "@/integrations/supabase/client";
 
 const RPC_TIMEOUT_MS = 8000;
+export const WALLET_TEST_RPC_URL =
+  "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc";
 
 // ── Node config cache — fetched from build-server, refreshed every 60 s ──────
 interface NodeConfig {

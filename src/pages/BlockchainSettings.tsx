@@ -9,9 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Save, Link2, Coins, Globe, Hash, Wallet, Key, Percent, Plus, Trash2, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { testAllRpcs, testRpc, type RpcTestResult } from "@/lib/rpcFallback";
-
-const WALLET_TEST_RPC_URL = "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc";
+import { testAllRpcs, testRpc, WALLET_TEST_RPC_URL, type RpcTestResult } from "@/lib/rpcFallback";
 
 interface BlockchainSettingsData {
   id: string;

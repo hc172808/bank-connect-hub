@@ -4519,6 +4519,150 @@ function isBlockedRpcTestHost(hostname) {
   return false;
 }
 
+// Read a user's public on-chain balance through the configured RPCs. WebViews
+// cannot always call third-party JSON-RPC nodes directly because of CORS.
+app.post("/api/blockchain/balance", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ ok: false, error: "Blockchain balance service is unavailable." });
+
+  const authorization = String(req.headers.authorization || "");
+  const accessToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (!accessToken) return res.status(401).json({ ok: false, error: "Sign in to read this wallet balance." });
+
+  const address = String(req.body?.address || "").trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    return res.status(400).json({ ok: false, error: "A valid wallet address is required." });
+  }
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const { data: authResult, error: authError } = await admin.auth.getUser(accessToken);
+    if (authError || !authResult?.user) {
+      return res.status(401).json({ ok: false, error: "Your sign-in session is invalid or expired." });
+    }
+
+    const actor = authResult.user;
+    const { data: roleRows, error: rolesError } = await admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", actor.id);
+    if (rolesError) return res.status(503).json({ ok: false, error: "Could not verify wallet access." });
+    const roles = new Set((roleRows || []).map((row) => row.role));
+    const metadataRole = actor.user_metadata?.account_type || actor.user_metadata?.role;
+    const canReadAnyWallet = roles.has("admin") || roles.has("founder")
+      || metadataRole === "admin" || metadataRole === "founder";
+
+    if (!canReadAnyWallet) {
+      const { data: profile, error: profileError } = await admin
+        .from("profiles")
+        .select("wallet_address")
+        .eq("id", actor.id)
+        .maybeSingle();
+      if (profileError) return res.status(503).json({ ok: false, error: "Could not verify wallet ownership." });
+      if (typeof profile?.wallet_address !== "string"
+        || profile.wallet_address.toLowerCase() !== address.toLowerCase()) {
+        return res.status(403).json({ ok: false, error: "You can only read your own on-chain wallet balance." });
+      }
+    }
+
+    const { data: settings, error: settingsError } = await admin
+      .from("blockchain_settings_public")
+      .select("rpc_url, rpc_urls, chain_id, native_coin_symbol")
+      .eq("is_active", true)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (settingsError) {
+      console.error("[blockchain-balance] settings lookup failed:", settingsError.message);
+      return res.status(503).json({ ok: false, error: "Could not load the active blockchain settings." });
+    }
+    if (!settings) return res.status(503).json({ ok: false, error: "No active blockchain network is configured." });
+
+    const testBackupUrl = "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc";
+    const configuredUrls = [
+      settings.rpc_url,
+      ...(Array.isArray(settings.rpc_urls) ? settings.rpc_urls : []),
+    ];
+    const rpcUrls = [...new Set(configuredUrls
+      .filter((url) => typeof url === "string")
+      .map((url) => url.trim())
+      .filter((url) => Boolean(url) && url !== testBackupUrl))]
+      .slice(0, 2);
+    rpcUrls.push(testBackupUrl);
+    if (rpcUrls.length === 0) {
+      return res.status(503).json({ ok: false, error: "No blockchain RPC URL is configured." });
+    }
+
+    const expectedChainId = BigInt(settings.chain_id || "198282");
+    const requestRpc = async (url, method, params, signal) => {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        redirect: "error",
+        signal,
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(`RPC returned HTTP ${response.status}.`);
+      if (payload?.error) throw new Error(String(payload.error.message || "RPC request failed."));
+      return payload?.result;
+    };
+
+    let lastError = "No configured RPC returned the expected network.";
+    for (const url of rpcUrls) {
+      let target;
+      try {
+        target = new URL(url);
+      } catch {
+        lastError = "A configured RPC URL is invalid.";
+        continue;
+      }
+      if (!["http:", "https:"].includes(target.protocol) || target.username || target.password
+        || isBlockedRpcTestHost(target.hostname)) {
+        lastError = "A configured RPC URL is not allowed.";
+        continue;
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const [chainIdHex, balanceWei] = await Promise.all([
+          requestRpc(target.toString(), "eth_chainId", [], controller.signal),
+          requestRpc(target.toString(), "eth_getBalance", [address, "latest"], controller.signal),
+        ]);
+        if (typeof chainIdHex !== "string" || !/^0x[0-9a-f]+$/i.test(chainIdHex)) {
+          throw new Error("RPC returned an invalid chain ID.");
+        }
+        if (BigInt(chainIdHex) !== expectedChainId) {
+          lastError = "Configured RPC is connected to a different network.";
+          continue;
+        }
+        if (typeof balanceWei !== "string" || !/^0x[0-9a-f]+$/i.test(balanceWei)) {
+          throw new Error("RPC returned an invalid wallet balance.");
+        }
+        return res.json({
+          ok: true,
+          chainId: expectedChainId.toString(),
+          balanceWei,
+          symbol: settings.native_coin_symbol || "GYDS",
+        });
+      } catch (error) {
+        lastError = error?.name === "AbortError"
+          ? "The blockchain RPC request timed out."
+          : error instanceof Error ? error.message : String(error);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    return res.status(502).json({ ok: false, error: lastError });
+  } catch (error) {
+    console.error("[blockchain-balance] read failed:", error?.message || String(error));
+    return res.status(500).json({ ok: false, error: "Could not read the on-chain wallet balance." });
+  }
+});
+
 // Admin-only RPC test proxy avoids browser CORS failures from upstream nodes.
 app.post("/api/blockchain/rpc-test", async (req, res) => {
   const authorization = String(req.headers.authorization || "");
