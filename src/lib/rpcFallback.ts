@@ -1,4 +1,5 @@
 import { ethers } from "ethers";
+import { supabase } from "@/integrations/supabase/client";
 
 const RPC_TIMEOUT_MS = 8000;
 
@@ -89,65 +90,56 @@ const RPC_CHECK_INTERVAL = 60_000;
 export async function testRpc(url: string): Promise<RpcTestResult> {
   const start = Date.now();
 
-  // Step 1 – HTTP-level check (catches 502, 503, 504 before ethers even tries)
   try {
-    const httpRes = await Promise.race([
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", method: "eth_chainId", params: [], id: 1 }),
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("HTTP timeout")), RPC_TIMEOUT_MS)
-      ),
-    ]);
-
-    if (!httpRes.ok) {
-      return {
-        url,
-        reachable: false,
-        httpStatus: httpRes.status,
-        latencyMs: Date.now() - start,
-        error: httpStatusLabel(httpRes.status),
-      };
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      return { url, reachable: false, error: "Sign in as an admin or founder to test this RPC." };
     }
 
-    // Step 2 – parse JSON-RPC response
-    const json = await httpRes.json().catch(() => null);
-    if (json?.result) {
-      const chainId = BigInt(json.result).toString();
-      return { url, reachable: true, chainId, latencyMs: Date.now() - start, httpStatus: httpRes.status };
-    }
-
-    // Fallback – use ethers for network detection
-    const provider = new ethers.JsonRpcProvider(url);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS + 1_000);
     try {
-      const network = await Promise.race([
-        provider.getNetwork(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("RPC timeout")), RPC_TIMEOUT_MS)
-        ),
-      ]);
-      provider.destroy();
-      return {
-        url,
-        reachable: true,
-        chainId: network.chainId.toString(),
-        latencyMs: Date.now() - start,
-        httpStatus: httpRes.status,
-      };
-    } catch {
-      provider.destroy();
-      throw new Error("RPC timeout");
+      const response = await fetch("/api/blockchain/rpc-test", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ url }),
+        signal: controller.signal,
+      });
+      const json = await response.json().catch(() => null);
+      if (!response.ok || json?.ok !== true) {
+        return {
+          url,
+          reachable: false,
+          httpStatus: response.status,
+          latencyMs: Date.now() - start,
+          error: json?.error || httpStatusLabel(response.status),
+        };
+      }
+      if (typeof json.result !== "string") {
+        return {
+          url,
+          reachable: false,
+          httpStatus: response.status,
+          latencyMs: Date.now() - start,
+          error: "The RPC returned an invalid chain ID.",
+        };
+      }
+      const chainId = BigInt(json.result).toString();
+      return { url, reachable: true, chainId, latencyMs: Date.now() - start, httpStatus: response.status };
+    } finally {
+      clearTimeout(timeout);
     }
   } catch (err: any) {
     const msg: string = err?.message || String(err);
-    const isTimeout = msg.toLowerCase().includes("timeout");
+    const isTimeout = err?.name === "AbortError" || msg.toLowerCase().includes("timeout");
     return {
       url,
       reachable: false,
       latencyMs: Date.now() - start,
-      error: isTimeout ? "Connection timed out" : msg,
+      error: isTimeout ? "Connection timed out" : "Could not reach the RPC test service.",
     };
   }
 }

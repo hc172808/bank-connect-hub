@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import webpush from "web-push";
 import crypto from "crypto";
 import WebSocket from "ws";
+import { isIP } from "node:net";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -4479,6 +4480,132 @@ app.post("/api/nodes/config", async (req, res) => {
   } catch (err) {
     console.error("[nodes] config write error:", err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+function isBlockedRpcTestHost(hostname) {
+  const host = String(hostname || "").replace(/^\[|\]$/g, "").toLowerCase();
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".test") ||
+    host.endsWith(".invalid")
+  ) {
+    return true;
+  }
+
+  const isBlockedIpv4 = (address) => {
+    const parts = address.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+      return true;
+    }
+    const [a, b] = parts;
+    return a === 0 || a === 10 || a === 127 || a >= 224 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 198 && (b === 18 || b === 19));
+  };
+
+  if (isIP(host) === 4) return isBlockedIpv4(host);
+  if (isIP(host) === 6) {
+    if (host === "::" || host === "::1" || /^(fc|fd|fe[89ab]|ff)/i.test(host)) return true;
+    const mappedIpv4 = host.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+    return mappedIpv4 ? isBlockedIpv4(mappedIpv4[1]) : false;
+  }
+  return false;
+}
+
+// Admin-only RPC test proxy avoids browser CORS failures from upstream nodes.
+app.post("/api/blockchain/rpc-test", async (req, res) => {
+  const authorization = String(req.headers.authorization || "");
+  const accessToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (!accessToken) return res.status(401).json({ ok: false, error: "Sign in as an admin or founder to test this RPC." });
+
+  let admin;
+  try {
+    admin = await getSupabaseAdminClient();
+  } catch {
+    return res.status(503).json({ ok: false, error: "Admin verification is unavailable on this server." });
+  }
+
+  try {
+    const { data: authResult, error: authError } = await admin.auth.getUser(accessToken);
+    if (authError || !authResult?.user) {
+      return res.status(401).json({ ok: false, error: "Your sign-in session is invalid or expired." });
+    }
+
+    const { data: staffRoles, error: roleError } = await admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", authResult.user.id)
+      .in("role", ["admin", "founder"]);
+    if (roleError) {
+      return res.status(503).json({ ok: false, error: "Could not verify admin access." });
+    }
+    if (!staffRoles?.length) {
+      return res.status(403).json({ ok: false, error: "Only admins and founders can test blockchain RPC nodes." });
+    }
+
+    const rawUrl = req.body?.url;
+    if (typeof rawUrl !== "string" || !rawUrl.trim()) {
+      return res.status(400).json({ ok: false, error: "An RPC URL is required." });
+    }
+
+    let target;
+    try {
+      target = new URL(rawUrl.trim());
+    } catch {
+      return res.status(400).json({ ok: false, error: "Enter a valid RPC URL." });
+    }
+    if (!["http:", "https:"].includes(target.protocol) || target.username || target.password) {
+      return res.status(400).json({ ok: false, error: "Use an HTTP(S) RPC URL without embedded credentials." });
+    }
+    if (isBlockedRpcTestHost(target.hostname)) {
+      return res.status(400).json({ ok: false, error: "Local and private network RPC addresses cannot be tested here." });
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    let upstream;
+    try {
+      upstream = await fetch(target.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }),
+        redirect: "error",
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const result = await upstream.json().catch(() => null);
+    if (!upstream.ok) {
+      return res.status(502).json({ ok: false, status: upstream.status, error: `RPC responded with HTTP ${upstream.status}.` });
+    }
+    if (result?.error) {
+      return res.status(502).json({
+        ok: false,
+        status: upstream.status,
+        error: String(result.error.message || "The RPC rejected the chain ID request.").slice(0, 180),
+      });
+    }
+    if (typeof result?.result !== "string" || !/^0x[0-9a-f]+$/i.test(result.result)) {
+      return res.status(502).json({ ok: false, status: upstream.status, error: "The RPC returned an invalid chain ID." });
+    }
+    return res.json({ ok: true, status: upstream.status, result: result.result });
+  } catch (error) {
+    const timedOut = error?.name === "AbortError";
+    return res.status(timedOut ? 504 : 502).json({
+      ok: false,
+      error: timedOut ? "RPC request timed out." : "The RPC endpoint could not be reached.",
+    });
   }
 });
 
