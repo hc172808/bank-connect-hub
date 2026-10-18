@@ -9,6 +9,12 @@ Repository migrations are not applied by the Vite build or app workflow. Treat d
 
 **How to apply:** Include a versioned Supabase migration and the consolidated SQL when changing schema or policies, then explicitly apply it to the configured project before end-to-end verification. Inspect the live schema first: a project may contain real user rows but only a partial bootstrap, so prefer additive repair migrations over replaying a conflicting baseline.
 
+The development Supabase instance did not have `supabase_migrations.schema_migrations`; the approved development migration was applied directly through `psql` in a transaction, so no Supabase migration-history row was recorded.
+
+**Why:** Future tooling must not assume the development project's live schema is reflected in a migration ledger.
+
+**How to apply:** Check for the migration-history table and version row before using `db push` or another migration runner; confirm the target is development before applying schema changes.
+
 The active project may also have RLS enabled on a table with no policies at all; verify `pg_policies` for role-management tables, not just table existence. Admin role/profile-management flows require explicit staff policies.
 
 **Why:** A partial bootstrap can make reads appear to work while every role insert/update is silently rejected by RLS.
