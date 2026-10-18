@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus, KeyRound, Eye, EyeOff, MessageCircle, Loader2, RefreshCw, SlidersHorizontal, UserCheck } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, Ban, CheckCircle2, Trash2, UserPlus, KeyRound, Eye, EyeOff, MessageCircle, Loader2, RefreshCw, SlidersHorizontal, UserCheck, LogOut } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { CountryPhoneInput } from "@/components/CountryPhoneInput";
@@ -128,6 +128,10 @@ const ManageUsers = () => {
   const [featureAccess, setFeatureAccess] = useState<Record<string, boolean>>({});
   const [featureLoading, setFeatureLoading] = useState(false);
   const [featureUpdating, setFeatureUpdating] = useState<string | null>(null);
+  const [supportLogoutUserId, setSupportLogoutUserId] = useState<string | null>(null);
+  const [supportLogoutTarget, setSupportLogoutTarget] = useState<User | null>(null);
+  const [supportLogoutLink, setSupportLogoutLink] = useState("");
+  const [supportLogoutExpiresAt, setSupportLogoutExpiresAt] = useState("");
 
   const fetchBlockchainSettings = useCallback(async () => {
     const { data } = await supabase
@@ -595,6 +599,50 @@ const ManageUsers = () => {
     fetchUsers();
   };
 
+  const createSupportLogoutLink = async (user: User) => {
+    const displayName = user.full_name || user.phone_number || "this user";
+    if (!window.confirm(
+      `Create a one-time logout confirmation link for ${displayName}? The user's active sessions will only be revoked after they enter their wallet-lock PIN.`
+    )) return;
+
+    setSupportLogoutUserId(user.id);
+    try {
+      const token = await getStaffSession();
+      const response = await fetch("/api/auth/support-logout/request", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok !== true || typeof result.confirmationPath !== "string") {
+        throw new Error(result.error || "Could not create a logout confirmation link.");
+      }
+      setSupportLogoutTarget(user);
+      setSupportLogoutLink(new URL(result.confirmationPath, window.location.origin).toString());
+      setSupportLogoutExpiresAt(result.expiresAt || "");
+    } catch (error) {
+      toast({
+        title: "Could not create logout link",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSupportLogoutUserId(null);
+    }
+  };
+
+  const copySupportLogoutLink = async () => {
+    try {
+      await navigator.clipboard.writeText(supportLogoutLink);
+      toast({ title: "Confirmation link copied", description: "Send it only to the user's registered phone number." });
+    } catch {
+      toast({ title: "Copy failed", description: "Select and copy the link manually.", variant: "destructive" });
+    }
+  };
+
   const deleteUser = async (user: User) => {
     try {
       const token = await getStaffSession();
@@ -878,6 +926,25 @@ const ManageUsers = () => {
                                 Account
                               </Button>
                             )}
+                            {(user.role === "client"
+                              || user.role === "vendor"
+                              || (isAdmin && user.role === "agent")) && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 gap-1"
+                                onClick={() => void createSupportLogoutLink(user)}
+                                disabled={supportLogoutUserId === user.id}
+                                aria-label={`Create a PIN-confirmed logout link for ${user.full_name || user.phone_number || "user"}`}
+                                title="Create a one-time PIN-confirmed logout link"
+                              >
+                                {supportLogoutUserId === user.id
+                                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  : <LogOut className="h-3.5 w-3.5" />}
+                                Sign out
+                              </Button>
+                            )}
                             <Select
                               value={user.role}
                               onValueChange={(value) => updateUserRole(user.id, value as "admin" | "agent" | "client" | "vendor" | "founder")}
@@ -961,6 +1028,63 @@ const ManageUsers = () => {
         </Card>
         {isAdmin && <AdminFundingActivity />}
       </main>
+
+      <Dialog
+        open={!!supportLogoutTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSupportLogoutTarget(null);
+            setSupportLogoutLink("");
+            setSupportLogoutExpiresAt("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LogOut className="h-5 w-5 text-primary" />
+              PIN-confirmed sign-out
+            </DialogTitle>
+            <DialogDescription>
+              {supportLogoutTarget?.full_name || supportLogoutTarget?.phone_number || "This user"} must open this one-time link and enter their wallet-lock PIN before any device is signed out.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="support-logout-link" className="text-sm font-medium">Confirmation link</label>
+            <Input
+              id="support-logout-link"
+              readOnly
+              value={supportLogoutLink}
+              className="font-mono text-xs"
+              onFocus={(event) => event.currentTarget.select()}
+            />
+            <p className="text-xs text-muted-foreground">
+              Send only to the user's registered phone. Expires at{" "}
+              {supportLogoutExpiresAt
+                ? new Date(supportLogoutExpiresAt).toLocaleTimeString()
+                : "in 15 minutes"}.
+              The PIN is entered privately by the user; never ask them to text or read it to you. Five incorrect PIN attempts within an hour lock logout confirmations for this account.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setSupportLogoutTarget(null);
+                setSupportLogoutLink("");
+                setSupportLogoutExpiresAt("");
+              }}
+            >
+              Close
+            </Button>
+            <Button type="button" onClick={() => void copySupportLogoutLink()}>
+              <Copy className="mr-2 h-4 w-4" />
+              Copy link
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!featureTarget} onOpenChange={(open) => { if (!open && !featureUpdating) setFeatureTarget(null); }}>
         <DialogContent className="max-w-2xl max-h-[88vh] flex flex-col">

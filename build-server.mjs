@@ -2439,6 +2439,143 @@ app.post("/api/auth/device-session/revoke-all", async (req, res) => {
   }
 });
 
+app.post("/api/auth/support-logout/request", async (req, res) => {
+  try {
+    if (!adminOk()) return res.status(503).json({ error: "Support logout is unavailable on this server." });
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder", "agent"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const userId = String(req.body?.userId || "").trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      return res.status(400).json({ error: "A valid user account is required." });
+    }
+    if (userId === actor.user.id) {
+      return res.status(400).json({ error: "Use your own Security Settings to sign out your devices." });
+    }
+
+    const [
+      { data: targetResult, error: targetError },
+      { data: targetRoleRows, error: targetRolesError },
+    ] = await Promise.all([
+      admin.auth.admin.getUserById(userId),
+      admin.from("user_roles").select("role").eq("user_id", userId),
+    ]);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
+    if (targetRolesError) return res.status(503).json({ error: "Could not verify the target account role." });
+
+    const targetRoles = new Set((targetRoleRows || []).map((row) => row.role));
+    const targetMetadataRole = targetResult.user.user_metadata?.account_type
+      || targetResult.user.user_metadata?.role;
+    const targetRole = ["founder", "admin", "agent", "vendor", "client"]
+      .find((role) => targetRoles.has(role))
+      || targetMetadataRole;
+    const permittedTarget = actor.role === "agent"
+      ? ["client", "vendor"].includes(targetRole)
+      : ["client", "vendor", "agent"].includes(targetRole);
+    if (!permittedTarget) {
+      return res.status(403).json({ error: "This staff role cannot create a logout request for that account." });
+    }
+
+    const { data: targetProfile, error: profileError } = await admin
+      .from("profiles")
+      .select("pin_hash")
+      .eq("id", userId)
+      .maybeSingle();
+    if (profileError) return res.status(503).json({ error: "Could not verify that the account has a wallet PIN." });
+    if (!targetProfile?.pin_hash) {
+      return res.status(409).json({ error: "This account has no wallet-lock PIN to confirm the logout." });
+    }
+
+    const { count: recentRequestCount, error: rateLimitError } = await admin
+      .from("support_logout_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .gte("created_at", new Date(Date.now() - 60_000).toISOString());
+    if (rateLimitError) {
+      console.error("[support-logout] request table unavailable:", rateLimitError.message);
+      return res.status(503).json({ error: "Support logout is not ready. Apply the latest database migration." });
+    }
+    if ((recentRequestCount || 0) >= 1) {
+      return res.status(429).json({ error: "A confirmation link was created recently. Wait one minute before requesting another." });
+    }
+
+    const { error: expireError } = await admin
+      .from("support_logout_requests")
+      .update({ status: "expired" })
+      .eq("user_id", userId)
+      .eq("status", "pending");
+    if (expireError) {
+      console.error("[support-logout] request table unavailable:", expireError.message);
+      return res.status(503).json({ error: "Support logout is not ready. Apply the latest database migration." });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const { error: insertError } = await admin.from("support_logout_requests").insert({
+      user_id: userId,
+      requested_by: actor.user.id,
+      requested_by_role: actor.role,
+      token_hash: tokenHash,
+      status: "pending",
+      expires_at: expiresAt,
+    });
+    if (insertError) {
+      console.error("[support-logout] could not create request:", insertError.message);
+      return res.status(503).json({ error: "Could not create the secure logout request." });
+    }
+
+    res.json({
+      ok: true,
+      confirmationPath: `/support/remote-logout#${token}`,
+      expiresAt,
+    });
+  } catch (error) {
+    console.error("[support-logout] request failed:", error?.message || String(error));
+    res.status(500).json({ error: "Could not create the secure logout request." });
+  }
+});
+
+app.post("/api/auth/support-logout/confirm", async (req, res) => {
+  try {
+    if (!adminOk()) return res.status(503).json({ error: "Support logout is unavailable on this server." });
+    const token = String(req.body?.token || "").trim();
+    const pin = String(req.body?.pin || "").trim();
+    if (!/^[0-9a-f]{64}$/i.test(token) || !/^[0-9]{4}$/.test(pin)) {
+      return res.status(400).json({ error: "Enter the four-digit wallet PIN from the confirmation page." });
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const admin = await getSupabaseAdminClient();
+    const { data, error } = await admin.rpc("confirm_support_logout", {
+      _token_hash: tokenHash,
+      _pin: pin,
+    });
+    if (error) {
+      console.error("[support-logout] confirmation service failed:", error.message);
+      return res.status(503).json({ error: "Support logout is not ready. Apply the latest database migration." });
+    }
+
+    if (data?.ok !== true) {
+      if (data?.code === "invalid_pin") {
+        return res.status(400).json({
+          error: `Incorrect PIN. ${data.attempts_remaining} attempt${data.attempts_remaining === 1 ? "" : "s"} remaining.`,
+        });
+      }
+      if (data?.code === "locked") {
+        return res.status(429).json({ error: "Too many incorrect PIN attempts. Contact support for a new link." });
+      }
+      return res.status(410).json({ error: "This confirmation link has expired or was already used. Contact support for a new one." });
+    }
+
+    res.json({ ok: true, revokedCount: Number(data.revoked_count) || 0 });
+  } catch (error) {
+    console.error("[support-logout] confirmation failed:", error?.message || String(error));
+    res.status(500).json({ error: "Could not complete the secure logout." });
+  }
+});
+
 app.get("/api/auth/device-login/requests", async (req, res) => {
   try {
     const device = normalizeDeviceInfo({ deviceId: req.query.deviceId }, req);

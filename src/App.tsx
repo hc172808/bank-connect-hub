@@ -46,6 +46,7 @@ const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const BankReserve = lazy(() => import("./pages/BankReserve"));
 const ManageUsers = lazy(() => import("./pages/ManageUsers"));
+const SupportRemoteLogout = lazy(() => import("./pages/SupportRemoteLogout"));
 const AdminUserAccount = lazy(() => import("./pages/AdminUserAccount"));
 const ManageAgents = lazy(() => import("./pages/ManageAgents"));
 const ManageVendors = lazy(() => import("./pages/ManageVendors"));
@@ -456,6 +457,10 @@ const AppRoutes = () => {
       return () => clearTimeout(t);
     }
   }, [user?.id]);
+
+  if (window.location.pathname.replace(/\/+$/, "") === "/support/remote-logout") {
+    return <SupportRemoteLogout />;
+  }
 
   if (loading) return <FullScreenLoader />;
   if (locked && user) return <AppLockScreen onUnlock={unlock} />;
