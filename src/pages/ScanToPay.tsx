@@ -184,7 +184,7 @@ const ScanToPay = () => {
       senderId: user.id,
       receiverId: scannedUser.userId,
       amount: parseFloat(amount),
-      transactionType: "transfer",
+      transactionType: "scan_to_pay",
       description: `QR Payment to ${scannedUser.name}`,
     });
 
@@ -239,7 +239,7 @@ const ScanToPay = () => {
       senderId: user.id,
       receiverId: scannedUser.userId,
       amount: parseFloat(amount),
-      transactionType: "transfer",
+      transactionType: "scan_to_pay",
       description: `QR Receive from ${user.email}`,
     });
 

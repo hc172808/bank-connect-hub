@@ -17,8 +17,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { CLIENT_MENU_FEATURES } from "@/lib/clientMenuFeatures";
 import AdminFundingActivity from "@/components/AdminFundingActivity";
 import {
+  fetchAdminUserFeatureAccessAudit,
   fetchAdminUserFeatureAccess,
   updateAdminUserFeatureAccess,
+  type UserFeatureAccessAuditEntry,
 } from "@/lib/userFeatureAccess";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -128,6 +130,9 @@ const ManageUsers = () => {
   const [featureAccess, setFeatureAccess] = useState<Record<string, boolean>>({});
   const [featureLoading, setFeatureLoading] = useState(false);
   const [featureUpdating, setFeatureUpdating] = useState<string | null>(null);
+  const [featureAudit, setFeatureAudit] = useState<UserFeatureAccessAuditEntry[]>([]);
+  const [featureAuditLoading, setFeatureAuditLoading] = useState(false);
+  const [featureAuditError, setFeatureAuditError] = useState<string | null>(null);
   const [signingOutUserId, setSigningOutUserId] = useState<string | null>(null);
 
   const fetchBlockchainSettings = useCallback(async () => {
@@ -458,18 +463,31 @@ const ManageUsers = () => {
     if (user.role === "admin" || user.role === "founder") return;
     setFeatureTarget(user);
     setFeatureAccess({});
+    setFeatureAudit([]);
+    setFeatureAuditError(null);
     setFeatureLoading(true);
+    setFeatureAuditLoading(true);
     try {
       setFeatureAccess(await fetchAdminUserFeatureAccess(user.id));
     } catch (error) {
       setFeatureTarget(null);
+      setFeatureAuditLoading(false);
       toast({
         title: "Could not load feature access",
         description: (error as Error).message,
         variant: "destructive",
       });
+      return;
     } finally {
       setFeatureLoading(false);
+    }
+
+    try {
+      setFeatureAudit(await fetchAdminUserFeatureAccessAudit(user.id));
+    } catch (error) {
+      setFeatureAuditError((error as Error).message);
+    } finally {
+      setFeatureAuditLoading(false);
     }
   };
 
@@ -480,6 +498,12 @@ const ManageUsers = () => {
     try {
       await updateAdminUserFeatureAccess(featureTarget.id, featureKey, nextValue);
       setFeatureAccess((current) => ({ ...current, [featureKey]: nextValue }));
+      setFeatureAuditError(null);
+      try {
+        setFeatureAudit(await fetchAdminUserFeatureAccessAudit(featureTarget.id));
+      } catch (error) {
+        setFeatureAuditError((error as Error).message);
+      }
       toast({
         title: nextValue ? "Feature enabled" : "Feature disabled",
         description: `${CLIENT_MENU_FEATURES.find((feature) => feature.featureKey === featureKey)?.label || "Feature"} updated for ${featureTarget.full_name || "this user"}.`,
@@ -1066,6 +1090,42 @@ const ManageUsers = () => {
                   </div>
                 </section>
               ))}
+
+              <section className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold">Recent access changes</h3>
+                  <span className="text-xs text-muted-foreground">Latest 50</span>
+                </div>
+                <div className="rounded-lg border divide-y">
+                  {featureAuditLoading ? (
+                    <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading history…
+                    </div>
+                  ) : featureAuditError ? (
+                    <p className="p-3 text-sm text-destructive">{featureAuditError}</p>
+                  ) : featureAudit.length === 0 ? (
+                    <p className="p-3 text-sm text-muted-foreground">No access changes have been recorded.</p>
+                  ) : featureAudit.map((entry) => {
+                    const featureName = CLIENT_MENU_FEATURES.find(
+                      (feature) => feature.featureKey === entry.feature_key,
+                    )?.label || entry.feature_key;
+                    return (
+                      <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{featureName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            By {entry.actor_name || entry.actor_role} · {new Date(entry.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                        <Badge variant={entry.new_is_enabled ? "secondary" : "destructive"}>
+                          {entry.new_is_enabled ? "Enabled" : "Disabled"}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
           )}
           <DialogFooter>

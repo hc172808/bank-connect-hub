@@ -49,7 +49,7 @@ const PayMerchant = () => {
         senderId: user.id,
         receiverId: merchantId,
         amount: amt,
-        transactionType: "transfer",
+        transactionType: "merchant_payment",
         description: `Merchant payment — ID: ${merchantId.slice(0, 8)}`,
       });
 

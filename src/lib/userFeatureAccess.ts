@@ -3,6 +3,17 @@ import { CLIENT_MENU_FEATURES } from "@/lib/clientMenuFeatures";
 
 export type UserFeatureAccess = Record<string, boolean>;
 
+export interface UserFeatureAccessAuditEntry {
+  id: string;
+  actor_id: string;
+  actor_name: string | null;
+  actor_role: "admin" | "founder";
+  feature_key: string;
+  old_is_enabled: boolean;
+  new_is_enabled: boolean;
+  created_at: string;
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || "Feature access is unavailable.");
@@ -50,4 +61,20 @@ export async function updateAdminUserFeatureAccess(
     },
   );
   await readJson(response);
+}
+
+export async function fetchAdminUserFeatureAccessAudit(
+  userId: string,
+): Promise<UserFeatureAccessAuditEntry[]> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Your staff session has expired. Sign in again.");
+  const response = await fetch(
+    `/api/admin/users/${encodeURIComponent(userId)}/features/audit`,
+    {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      cache: "no-store",
+    },
+  );
+  const body = await readJson<{ entries?: UserFeatureAccessAuditEntry[] }>(response);
+  return body.entries || [];
 }

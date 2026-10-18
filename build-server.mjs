@@ -1635,19 +1635,22 @@ async function requireFeatureAdmin(req, admin) {
     return { status: 401, error: "Admin session is invalid or expired." };
   }
 
-  let actorRole = actorResult.user.user_metadata?.account_type || actorResult.user.user_metadata?.role;
-  const { data: roleRow } = await admin
+  const { data: roleRows, error: roleError } = await admin
     .from("user_roles")
     .select("role")
-    .eq("user_id", actorResult.user.id)
-    .limit(1)
-    .maybeSingle();
-  if (roleRow?.role) actorRole = roleRow.role;
+    .eq("user_id", actorResult.user.id);
+  if (roleError) return { status: 503, error: "Could not verify the signed-in admin role." };
 
+  const actorRoles = (roleRows || []).map((row) => row.role);
+  const actorRole = actorRoles.includes("founder")
+    ? "founder"
+    : actorRoles.includes("admin")
+      ? "admin"
+      : null;
   if (actorRole !== "admin" && actorRole !== "founder") {
     return { status: 403, error: "Only admins and founders can manage feature toggles." };
   }
-  return { user: actorResult.user };
+  return { user: actorResult.user, role: actorRole };
 }
 
 async function requireBearerUser(req, admin) {
@@ -1662,13 +1665,16 @@ async function requireBearerUser(req, admin) {
 }
 
 async function getUserRole(admin, userId, user = null) {
-  const { data: roleRow } = await admin
+  const { data: roleRows, error } = await admin
     .from("user_roles")
     .select("role")
-    .eq("user_id", userId)
-    .limit(1)
-    .maybeSingle();
-  return roleRow?.role || user?.user_metadata?.account_type || user?.user_metadata?.role || "client";
+    .eq("user_id", userId);
+  if (error) throw new Error("Could not verify the target account role.");
+
+  const roles = (roleRows || []).map((row) => row.role);
+  if (roles.includes("founder")) return "founder";
+  if (roles.includes("admin")) return "admin";
+  return roles[0] || user?.user_metadata?.account_type || user?.user_metadata?.role || "client";
 }
 
 // Feature toggles are public configuration, but some Supabase projects have
@@ -1787,6 +1793,51 @@ app.get("/api/admin/users/:userId/features", async (req, res) => {
   }
 });
 
+app.get("/api/admin/users/:userId/features/audit", async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) return res.status(400).json({ error: "userId is required." });
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireFeatureAdmin(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { data: targetResult, error: targetError } = await admin.auth.admin.getUserById(userId);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
+    const targetRole = await getUserRole(admin, userId, targetResult.user);
+    if (targetRole === "admin" || targetRole === "founder") {
+      return res.status(403).json({ error: "Admin and founder accounts cannot be managed here." });
+    }
+
+    const { data: rows, error } = await admin
+      .from("user_feature_access_audit")
+      .select("id, actor_id, actor_role, feature_key, old_is_enabled, new_is_enabled, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) throw new Error(error.message);
+
+    const actorIds = [...new Set((rows || []).map((row) => row.actor_id).filter(Boolean))];
+    let actorNames = new Map();
+    if (actorIds.length) {
+      const { data: profiles } = await admin
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", actorIds);
+      actorNames = new Map((profiles || []).map((profile) => [profile.id, profile.full_name]));
+    }
+
+    res.json({
+      entries: (rows || []).map((row) => ({
+        ...row,
+        actor_name: actorNames.get(row.actor_id) || null,
+      })),
+    });
+  } catch (err) {
+    console.error("[feature-access] audit read error:", err.message);
+    res.status(503).json({ error: err.message });
+  }
+});
+
 app.patch("/api/admin/users/:userId/features/:featureKey", async (req, res) => {
   const { userId, featureKey } = req.params;
   const { is_enabled } = req.body || {};
@@ -1805,17 +1856,14 @@ app.patch("/api/admin/users/:userId/features/:featureKey", async (req, res) => {
       return res.status(403).json({ error: "Admin and founder accounts cannot be managed here." });
     }
 
-    const { error } = await admin
-      .from("user_feature_access")
-      .upsert({
-        user_id: userId,
-        feature_key: featureKey,
-        is_enabled,
-        updated_by: actor.user.id,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id,feature_key" });
+    const { data, error } = await admin.rpc("set_user_feature_access_with_audit", {
+      _actor_id: actor.user.id,
+      _user_id: userId,
+      _feature_key: featureKey,
+      _is_enabled: is_enabled,
+    });
     if (error) throw new Error(error.message);
-    res.json({ ok: true, userId, featureKey, is_enabled });
+    res.json(data || { ok: true, userId, featureKey, is_enabled });
   } catch (err) {
     console.error("[feature-access] admin update error:", err.message);
     res.status(503).json({ error: err.message });

@@ -240,7 +240,7 @@ export default function NFCTapPayment() {
         senderId: user.id,
         receiverId: payload.receiverId,
         amount: payload.amount,
-        transactionType: "transfer",
+        transactionType: "nfc_payment",
         description: `NFC payment to ${payload.merchant}`,
       });
       if (!result.success) throw new Error(result.error || "The ledger rejected this payment.");
@@ -267,7 +267,7 @@ export default function NFCTapPayment() {
         senderId: user.id,
         receiverId: recipientId,
         amount: parseFloat(amount),
-        transactionType: "transfer",
+        transactionType: "nfc_payment",
         description: `Tap payment to ${recipient}`,
       });
       if (!result.success) throw new Error(result.error || "The ledger rejected this payment.");
