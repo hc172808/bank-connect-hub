@@ -5,10 +5,12 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useAuth, UserRole } from "./hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { isFeatureEnabled } from "@/lib/featureToggles";
+import { CLIENT_MENU_FEATURES } from "@/lib/clientMenuFeatures";
+import { fetchCurrentUserFeatureAccess } from "@/lib/userFeatureAccess";
 import { useAutoPushSubscribe } from "./hooks/useAutoPushSubscribe";
 import { useAppLock } from "./hooks/useAppLock";
 import { useNewReleaseAlert } from "./hooks/useNewReleaseAlert";
@@ -438,6 +440,43 @@ const GlobalOverlays = () => {
   );
 };
 
+const ClientFeatureRouteGuard = ({ children }: { children: React.ReactNode }) => {
+  const location = useLocation();
+  const [access, setAccess] = useState<Record<string, boolean> | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadAccess = () => {
+      void fetchCurrentUserFeatureAccess()
+        .then((current) => { if (active) setAccess(current); })
+        .catch(() => { if (active) setAccess({}); });
+    };
+    loadAccess();
+    const onFocus = () => {
+      if (document.visibilityState === "visible") loadAccess();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
+  const routeFeatureKeys = CLIENT_MENU_FEATURES
+    .filter((feature) => location.pathname === feature.path ||
+      location.pathname.startsWith(`${feature.path}/`))
+    .map((feature) => feature.featureKey);
+
+  if (routeFeatureKeys.length > 0 && access === null) return <FullScreenLoader />;
+  if (
+    routeFeatureKeys.length > 0 &&
+    routeFeatureKeys.every((featureKey) => access?.[featureKey] === false)
+  ) {
+    return <Navigate to="/client" replace state={{ featureDisabled: true }} />;
+  }
+  return <>{children}</>;
+};
+
 const AppRoutes = () => {
   const { user, role, loading } = useAuth();
   useAutoPushSubscribe(user?.id);
@@ -481,6 +520,7 @@ const AppRoutes = () => {
   if (role === "client") {
     return (
       <RoleGuard allow={["client"]}>
+      <ClientFeatureRouteGuard>
       <Routes>
         <Route path="/client" element={<ClientDashboard />} />
         <Route path="/send-money" element={<SendMoney />} />
@@ -549,6 +589,7 @@ const AppRoutes = () => {
         <Route path="/index" element={<Navigate to="/client" replace />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
+      </ClientFeatureRouteGuard>
       </RoleGuard>
     );
   }

@@ -298,7 +298,7 @@ const ClientDashboard = () => {
       { icon: Receipt, label: "Pay Bills", path: "/pay-bills", featureKey: "pay_bills", accessKey: "client_menu_pay_bills" },
       { icon: Send, label: "Send Money", path: "/send-money", featureKey: null, accessKey: "client_menu_send_money" },
       { icon: Gift, label: "Request Funds", path: "/request-funds", featureKey: "internal_funds", accessKey: "client_menu_request_funds" },
-      { icon: RotateCcw, label: "Reverse Funds", path: "/request-reversal", featureKey: null, accessKey: "client_menu_request_funds" },
+      { icon: RotateCcw, label: "Reverse Funds", path: "/request-reversal", featureKey: null, accessKey: "client_menu_reverse_funds" },
       { icon: ArrowUpFromLine, label: "Top-up", path: "/top-up", featureKey: "top_up", accessKey: "client_menu_top_up" },
       { icon: Store, label: "Pay Merchant", path: "/pay-merchant", featureKey: "pay_merchant", accessKey: "client_menu_pay_merchant" },
       { icon: Store, label: "Shop", path: "/vendors", featureKey: null, accessKey: "client_menu_shop" },
@@ -607,14 +607,14 @@ const ClientDashboard = () => {
 
         {/* Action Buttons */}
         <div className="flex gap-3">
-          <Button 
+          {userFeatureAccess.client_menu_send_money !== false && <Button
             onClick={() => navigate("/send-money")}
             className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
           >
             <DollarSign size={20} />
             Pay
-          </Button>
-          <Button 
+          </Button>}
+          {userFeatureAccess.client_menu_add_money !== false && <Button
             onClick={() => navigate("/add-money")}
             className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
             disabled={!isFeatureEnabled("internal_funds")}
@@ -622,14 +622,14 @@ const ClientDashboard = () => {
           >
             <Plus size={20} />
             Add
-          </Button>
-          <Button 
+          </Button>}
+          {userFeatureAccess.client_menu_receive_money !== false && <Button
             onClick={() => navigate("/receive-money")}
             className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
           >
             <ArrowDownToLine size={20} />
             Receive
-          </Button>
+          </Button>}
         </div>
 
         {/* Services Grid */}
@@ -662,15 +662,15 @@ const ClientDashboard = () => {
               <path d="M3 13h1v7c0 1.103.897 2 2 2h12c1.103 0 2-.897 2-2v-7h1a1 1 0 0 0 .707-1.707l-9-9a.999.999 0 0 0-1.414 0l-9 9A1 1 0 0 0 3 13z"/>
             </svg>
           </button>
-          <button onClick={() => navigate("/transactions")} className="text-muted-foreground">
+          {userFeatureAccess.client_menu_transactions !== false && <button onClick={() => navigate("/transactions")} className="text-muted-foreground">
             <Receipt size={24} />
-          </button>
-          <button 
+          </button>}
+          {userFeatureAccess.client_menu_scan_to_pay !== false && <button
             onClick={() => navigate("/scan-to-pay")}
             className="w-16 h-16 -mt-8 bg-primary rounded-full flex items-center justify-center shadow-lg"
           >
             <QrCode size={28} className="text-foreground" />
-          </button>
+          </button>}
           <button onClick={() => navigate("/feedback")} className="text-muted-foreground">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10"/>
