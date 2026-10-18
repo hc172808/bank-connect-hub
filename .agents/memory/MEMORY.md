@@ -26,4 +26,4 @@
 - [Supabase database connectivity](supabase-connection-ipv6.md) — use an IPv4-compatible pooler URL when direct Supabase PostgreSQL resolves to IPv6 only
 - [Vite preview HMR](vite-preview-hmr.md) — let Vite detect the preview websocket host/protocol; hardcoding TLS localhost broke hot reload
 - [RPC test connectivity](rpc-testing.md) — web balance reads use an authenticated proxy; bundled apps use native HTTP, with the test RPC kept read-only
-- [Support-assisted logout](support-logout.md) — remote sign-out is confirmed with the wallet-lock PIN; support staff must never receive it
+- [Staff remote logout](support-logout.md) — authorized staff can immediately revoke a user's device sessions, even when the user has no wallet PIN

@@ -2537,6 +2537,76 @@ app.post("/api/auth/support-logout/request", async (req, res) => {
   }
 });
 
+app.post("/api/auth/device-session/staff-revoke", async (req, res) => {
+  try {
+    if (!adminOk()) return res.status(503).json({ error: "Staff sign-out is unavailable on this server." });
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder", "agent"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const userId = String(req.body?.userId || "").trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      return res.status(400).json({ error: "A valid user account is required." });
+    }
+    if (userId === actor.user.id) {
+      return res.status(400).json({ error: "Use your own Security Settings to sign out your devices." });
+    }
+
+    const [
+      { data: targetResult, error: targetError },
+      { data: targetRoleRows, error: targetRolesError },
+    ] = await Promise.all([
+      admin.auth.admin.getUserById(userId),
+      admin.from("user_roles").select("role").eq("user_id", userId),
+    ]);
+    if (targetError || !targetResult?.user) return res.status(404).json({ error: "User account not found." });
+    if (targetRolesError) return res.status(503).json({ error: "Could not verify the target account role." });
+
+    const targetRoles = new Set((targetRoleRows || []).map((row) => row.role));
+    const targetMetadataRole = targetResult.user.user_metadata?.account_type
+      || targetResult.user.user_metadata?.role;
+    const targetRole = ["founder", "admin", "agent", "vendor", "client"]
+      .find((role) => targetRoles.has(role))
+      || targetMetadataRole;
+    const permittedTarget = actor.role === "agent"
+      ? ["client", "vendor"].includes(targetRole)
+      : ["client", "vendor", "agent"].includes(targetRole);
+    if (!permittedTarget) {
+      return res.status(403).json({ error: "This staff role cannot sign out that account." });
+    }
+
+    const revokedAt = new Date().toISOString();
+    const { data: revokedSessions, error: revokeError } = await admin
+      .from("device_sessions")
+      .update({ revoked_at: revokedAt, pending_until: null })
+      .eq("user_id", userId)
+      .is("revoked_at", null)
+      .select("id");
+    if (revokeError) {
+      console.error("[staff-session-logout] revoke failed:", revokeError.message);
+      return res.status(503).json({ error: "Could not revoke this user's active device sessions." });
+    }
+
+    const revokedCount = revokedSessions?.length || 0;
+    const { error: auditError } = await admin.from("audit_logs").insert({
+      actor_id: actor.user.id,
+      actor_role: actor.role,
+      action: "staff_remote_logout",
+      entity_type: "user",
+      entity_id: userId,
+      metadata: { revoked_session_count: revokedCount },
+    });
+    if (auditError) {
+      console.error("[staff-session-logout] audit record failed:", auditError.message);
+    }
+
+    res.json({ ok: true, revokedCount });
+  } catch (error) {
+    console.error("[staff-session-logout] request failed:", error?.message || String(error));
+    res.status(500).json({ error: "Could not sign out this user." });
+  }
+});
+
 app.post("/api/auth/support-logout/confirm", async (req, res) => {
   try {
     if (!adminOk()) return res.status(503).json({ error: "Support logout is unavailable on this server." });
