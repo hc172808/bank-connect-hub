@@ -11,6 +11,7 @@ import { Users, Briefcase, Shield, Settings, BarChart3, FileText, DollarSign, Wa
 import { loadAISettings, scoreTransactions, summarizeRisk } from "@/lib/aiSecurity";
 import { AdminFeeWalletWidget } from "@/components/AdminFeeWalletWidget";
 import { NotificationBell } from "@/components/NotificationBell";
+import { DashboardSwitcher } from "@/components/DashboardSwitcher";
 
 interface ChangelogEntry {
   id: string;
@@ -209,6 +210,7 @@ const AdminDashboard = () => {
             <p className="text-sm text-foreground/80">Welcome, {profile?.full_name || "Admin"}</p>
           </div>
           <div className="flex items-center gap-2">
+            <DashboardSwitcher />
             <NotificationBell />
             <Button
               onClick={handleLogout}
@@ -864,6 +866,7 @@ const AdminDashboard = () => {
           </CardContent>
         </Card>
       </main>
+      <DashboardSwitcher floating />
     </div>
   );
 };

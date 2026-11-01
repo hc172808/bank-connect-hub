@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import bankImage from "@/assets/neon-bank.jpg";
+import { DashboardSwitcher } from "@/components/DashboardSwitcher";
+import { Home, Wallet, CreditCard, Settings, HelpCircle, LogOut, ChevronRight, Landmark, Smartphone, ArrowRight } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { AnnouncementCarousel } from "@/components/AnnouncementCarousel";
 import { ReversalHoldBanner } from "@/components/ReversalHoldBanner";
@@ -312,378 +315,142 @@ const ClientDashboard = () => {
     );
   }, [featureToggles, userFeatureAccess]);
 
+  const money = (value: number) => `${wallet?.currency || "USD"} ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const balanceText = showBalance ? walletLoadError || !wallet ? "Unavailable" : money(Number(wallet.balance)) : "••••••";
+  const navItems = [
+    { icon: Home, label: "Dashboard", path: "/client" },
+    { icon: Wallet, label: "Accounts", path: "/multi-wallet" },
+    { icon: Send, label: "Send Money", path: "/send-money", accessKey: "client_menu_send_money" },
+    { icon: Receipt, label: "Pay Bills", path: "/pay-bills", feature: "pay_bills", accessKey: "client_menu_pay_bills" },
+    { icon: Smartphone, label: "Top-up", path: "/top-up", feature: "top_up", accessKey: "client_menu_top_up" },
+    { icon: CreditCard, label: "Cards", path: "/virtual-cards" },
+    { icon: Gift, label: "Rewards", path: "/rewards" },
+    { icon: Settings, label: "Settings", path: "/profile" },
+    { icon: HelpCircle, label: "Support", path: "/support" },
+  ].filter(item => (!item.feature || isFeatureEnabled(item.feature)) && (!item.accessKey || userFeatureAccess[item.accessKey] !== false));
+  const totalActivity = monthIn + monthOut;
+  const spendingShare = totalActivity > 0 ? monthOut / totalActivity : 0;
+
   return (
-    <div className="min-h-screen bg-primary/10">
-      {/* Header */}
-      <header className="bg-primary p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="grid grid-cols-2 gap-0.5">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="w-2 h-2 bg-foreground rounded-full" />
-            ))}
+    <div className="banking-dashboard min-h-screen">
+      <header className="flex min-h-24 items-center justify-between gap-3 border-b border-border px-4 py-4 lg:px-7">
+        <div className="flex min-w-0 items-center gap-3">
+          <Landmark className="banking-glow h-10 w-10 shrink-0 text-primary lg:h-12 lg:w-12" />
+          <div className="min-w-0">
+            <p className="text-xl font-bold sm:text-2xl">NetLife <span className="text-primary">Cash</span></p>
+            <p className="text-xs text-muted-foreground">Virtual Banking System</p>
           </div>
-          <span className="font-bold text-foreground">GYD</span>
         </div>
-        <div className="flex items-center gap-4">
+        <p className="hidden text-sm italic text-primary xl:block">Bank Smart. Live Better.</p>
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <DashboardSwitcher banking />
           <NotificationBell />
-          <button
-            onClick={() => navigate("/profile")}
-            className="w-10 h-10 bg-card rounded-full flex items-center justify-center"
-          >
-            <User size={20} />
-          </button>
+          <Button variant="ghost" className="h-11 gap-3 px-1 sm:px-2" onClick={() => navigate("/profile")} aria-label="Open profile">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full border border-primary/40 bg-secondary text-primary font-bold">{profile?.full_name?.charAt(0).toUpperCase() || <User size={20} />}</span>
+            <span className="hidden max-w-40 truncate text-left text-sm md:block">{profile?.full_name || "My account"}<span className="block text-xs font-normal text-muted-foreground">Personal banking</span></span>
+          </Button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="p-4 space-y-6 pb-32">
-        <ReversalHoldBanner />
-        <AnnouncementCarousel />
-        {/* Wallet Card */}
-        <div className="relative">
-          <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-card-stripe-1 via-card-stripe-2 to-card-stripe-3 blur-xl opacity-50" />
-          <div className="relative bg-primary rounded-3xl p-6 shadow-card">
-            <div className="flex items-start justify-between mb-2">
-              <div>
-                <p className="text-sm text-foreground/80 mb-1">
-                  Hi {profile?.full_name || "User"}
-                </p>
-                <p className="text-xs text-foreground/60">{getGreeting()}</p>
+      <div className="mx-auto grid max-w-[1600px] lg:grid-cols-[210px_minmax(0,1fr)]">
+        <aside className="hidden min-h-[calc(100vh-96px)] flex-col justify-between border-r border-border px-4 py-6 lg:flex">
+          <nav aria-label="Banking navigation" className="space-y-2">
+            {navItems.map(item => <Button key={item.path} onClick={() => navigate(item.path)} variant={item.path === "/client" ? "default" : "ghost"} className="h-11 w-full justify-start gap-3 text-sm"><item.icon size={19} />{item.label}</Button>)}
+            <Button variant="ghost" onClick={handleLogout} className="h-11 w-full justify-start gap-3"><LogOut size={19} />Logout</Button>
+          </nav>
+          <div className="mt-12 border-t border-border pt-5 text-center">
+            <ShieldCheck size={38} className="mx-auto mb-3 text-success" />
+            <p className="text-xs font-semibold">Account security</p>
+            <p className="mt-1 text-xs text-muted-foreground">Powered by GYDSchain</p>
+            <Button variant="link" className="mt-2 text-xs" onClick={() => navigate("/security")}>Security settings <ChevronRight size={12} /></Button>
+          </div>
+        </aside>
+
+        <main className="min-w-0 space-y-5 px-4 py-5 pb-44 sm:px-6 lg:pb-24 lg:pt-6">
+          <ReversalHoldBanner />
+          <AnnouncementCarousel />
+          <section className="relative isolate min-h-48 overflow-hidden sm:min-h-52" aria-label="Welcome">
+            <img src={bankImage} width={1536} height={640} alt="Illuminated cyan digital bank" className="absolute inset-0 -z-10 h-full w-full object-cover object-right" />
+            <div className="max-w-[65%] py-8 pl-2 sm:pl-6">
+              <p className="mb-2 text-xs font-semibold uppercase text-primary">{getGreeting()}</p>
+              <h1 className="text-2xl font-bold leading-tight sm:text-3xl">Welcome back, {profile?.full_name?.split(" ")[0] || "there"}!</h1>
+              <p className="mt-3 max-w-60 text-sm text-muted-foreground">Your money. Your possibilities.</p>
+            </div>
+          </section>
+
+          <section className="grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="Account totals">
+            <div className="banking-stat col-span-2 rounded-lg border border-border bg-card p-5 shadow-soft sm:col-span-1">
+              <div className="flex items-center justify-between gap-2 text-muted-foreground"><span className="flex items-center gap-2 text-xs"><Wallet size={18} className="text-primary" />Wallet balance</span><div className="flex"><Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Refresh wallet balance" onClick={handleRefresh} disabled={refreshing}><RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /></Button><Button variant="ghost" size="icon" className="h-7 w-7" aria-label={showBalance ? "Hide balance" : "Show balance"} onClick={() => setShowBalance(!showBalance)}>{showBalance ? <Eye size={15} /> : <EyeOff size={15} />}</Button></div></div>
+              <p className="mt-3 break-words text-2xl font-bold" data-testid="personal-wallet-balance">{balanceText}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Internal ledger</p>
+              {walletLoadError && <p className="mt-2 text-xs text-destructive" role="status">Could not load your balance.</p>}
+            </div>
+            <div className="banking-stat banking-stat-success rounded-lg border border-border bg-card p-5" data-testid="stat-month-in"><p className="flex items-center gap-2 text-xs text-muted-foreground"><ArrowDownToLine size={18} className="text-success" />Money received</p><p className="mt-5 break-words text-xl font-bold text-success">{showBalance ? money(monthIn) : "••••••"}</p><p className="mt-2 text-xs text-muted-foreground">{format(new Date(), "MMMM yyyy")}</p></div>
+            <div className="banking-stat banking-stat-destructive rounded-lg border border-border bg-card p-5" data-testid="stat-month-out"><p className="flex items-center gap-2 text-xs text-muted-foreground"><ArrowUpFromLine size={18} className="text-destructive" />Money sent</p><p className="mt-5 break-words text-xl font-bold">{showBalance ? money(monthOut) : "••••••"}</p><p className="mt-2 text-xs text-muted-foreground">{monthCount} transactions this month</p></div>
+            <div className="banking-stat banking-stat-warning rounded-lg border border-border bg-card p-5"><p className="flex items-center gap-2 text-xs text-muted-foreground"><CalendarClock size={18} className="text-warning" />Pending outgoing</p><p className="mt-5 break-words text-xl font-bold text-warning">{showBalance ? money(pendingOut) : "••••••"}</p><p className="mt-2 text-xs text-muted-foreground">{showBalance ? money(pendingIn) : "••••••"} incoming</p></div>
+          </section>
+
+          <section aria-label="Quick actions" className="grid grid-cols-4 gap-2 sm:gap-3">
+            {[
+              { icon: Send, label: "Send Money", path: "/send-money", access: "client_menu_send_money" },
+              { icon: ArrowDownToLine, label: "Receive", path: "/receive-money", access: "client_menu_receive_money" },
+              { icon: CreditCard, label: "Cards", path: "/virtual-cards", access: "" },
+              { icon: QrCode, label: "Scan & Pay", path: "/scan-to-pay", access: "client_menu_scan_to_pay" },
+            ].filter(item => !item.access || userFeatureAccess[item.access] !== false).map(item => <Button key={item.path} variant="outline" onClick={() => navigate(item.path)} className="h-24 min-w-0 flex-col gap-3 border-border bg-card px-1 text-xs hover:border-primary hover:bg-secondary"><item.icon size={26} className="banking-glow text-primary" /><span className="whitespace-normal text-center">{item.label}</span></Button>)}
+          </section>
+
+          <div className="grid gap-5 xl:grid-cols-[1fr_1fr_.85fr]">
+            <section className="min-w-0 border-t border-border pt-4">
+              <div className="mb-4 flex items-center justify-between"><h2 className="font-bold">Account overview</h2><Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => navigate("/multi-wallet")}>View all <ArrowRight size={13} /></Button></div>
+              <Button variant="ghost" className="mb-3 h-auto w-full justify-between gap-3 px-0 py-3" onClick={() => navigate("/transactions")}><span className="flex min-w-0 items-center gap-3"><Wallet className="text-primary" size={24} /><span className="text-left text-sm">Personal wallet<span className="block text-xs font-normal text-muted-foreground">{wallet?.currency || "—"} account</span></span></span><span className="break-words text-right text-sm">{balanceText}</span></Button>
+              <OnChainBalanceCard walletAddress={profile?.wallet_address || null} showBalance={showBalance} />
+            </section>
+            <section className="border-t border-border pt-4">
+              <div className="flex items-center justify-between gap-2"><h2 className="font-bold">Money overview</h2><span className="text-xs text-muted-foreground">{format(new Date(), "MMM yyyy")}</span></div>
+              <div className="mt-6 flex items-center justify-center gap-5">
+                <div className="relative h-32 w-32 shrink-0">
+                  <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90" aria-label="Monthly sent and received proportions"><circle cx="60" cy="60" r="48" fill="none" strokeWidth="13" className="banking-chart-track" />{totalActivity > 0 && <><circle cx="60" cy="60" r="48" fill="none" strokeWidth="13" className="banking-chart-income" /><circle cx="60" cy="60" r="48" fill="none" strokeWidth="13" strokeDasharray={`${spendingShare * 301.6} 301.6`} className="banking-chart-spending" /></>}</svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center"><span className="text-xl font-bold">{showBalance ? `${Math.round(spendingShare * 100)}%` : "•••"}</span><span className="text-xs text-muted-foreground">Sent</span></div>
+                </div>
+                <div className="space-y-4 text-xs"><p className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-primary" />Sent <strong>{showBalance ? `${Math.round(spendingShare * 100)}%` : "•••"}</strong></p><p className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-success" />Received <strong>{showBalance ? `${totalActivity ? Math.round((1 - spendingShare) * 100) : 0}%` : "•••"}</strong></p></div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleRefresh}
-                  className="text-foreground"
-                  disabled={refreshing}
-                >
-                  <RefreshCw size={20} className={refreshing ? 'animate-spin' : ''} />
-                </button>
-                <button
-                  onClick={() => setShowBalance(!showBalance)}
-                  className="text-foreground"
-                >
-                  {showBalance ? <Eye size={20} /> : <EyeOff size={20} />}
-                </button>
-              </div>
-            </div>
-            {/* Internal ledger balance — separate from the blockchain wallet */}
-            <div className="mt-4">
-              <h2 className="text-5xl font-bold text-foreground">
-                {showBalance
-                  ? walletLoadError || !wallet
-                    ? "Unavailable"
-                    : `${wallet?.currency || "USD"} ${Number(wallet?.balance ?? 0).toFixed(2)}`
-                  : "••••••"}
-              </h2>
-              <p className="text-sm text-foreground/70 mt-1">Internal ledger balance</p>
-              {walletLoadError && (
-                <p className="text-xs text-foreground/70 mt-1" role="status">
-                  Balance could not be loaded. Use refresh to try again.
-                </p>
-              )}
-              {(pendingOut > 0 || pendingIn > 0) && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {pendingOut > 0 && (
-                    <div className="flex items-center gap-1 bg-foreground/10 rounded-lg px-2 py-1">
-                      <ArrowUpRight size={12} className="text-orange-300" />
-                      <span className="text-xs text-foreground/70">-${pendingOut.toFixed(2)} pending</span>
-                    </div>
-                  )}
-                  {pendingIn > 0 && (
-                    <div className="flex items-center gap-1 bg-foreground/10 rounded-lg px-2 py-1">
-                      <ArrowDownLeft size={12} className="text-green-300" />
-                      <span className="text-xs text-foreground/70">+${pendingIn.toFixed(2)} incoming</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+              {totalActivity === 0 && <p className="mt-3 text-center text-xs text-muted-foreground">No completed activity this month.</p>}
+            </section>
+            <section className="flex flex-col items-start border-t border-border pt-4">
+              <PiggyBank size={35} className="mb-4 text-primary" /><h2 className="text-xl font-bold">Grow your savings</h2><p className="mt-2 text-sm text-muted-foreground">{savingsGoals.length ? `${savingsGoals.length} savings goals in progress` : "Every goal starts with a little."}</p>
+              {savingsGoals.slice(0, 2).map(goal => <div key={goal.id} className="mt-3 w-full"><p className="flex justify-between gap-2 text-xs"><span className="truncate">{goal.name}</span><span>{showBalance ? money(goal.saved) : "••••"}</span></p><progress className="mt-2 h-1 w-full accent-primary" value={goal.saved} max={goal.target || 1} /></div>)}
+              <Button className="mt-5 gap-2" onClick={() => navigate("/savings")}>My savings <ArrowRight size={16} /></Button>
+            </section>
           </div>
-        </div>
-        <OnChainBalanceCard
-          walletAddress={profile?.wallet_address || null}
-          showBalance={showBalance}
-        />
 
-        {/* This Month Stats */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="bg-card rounded-2xl p-3 shadow-soft" data-testid="stat-month-in">
-            <div className="flex items-center gap-1 text-[11px] text-muted-foreground mb-1">
-              <TrendingUp size={12} className="text-green-600" /> Income
-            </div>
-            <div className="text-base font-bold text-green-600">${monthIn.toFixed(2)}</div>
-            <div className="text-[10px] text-muted-foreground">{format(new Date(), "MMM yyyy")}</div>
+          <div className="grid gap-5 xl:grid-cols-[1.8fr_1fr]">
+            <section className="min-w-0 border-t border-border pt-4">
+              <div className="mb-3 flex items-center justify-between"><h2 className="font-bold">Recent transactions</h2><Button variant="link" className="h-auto p-0 text-xs" onClick={() => navigate("/transactions")}>View all <ArrowRight size={14} /></Button></div>
+              {recentTx.length === 0 ? <p className="py-8 text-sm text-muted-foreground">No transactions this month.</p> : <div className="divide-y divide-border">{recentTx.map(t => {
+                const outgoing = t.sender_id === userId;
+                return <Button key={t.id} variant="ghost" onClick={() => navigate("/transactions")} className="h-auto w-full justify-start gap-3 rounded-none px-0 py-3 text-left"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${outgoing ? "bg-primary/10 text-primary" : "bg-success/10 text-success"}`}>{outgoing ? <ArrowUpRight size={20} /> : <ArrowDownLeft size={20} />}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm">{t.description || (outgoing ? "Money sent" : "Money received")}</span><span className="block text-xs font-normal text-muted-foreground">{format(new Date(t.created_at), "MMM d, yyyy · HH:mm")} · {t.status}</span></span><span className={`shrink-0 text-xs font-bold sm:text-sm ${outgoing ? "text-destructive" : "text-success"}`}>{showBalance ? `${outgoing ? "−" : "+"}${Number(t.amount).toFixed(2)}` : "••••"}</span></Button>;
+              })}</div>}
+            </section>
+            <section className="border-t border-border pt-4">
+              <div className="flex items-center gap-4"><ShieldCheck className="h-12 w-12 shrink-0 text-success" /><div><h2 className="font-bold">Account security</h2><p className="mt-1 text-sm text-muted-foreground">Your personal account</p></div></div>
+              <Button variant="link" className="mt-4 px-0" onClick={() => navigate("/security")}>Review security <ChevronRight size={15} /></Button>
+              {scheduledPayments.length > 0 && <div className="mt-5 border-t border-border pt-4"><h3 className="text-sm font-semibold">Upcoming payments</h3>{scheduledPayments.map(payment => <Button key={payment.id} variant="ghost" onClick={() => navigate("/scheduled-payments")} className="h-auto w-full justify-between gap-2 px-0 py-3"><span className="min-w-0 text-left"><span className="block truncate text-xs">{payment.label}</span><span className="text-xs font-normal text-muted-foreground">{payment.nextDate}</span></span><span className="text-xs">{showBalance ? money(Number(payment.amount)) : "•••"}</span></Button>)}</div>}
+            </section>
           </div>
-          <div className="bg-card rounded-2xl p-3 shadow-soft" data-testid="stat-month-out">
-            <div className="flex items-center gap-1 text-[11px] text-muted-foreground mb-1">
-              <TrendingDown size={12} className="text-red-600" /> Spent
-            </div>
-            <div className="text-base font-bold text-red-600">${monthOut.toFixed(2)}</div>
-            <div className="text-[10px] text-muted-foreground">{monthCount} txs</div>
-          </div>
-          <div className="bg-card rounded-2xl p-3 shadow-soft" data-testid="stat-month-net">
-            <div className="flex items-center gap-1 text-[11px] text-muted-foreground mb-1">
-              <DollarSign size={12} /> Net
-            </div>
-            <div className={`text-base font-bold ${monthIn - monthOut >= 0 ? "text-green-600" : "text-red-600"}`}>
-              {monthIn - monthOut >= 0 ? "+" : "-"}${Math.abs(monthIn - monthOut).toFixed(2)}
-            </div>
-            <div className="text-[10px] text-muted-foreground">this month</div>
-          </div>
-        </div>
 
-        {/* Savings Goals widget */}
-        {savingsGoals.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-                <PiggyBank size={14} className="text-pink-500" /> Savings Goals
-              </h3>
-              <button onClick={() => navigate("/savings")} className="text-xs text-primary">Manage →</button>
-            </div>
-            <div className="space-y-2">
-              {savingsGoals.map(g => {
-                const pct = Math.min((g.saved / g.target) * 100, 100);
-                return (
-                  <div key={g.id} className="bg-card rounded-2xl p-3 shadow-soft">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-semibold truncate max-w-[180px]">{g.name}</span>
-                      <span className="text-xs text-muted-foreground">${g.saved.toFixed(0)} / ${g.target.toFixed(0)}</span>
-                    </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-pink-500 to-purple-500 rounded-full transition-all"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <div className="text-[10px] text-muted-foreground mt-1">{pct.toFixed(0)}% saved</div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Scheduled Payments reminder */}
-        {scheduledPayments.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-                <CalendarClock size={14} className="text-blue-500" /> Upcoming Payments
-              </h3>
-              <button onClick={() => navigate("/scheduled-payments")} className="text-xs text-primary">View all →</button>
-            </div>
-            <div className="bg-card rounded-2xl divide-y divide-border overflow-hidden shadow-soft">
-              {scheduledPayments.map(p => (
-                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-9 h-9 rounded-full bg-blue-500/15 text-blue-600 flex items-center justify-center shrink-0">
-                    <CalendarClock size={16} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{p.label}</div>
-                    <div className="text-[11px] text-muted-foreground">Next: {p.nextDate}</div>
-                  </div>
-                  <div className="text-sm font-bold text-foreground">${Number(p.amount).toFixed(2)}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Financial health mini-bar */}
-        {monthIn + monthOut > 0 && (
-          <div className="bg-card rounded-2xl p-3 shadow-soft">
-            <div className="flex items-center gap-2 mb-2">
-              <Target size={14} className="text-green-600" />
-              <span className="text-xs font-semibold text-foreground">Financial Health</span>
-              <span className="ml-auto text-xs font-bold text-green-600">
-                {monthIn > 0 ? Math.round(Math.min(((monthIn - monthOut) / monthIn) * 100, 100)) : 0}% saved
-              </span>
-            </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full"
-                style={{ width: `${monthIn > 0 ? Math.max(Math.min(((monthIn - monthOut) / monthIn) * 100, 100), 0) : 0}%` }}
-              />
-            </div>
-            <div className="text-[10px] text-muted-foreground mt-1">
-              Saved ${Math.max(monthIn - monthOut, 0).toFixed(2)} out of ${monthIn.toFixed(2)} earned this month
-            </div>
-          </div>
-        )}
-
-        {/* Frequent recipients */}
-        {topPayees.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-bold text-foreground">Pay again</h3>
-              <button
-                onClick={() => navigate("/send-money")}
-                className="text-xs text-primary"
-                data-testid="link-send-other"
-              >
-                Pay someone new →
-              </button>
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-              {topPayees.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => navigate("/send-money")}
-                  className="flex-shrink-0 flex flex-col items-center gap-1 w-16"
-                  data-testid={`payee-${p.id}`}
-                >
-                  <div className="w-12 h-12 rounded-full bg-primary/15 text-primary font-bold flex items-center justify-center">
-                    {p.name.charAt(0).toUpperCase()}
-                  </div>
-                  <span className="text-[11px] text-foreground truncate w-full text-center">
-                    {p.name.split(" ")[0]}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Recent activity */}
-        {recentTx.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-bold text-foreground">Recent activity</h3>
-              <button
-                onClick={() => navigate("/transactions")}
-                className="text-xs text-primary"
-                data-testid="link-all-tx"
-              >
-                See all →
-              </button>
-            </div>
-            <div className="bg-card rounded-2xl divide-y divide-border overflow-hidden shadow-soft">
-              {recentTx.map((t: any) => {
-                const out = t.sender_id === userId;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => navigate("/transactions")}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition text-left"
-                    data-testid={`recent-${t.id}`}
-                  >
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center ${out ? "bg-red-500/15 text-red-600" : "bg-green-500/15 text-green-600"}`}>
-                      {out ? <ArrowUpRight size={16} /> : <ArrowDownLeft size={16} />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">
-                        {t.description || (out ? "Sent" : "Received")}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">
-                        {format(new Date(t.created_at), "MMM d · HH:mm")}
-                      </div>
-                    </div>
-                    <div className={`text-sm font-bold ${out ? "text-red-600" : "text-green-600"}`}>
-                      {out ? "-" : "+"}${Number(t.amount).toFixed(2)}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Quick safety chip */}
-        <button
-          onClick={() => navigate("/profile")}
-          className="w-full bg-card border border-primary/20 rounded-2xl p-3 flex items-center gap-3 hover:bg-primary/5 transition text-left"
-          data-testid="link-security"
-        >
-          <div className="w-10 h-10 rounded-full bg-primary/15 text-primary flex items-center justify-center">
-            <ShieldCheck size={18} />
-          </div>
-          <div className="flex-1">
-            <div className="text-sm font-semibold">Account security</div>
-            <div className="text-[11px] text-muted-foreground">PIN, biometrics, WhatsApp verify, sign-out everywhere</div>
-          </div>
-          <span className="text-xs text-primary">Open →</span>
-        </button>
-
-        {/* Action Buttons */}
-        <div className="flex gap-3">
-          {userFeatureAccess.client_menu_send_money !== false && <Button
-            onClick={() => navigate("/send-money")}
-            className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
-          >
-            <DollarSign size={20} />
-            Pay
-          </Button>}
-          {userFeatureAccess.client_menu_add_money !== false && <Button
-            onClick={() => navigate("/add-money")}
-            className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
-            disabled={!isFeatureEnabled("internal_funds")}
-            title={!isFeatureEnabled("internal_funds") ? "Internal funds are disabled" : "Add money"}
-          >
-            <Plus size={20} />
-            Add
-          </Button>}
-          {userFeatureAccess.client_menu_receive_money !== false && <Button
-            onClick={() => navigate("/receive-money")}
-            className="flex-1 h-16 rounded-2xl bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
-          >
-            <ArrowDownToLine size={20} />
-            Receive
-          </Button>}
-        </div>
-
-        {/* Services Grid */}
-        <div>
-          <h3 className="text-xl font-bold text-foreground mb-4">Services</h3>
-          <div className="grid grid-cols-4 gap-4">
-            {services.map((service, index) => (
-              <button
-                key={index}
-                onClick={() => service.path && navigate(service.path)}
-                className="flex flex-col items-center gap-2 p-3 rounded-2xl hover:bg-muted/50 transition-colors"
-              >
-                <div className="w-14 h-14 bg-primary rounded-2xl flex items-center justify-center">
-                  <service.icon className="text-foreground" size={24} />
-                </div>
-                <span className="text-xs text-center text-foreground font-medium">
-                  {service.label}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </main>
-
-      {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-secondary border-t border-border">
-        <div className="flex items-center justify-around p-4">
-          <button onClick={() => navigate("/client")} className="text-primary">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 13h1v7c0 1.103.897 2 2 2h12c1.103 0 2-.897 2-2v-7h1a1 1 0 0 0 .707-1.707l-9-9a.999.999 0 0 0-1.414 0l-9 9A1 1 0 0 0 3 13z"/>
-            </svg>
-          </button>
-          {userFeatureAccess.client_menu_transactions !== false && <button onClick={() => navigate("/transactions")} className="text-muted-foreground">
-            <Receipt size={24} />
-          </button>}
-          {userFeatureAccess.client_menu_scan_to_pay !== false && <button
-            onClick={() => navigate("/scan-to-pay")}
-            className="w-16 h-16 -mt-8 bg-primary rounded-full flex items-center justify-center shadow-lg"
-          >
-            <QrCode size={28} className="text-foreground" />
-          </button>}
-          <button onClick={() => navigate("/feedback")} className="text-muted-foreground">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-          </button>
-          <button onClick={() => navigate("/menu")} className="text-muted-foreground">
-            <MoreHorizontal size={24} />
-          </button>
-        </div>
-        <div className="text-center text-xs text-primary pb-2">
-          Scan to Pay
+          {topPayees.length > 0 && <section className="border-t border-border pt-4"><h2 className="mb-4 font-bold">Pay again</h2><div className="flex flex-wrap gap-3">{topPayees.map(payee => <Button key={payee.id} variant="outline" onClick={() => navigate("/send-money")} className="gap-2"><User size={15} />{payee.name}</Button>)}</div></section>}
+          <section className="border-t border-border pt-4"><h2 className="mb-4 font-bold">Services</h2><div className="grid grid-cols-3 gap-3 sm:grid-cols-5">{services.map(service => <Button key={service.path} variant="ghost" onClick={() => navigate(service.path)} className="h-20 min-w-0 flex-col gap-2 px-1 text-xs"><service.icon size={22} className="text-primary" /><span className="whitespace-normal text-center">{service.label}</span></Button>)}</div></section>
+        </main>
+      </div>
+      <nav aria-label="Mobile banking navigation" className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background pb-[env(safe-area-inset-bottom)] lg:hidden">
+        <div className="mx-auto grid max-w-lg grid-cols-5 items-center px-1 py-2">
+          {[
+            { icon: Home, label: "Home", path: "/client" },
+            { icon: Wallet, label: "Accounts", path: "/multi-wallet" },
+            { icon: QrCode, label: "Scan & Pay", path: "/scan-to-pay", access: "client_menu_scan_to_pay" },
+            { icon: Gift, label: "Rewards", path: "/rewards" },
+            { icon: Settings, label: "Settings", path: "/profile" },
+          ].map(item => <Button key={item.path} variant="ghost" disabled={Boolean(item.access && userFeatureAccess[item.access] === false)} onClick={() => navigate(item.path)} className={`h-16 flex-col gap-1 px-0 text-[10px] ${item.path === "/client" ? "text-primary" : "text-muted-foreground"}`}><span className={item.path === "/scan-to-pay" ? "banking-glow -mt-6 flex h-12 w-12 items-center justify-center rounded-full border-2 border-primary bg-secondary text-primary" : ""}><item.icon size={23} /></span>{item.label}</Button>)}
         </div>
       </nav>
     </div>
