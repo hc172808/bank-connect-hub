@@ -12,6 +12,7 @@ import {
   AlertCircle, CheckCircle2, MessageSquare, ShieldCheck,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
+import { DashboardSwitcher } from "@/components/DashboardSwitcher";
 import { requestNotificationPermission, subscribeToTransactionNotifications, subscribeToChatNotifications } from "@/lib/pushNotifications";
 import { format, startOfDay, startOfMonth, subDays } from "date-fns";
 
@@ -285,6 +286,7 @@ const AgentDashboard = () => {
             <p className="text-sm text-primary-foreground/80">Welcome, {profile?.full_name || "Agent"}</p>
           </div>
           <div className="flex items-center gap-2">
+            <DashboardSwitcher />
             <NotificationBell />
             <Button onClick={handleLogout} size="sm" variant="secondary" className="rounded-xl gap-1">
               <LogOut size={14} /> Logout
@@ -530,6 +532,7 @@ const AgentDashboard = () => {
         </Card>
 
       </main>
+      <DashboardSwitcher floating />
     </div>
   );
 };

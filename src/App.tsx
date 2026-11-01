@@ -20,6 +20,8 @@ import { DeviceLoginApprovalPrompt } from "./components/DeviceLoginApprovalPromp
 import { MobileBrowserVerifyDialog } from "./components/MobileBrowserVerifyDialog";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RoleGuard } from "./components/RoleGuard";
+import { DashboardSwitcher } from "./components/DashboardSwitcher";
+import { canUseBankingView } from "./lib/dashboardViews";
 import { IncidentBanner } from "./components/IncidentBanner";
 import { toast as sonnerToast } from "sonner";
 import { buildSnapshot, snapshotToText } from "@/lib/bootDiagnostics";
@@ -479,6 +481,7 @@ const ClientFeatureRouteGuard = ({ children }: { children: React.ReactNode }) =>
 
 const AppRoutes = () => {
   const { user, role, loading } = useAuth();
+  const location = useLocation();
   useAutoPushSubscribe(user?.id);
   const { locked, unlock } = useAppLock();
   const navigate = useNavigate();
@@ -517,9 +520,9 @@ const AppRoutes = () => {
     );
   }
 
-  if (role === "client") {
+  if (canUseBankingView(role, location.pathname)) {
     return (
-      <RoleGuard allow={["client"]}>
+      <RoleGuard allow={["client", "admin", "founder", "agent"]}>
       <ClientFeatureRouteGuard>
       <Routes>
         <Route path="/client" element={<ClientDashboard />} />
@@ -589,6 +592,7 @@ const AppRoutes = () => {
         <Route path="/index" element={<Navigate to="/client" replace />} />
         <Route path="*" element={<Navigate to="/client" replace />} />
       </Routes>
+      <DashboardSwitcher banking floating />
       </ClientFeatureRouteGuard>
       </RoleGuard>
     );
