@@ -24,7 +24,6 @@ interface Reversal {
   approved_by: string | null;
   funds_held_at: string | null;
   funds_returned_at: string | null;
-  reversal_transaction_id: string | null;
 }
 
 interface UserProfile {
@@ -68,10 +67,10 @@ const ManageReversals = () => {
       .order("created_at", { ascending: false });
 
     if (data && data.length > 0) {
-      setReversals(data as Reversal[]);
+      setReversals(data);
 
       // Collect unique user IDs
-      const userIds = [...new Set(data.flatMap((r: Reversal) => [r.requester_id, r.recipient_id]))];
+      const userIds = [...new Set(data.flatMap((r) => [r.requester_id, r.recipient_id]))];
       const { data: profileData } = await supabase
         .from("profiles")
         .select("id, full_name, phone_number")
