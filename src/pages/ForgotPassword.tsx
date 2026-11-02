@@ -441,7 +441,7 @@ export default function ForgotPassword() {
       {biometricAvailable && (
         <Button variant="ghost"
           onClick={() => setStep("passkey")}
-          className="w-full flex items-start gap-4 rounded-xl border-2 border-primary/40 bg-primary/5 hover:border-primary/70 hover:bg-primary/10 p-4 text-left transition-all group"
+          className="h-auto min-h-24 whitespace-normal w-full justify-start flex items-start gap-4 rounded-lg border border-primary/40 bg-primary/5 hover:border-primary/70 hover:bg-primary/10 p-4 text-left transition-all group"
         >
           <div className="w-10 h-10 rounded-lg bg-primary/15 flex items-center justify-center shrink-0 group-hover:bg-primary/20">
             <Fingerprint className="w-5 h-5 text-primary" />
@@ -463,7 +463,7 @@ export default function ForgotPassword() {
       {/* Email option */}
       <Button variant="ghost"
         onClick={() => setStep("email_form")}
-        className="w-full flex items-start gap-4 rounded-xl border-2 border-muted hover:border-primary/60 hover:bg-primary/5 p-4 text-left transition-all group"
+        className="h-auto min-h-24 whitespace-normal w-full justify-start flex items-start gap-4 rounded-lg border border-muted hover:border-primary/60 hover:bg-primary/5 p-4 text-left transition-all group"
       >
         <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/15">
           <Mail className="w-5 h-5 text-primary" />
@@ -480,7 +480,7 @@ export default function ForgotPassword() {
       <Button variant="ghost"
         onClick={() => setStep("phone_form")}
         disabled={smsAvailable === false}
-        className="w-full flex items-start gap-4 rounded-xl border-2 border-muted hover:border-primary/60 hover:bg-primary/5 p-4 text-left transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+        className="h-auto min-h-24 whitespace-normal w-full justify-start flex items-start gap-4 rounded-lg border border-muted hover:border-primary/60 hover:bg-primary/5 p-4 text-left transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/15">
           <Phone className="w-5 h-5 text-primary" />
