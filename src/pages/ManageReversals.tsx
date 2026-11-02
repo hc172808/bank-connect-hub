@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { callReversalRpc } from "@/lib/reversalRpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -123,8 +124,8 @@ const ManageReversals = () => {
   const handleReject = async (rev: Reversal) => {
     setLoading(rev.id);
     try {
-      const { data, error } = await supabase.rpc("reject_fund_reversal", {
-        _reversal_id: rev.id,
+      const { data, error } = await callReversalRpc({
+        name: "reject_fund_reversal", args: { _reversal_id: rev.id },
       });
       if (error) throw error;
       const result = data as { success?: boolean; error?: string } | null;

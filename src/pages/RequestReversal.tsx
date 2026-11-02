@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { callReversalRpc } from "@/lib/reversalRpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -59,9 +60,9 @@ const RequestReversal = () => {
         return;
       }
 
-      const { data, error } = await supabase.rpc("request_fund_reversal", {
-        _transaction_id: selectedTx.id,
-        _reason: reason.trim() || null,
+      const { data, error } = await callReversalRpc({
+        name: "request_fund_reversal",
+        args: { _transaction_id: selectedTx.id, _reason: reason.trim() || null },
       });
       if (error) throw error;
       const result = data as { success?: boolean; error?: string } | null;
