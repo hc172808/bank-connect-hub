@@ -15,33 +15,63 @@ import {
   getBiometricAuthData,
   hasStoredBiometric,
 } from "@/lib/biometricAuth";
-import { getDeviceInfo, PENDING_LOGIN_APPROVAL_KEY } from "@/hooks/useDeviceSession";
+import {
+  getDeviceInfo,
+  PENDING_LOGIN_APPROVAL_KEY,
+  PENDING_LOGIN_SECURITY_KEY,
+} from "@/hooks/useDeviceSession";
 import { BankingAuthLayout } from "@/components/BankingAuthLayout";
 
 type AuthMode = "signin" | "signup";
 type AccountType = "client" | "vendor";
-type LoginStep = "credentials" | "otp" | "approval";
+type LoginStep = "credentials" | "otp" | "security" | "security_setup" | "approval";
+type PendingSecurityChallenge = { challengeId: string; question?: string; setupRequired?: boolean };
 
 const phoneToEmail = (e164: string) => `${e164.replace("+", "")}@vbank.com`;
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
+const readPendingSecurityChallenge = (): PendingSecurityChallenge | null => {
+  try {
+    const stored = sessionStorage.getItem(PENDING_LOGIN_SECURITY_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as Partial<PendingSecurityChallenge>;
+    return typeof parsed.challengeId === "string" && parsed.challengeId
+      ? { challengeId: parsed.challengeId, question: parsed.question, setupRequired: parsed.setupRequired }
+      : null;
+  } catch {
+    sessionStorage.removeItem(PENDING_LOGIN_SECURITY_KEY);
+    return null;
+  }
+};
 
 const Auth = () => {
+  const [initialSecurityChallenge] = useState(readPendingSecurityChallenge);
   const [mode, setMode] = useState<AuthMode>("signin");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [securityQuestion, setSecurityQuestion] = useState("");
+  const [securityAnswer, setSecurityAnswer] = useState("");
   const [accountType, setAccountType] = useState<AccountType>("client");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [completeSignupAfterLogin, setCompleteSignupAfterLogin] = useState(false);
   const [approvalToken, setApprovalToken] = useState<string | null>(
     () => sessionStorage.getItem(PENDING_LOGIN_APPROVAL_KEY),
   );
   const [loginStep, setLoginStep] = useState<LoginStep>(
-    () => sessionStorage.getItem(PENDING_LOGIN_APPROVAL_KEY) ? "approval" : "credentials",
+    () => sessionStorage.getItem(PENDING_LOGIN_APPROVAL_KEY)
+      ? "approval"
+      : initialSecurityChallenge
+        ? initialSecurityChallenge.setupRequired ? "security_setup" : "security"
+        : "credentials",
   );
   const [loginChallenge, setLoginChallenge] = useState("");
   const [loginOtp, setLoginOtp] = useState("");
   const [loginMaskedPhone, setLoginMaskedPhone] = useState("");
+  const [securityChallenge, setSecurityChallenge] = useState(initialSecurityChallenge?.challengeId || "");
+  const [securityChallengeQuestion, setSecurityChallengeQuestion] = useState(initialSecurityChallenge?.question || "");
+  const [securityAnswerInput, setSecurityAnswerInput] = useState("");
+  const [securitySetupQuestion, setSecuritySetupQuestion] = useState("");
   const [supportWhatsapp, setSupportWhatsapp] = useState("");
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const approvalPollInFlight = useRef(false);
@@ -64,10 +94,72 @@ const Auth = () => {
     setApprovalToken(token);
     setLoginStep("approval");
     setLoginOtp("");
+    sessionStorage.removeItem(PENDING_LOGIN_SECURITY_KEY);
     toast({
       title: "Approval requested",
       description: "Allow this sign-in on a device where you are already signed in. The request expires in 5 minutes.",
     });
+  };
+
+  const setPendingSecurityQuestion = (result: {
+    challengeId: string;
+    question?: string;
+    securityQuestionRequired?: boolean;
+    securityQuestionSetupRequired?: boolean;
+  }) => {
+    setSecurityChallenge(result.challengeId);
+    setSecurityChallengeQuestion(result.question || "");
+    setSecurityAnswerInput("");
+    setSecuritySetupQuestion("");
+    setLoginStep(result.securityQuestionSetupRequired ? "security_setup" : "security");
+  };
+
+  const acceptLoginResult = async (result: {
+    securityQuestionRequired?: boolean;
+    securityQuestionSetupRequired?: boolean;
+    challengeId?: string;
+    question?: string;
+    approvalRequired?: boolean;
+    requestToken?: string;
+    session?: { access_token: string; refresh_token: string };
+  }) => {
+    if ((result.securityQuestionRequired || result.securityQuestionSetupRequired) && result.challengeId) {
+      setPendingSecurityQuestion(result as {
+        challengeId: string;
+        question?: string;
+        securityQuestionRequired?: boolean;
+        securityQuestionSetupRequired?: boolean;
+      });
+      return;
+    }
+    if (result.approvalRequired && result.requestToken) {
+      setPendingApproval(result.requestToken);
+      return;
+    }
+    if (!result.session) throw new Error("The login verification did not return a session.");
+    const { error } = await supabase.auth.setSession({
+      access_token: result.session.access_token,
+      refresh_token: result.session.refresh_token,
+    });
+    if (error) throw error;
+    sessionStorage.removeItem(PENDING_LOGIN_SECURITY_KEY);
+    setSecurityChallenge("");
+    setSecurityChallengeQuestion("");
+    setSecurityAnswerInput("");
+    setLoginStep("credentials");
+    if (completeSignupAfterLogin) {
+      setCompleteSignupAfterLogin(false);
+      const whatsappSettings = await fetchWhatsAppSettings();
+      if (whatsappSettings.enabled) {
+        toast({ title: "Account created!", description: "Your account is ready. Complete WhatsApp verification next." });
+        navigate("/verify-whatsapp?new=1");
+      } else {
+        toast({ title: "Account created!", description: "WhatsApp verification is turned off. Your account is ready to use." });
+        navigate("/", { replace: true });
+      }
+      return;
+    }
+    toast({ title: "Welcome back!", description: "Your login was verified." });
   };
 
   const cancelDeviceApproval = async () => {
@@ -158,6 +250,10 @@ const Auth = () => {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || "Could not send the WhatsApp code.");
+    if (result.securityQuestionRequired || result.securityQuestionSetupRequired) {
+      setPendingSecurityQuestion(result);
+      return;
+    }
     if (result.approvalRequired && result.requestToken) {
       setPendingApproval(result.requestToken);
       return;
@@ -194,22 +290,55 @@ const Auth = () => {
         body: JSON.stringify({ challengeId: loginChallenge, code: loginOtp.trim() }),
       });
       const result = await response.json().catch(() => ({}));
-      if (result.approvalRequired && result.requestToken) {
-        setPendingApproval(result.requestToken);
-        return;
-      }
-      if (!response.ok || !result.session) throw new Error(result.error || "The verification code is invalid.");
-      const { error } = await supabase.auth.setSession({
-        access_token: result.session.access_token,
-        refresh_token: result.session.refresh_token,
-      });
-      if (error) throw error;
-      toast({ title: "Welcome back!", description: "Your login was verified." });
+      if (!response.ok) throw new Error(result.error || "The verification code is invalid.");
+      await acceptLoginResult(result);
     } catch (error: unknown) {
       toast({ variant: "destructive", title: "Verification failed", description: errorMessage(error) });
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleVerifySecurityQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (securityAnswerInput.trim().length < 10) {
+      toast({ variant: "destructive", title: "Enter your answer phrase", description: "Use at least 10 characters." });
+      return;
+    }
+    setLoading(true);
+    try {
+      await initSupabase();
+      const response = await fetch(
+        loginStep === "security_setup"
+          ? "/api/auth/setup-login-security-question"
+          : "/api/auth/verify-login-security-question",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            challengeId: securityChallenge,
+            answer: securityAnswerInput,
+            ...(loginStep === "security_setup" ? { question: securitySetupQuestion } : {}),
+          }),
+        },
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "The security answer could not be verified.");
+      await acceptLoginResult(result);
+    } catch (error: unknown) {
+      toast({ variant: "destructive", title: "Security check failed", description: errorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelSecurityChallenge = () => {
+    sessionStorage.removeItem(PENDING_LOGIN_SECURITY_KEY);
+    setSecurityChallenge("");
+    setSecurityChallengeQuestion("");
+    setSecurityAnswerInput("");
+    setSecuritySetupQuestion("");
+    setLoginStep("credentials");
   };
 
   const handleBiometricLogin = async (type: "fingerprint" | "face") => {
@@ -251,7 +380,7 @@ const Auth = () => {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (mode === "signin" && loginStep === "approval") return;
+    if (mode === "signin" && loginStep !== "credentials") return;
     setLoading(true);
 
     try {
@@ -266,9 +395,8 @@ const Auth = () => {
           setLoading(false);
           return;
         }
-        // Duplicate checking is a helpful server-side guard, but registration
-        // must not depend on the optional service-role key. Supabase Auth still
-        // enforces the unique login email when signUp() runs below.
+        // Duplicate checking is a helpful server-side guard; registration still
+        // enforces uniqueness through Supabase Auth.
         try {
           const availability = await fetch(`/api/auth/phone-availability?phone=${encodeURIComponent(phoneNumber)}`);
           const availabilityResult = await availability.json().catch(() => ({}));
@@ -294,6 +422,8 @@ const Auth = () => {
               phone_number: phoneNumber,
               account_type: accountType,
             },
+            securityQuestion,
+            securityAnswer,
           }),
         });
         const registrationResult = await registration.json().catch(() => ({}));
@@ -301,36 +431,20 @@ const Auth = () => {
           throw new Error(registrationResult.error || "Your account could not be created.");
         }
 
-        // The server creates and confirms the internal phone email. Sign in
-        // through the normal client so the browser receives its session.
-        const { error: loginError } = await supabase.auth.signInWithPassword({
-          email: phoneToEmail(phoneNumber),
-          password,
+        setCompleteSignupAfterLogin(true);
+        setMode("signin");
+        const loginResponse = await fetch("/api/auth/request-device-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone: phoneNumber, password, device: getDeviceInfo() }),
         });
-        if (loginError) throw loginError;
-
-        const whatsappSettings = await fetchWhatsAppSettings();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          if (whatsappSettings.enabled) {
-            toast({
-              title: "Account created!",
-              description: "Your account is ready. Complete WhatsApp verification next.",
-            });
-            navigate("/verify-whatsapp?new=1");
-          } else {
-            toast({
-              title: "Account created!",
-              description: "WhatsApp verification is turned off. Your account is ready to use.",
-            });
-            navigate("/", { replace: true });
-          }
-        } else {
-          toast({
-            title: "Sign in to continue",
-            description: "After confirming your account, sign in and open WhatsApp Verification from your Profile.",
-          });
+        const loginResult = await loginResponse.json().catch(() => ({}));
+        if (loginResult.code === "WHATSAPP_VERIFICATION_REQUIRED") {
+          await requestLoginOtp(phoneNumber, password);
+          return;
         }
+        if (!loginResponse.ok) throw new Error(loginResult.error || "Your account was created, but sign-in could not be completed.");
+        await acceptLoginResult(loginResult);
       } else {
         if (!phoneNumber) {
           toast({ variant: "destructive", title: "Invalid phone", description: "Please enter a valid phone number." });
@@ -350,19 +464,10 @@ const Auth = () => {
             await requestLoginOtp(phoneNumber, password);
             return;
           }
-          if (result.approvalRequired && result.requestToken) {
-            setPendingApproval(result.requestToken);
-            return;
-          }
-          if (!response.ok || !result.session) {
+          if (!response.ok) {
             throw new Error(result.error || "Invalid phone number or password.");
           }
-          const { error } = await supabase.auth.setSession({
-            access_token: result.session.access_token,
-            refresh_token: result.session.refresh_token,
-          });
-          if (error) throw error;
-          toast({ title: "Welcome back!", description: "Signed in on this device." });
+          await acceptLoginResult(result);
         } else {
           await requestLoginOtp(phoneNumber, password);
         }
@@ -384,19 +489,34 @@ const Auth = () => {
               </div>
               <h1 className="text-3xl font-bold text-foreground mb-2">
                 {mode === "signin"
-                  ? loginStep === "approval" ? "Approve this sign-in" : "Welcome back"
+                  ? loginStep === "approval"
+                    ? "Approve this sign-in"
+                    : loginStep === "security" || loginStep === "security_setup"
+                      ? "Verify this device"
+                      : "Welcome back"
                   : "Create your account"}
               </h1>
               <p className="text-muted-foreground">
                 {mode === "signin" && loginStep === "approval"
                   ? "Your account stays signed out here until you approve it on your other device."
+                  : mode === "signin" && (loginStep === "security" || loginStep === "security_setup")
+                    ? "Answer your security question to continue on this device."
                   : mode === "signin"
                     ? "Sign in to your NETLIFE CASH account."
                     : "Create your account to get started."}
               </p>
             </div>
 
-            <form onSubmit={mode === "signin" && loginStep === "otp" ? handleVerifyLoginOtp : handleAuth} className="space-y-5">
+            <form
+              onSubmit={
+                mode === "signin" && loginStep === "otp"
+                  ? handleVerifyLoginOtp
+                  : mode === "signin" && (loginStep === "security" || loginStep === "security_setup")
+                    ? handleVerifySecurityQuestion
+                    : handleAuth
+              }
+              className="space-y-5"
+            >
               {mode === "signin" && loginStep === "approval" ? (
                 <div className="space-y-5">
                   <div className="rounded-2xl bg-primary/10 p-5 text-center">
@@ -451,6 +571,73 @@ const Auth = () => {
                     </Button>
                   </div>
                 </div>
+              ) : mode === "signin" && (loginStep === "security" || loginStep === "security_setup") ? (
+                <div className="space-y-5">
+                  <div className="rounded-2xl bg-primary/10 p-5">
+                    <ShieldCheck className="mb-3 h-10 w-10 text-primary" />
+                    <h2 className="font-semibold text-lg">New device security check</h2>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      {loginStep === "security_setup"
+                        ? "Set a question and private answer phrase to finish setting up your account security."
+                        : securityChallengeQuestion}
+                    </p>
+                  </div>
+                  {loginStep === "security_setup" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="security-setup-question">Your security question</Label>
+                      <Input
+                        id="security-setup-question"
+                        value={securitySetupQuestion}
+                        onChange={(event) => setSecuritySetupQuestion(event.target.value)}
+                        placeholder="Write a question only you can answer"
+                        minLength={6}
+                        maxLength={160}
+                        required
+                        data-testid="input-security-setup-question"
+                      />
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="security-login-answer">Your answer phrase</Label>
+                    <Input
+                      id="security-login-answer"
+                      type="password"
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      value={securityAnswerInput}
+                      onChange={(event) => setSecurityAnswerInput(event.target.value)}
+                      placeholder="At least 10 characters"
+                      minLength={10}
+                      maxLength={200}
+                      required
+                      data-testid="input-security-login-answer"
+                    />
+                    {loginStep === "security_setup" && (
+                      <p className="text-xs text-muted-foreground">
+                        Choose a unique phrase others cannot guess. Your answer is stored as a one-way hash.
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={loading || securityAnswerInput.trim().length < 10 || (loginStep === "security_setup" && securitySetupQuestion.trim().length < 6)}
+                    className="w-full h-14 rounded-xl font-semibold"
+                    data-testid="button-submit-security-answer"
+                  >
+                    {loading ? "Verifying…" : loginStep === "security_setup" ? "Save and sign in" : "Verify and sign in"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="w-full"
+                    onClick={cancelSecurityChallenge}
+                    disabled={loading}
+                    data-testid="button-cancel-security-check"
+                  >
+                    Use different details
+                  </Button>
+                </div>
               ) : (
                 <>
               {mode === "signup" && (
@@ -495,6 +682,39 @@ const Auth = () => {
                       required
                       className="h-14 rounded-xl"
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="security-question">Security question</Label>
+                    <Input
+                      id="security-question"
+                      value={securityQuestion}
+                      onChange={(event) => setSecurityQuestion(event.target.value)}
+                      placeholder="Write a question only you can answer"
+                      minLength={6}
+                      maxLength={160}
+                      required
+                      data-testid="input-registration-security-question"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="security-answer">Private answer phrase</Label>
+                    <Input
+                      id="security-answer"
+                      type="password"
+                      autoComplete="new-password"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      value={securityAnswer}
+                      onChange={(event) => setSecurityAnswer(event.target.value)}
+                      placeholder="Use at least 10 characters"
+                      minLength={10}
+                      maxLength={200}
+                      required
+                      data-testid="input-registration-security-answer"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Use a unique phrase that other people cannot guess. You can change both in Security settings.
+                    </p>
                   </div>
                 </>
               )}
@@ -591,7 +811,7 @@ const Auth = () => {
               )}
             </form>
 
-            {!(mode === "signin" && loginStep === "approval") && (
+            {(mode !== "signin" || loginStep === "credentials") && (
               <div className="mt-8 text-center space-y-3">
                 <p className="text-muted-foreground text-sm">
                   {mode === "signin" ? "Don't have an account?" : "Already have an account?"}

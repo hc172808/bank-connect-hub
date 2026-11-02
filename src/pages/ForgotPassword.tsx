@@ -2,7 +2,11 @@ import { BankingAuthLayout } from "@/components/BankingAuthLayout";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase, initSupabase } from "@/integrations/supabase/client";
-import { getDeviceInfo, PENDING_LOGIN_APPROVAL_KEY } from "@/hooks/useDeviceSession";
+import {
+  getDeviceInfo,
+  PENDING_LOGIN_APPROVAL_KEY,
+  PENDING_LOGIN_SECURITY_KEY,
+} from "@/hooks/useDeviceSession";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +29,8 @@ type Step =
   | "email_sent"
   | "phone_form"
   | "otp"
+  | "security_phone"
+  | "security_recovery"
   | "passkey"
   | "passkey_reset"
   | "done";
@@ -103,6 +109,9 @@ export default function ForgotPassword() {
   const [otp, setOtp]                         = useState("");
   const [newPassword, setNewPassword]         = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [securityChallengeId, setSecurityChallengeId] = useState("");
+  const [securityQuestion, setSecurityQuestion] = useState("");
+  const [securityRecoveryAnswer, setSecurityRecoveryAnswer] = useState("");
   const [showPass, setShowPass]               = useState(false);
   const [phoneLoading, setPhoneLoading]       = useState(false);
   const [resendCooldown, setResendCooldown]   = useState(0);
@@ -223,6 +232,75 @@ export default function ForgotPassword() {
     }
   };
 
+  const startSecurityQuestionRecovery = async () => {
+    if (!rawPhone) {
+      toast({ title: "Enter your mobile number", variant: "destructive" });
+      return;
+    }
+    setPhoneLoading(true);
+    try {
+      const response = await fetch("/api/auth/security-question/recovery/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: rawPhone, countryCode }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Security-question recovery could not start.");
+      setSecurityChallengeId(result.challengeId);
+      setSecurityQuestion(result.question || "");
+      setSecurityRecoveryAnswer("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setStep("security_recovery");
+    } catch (error: unknown) {
+      toast({
+        title: "Could not start recovery",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "destructive",
+      });
+    } finally {
+      setPhoneLoading(false);
+    }
+  };
+
+  const verifySecurityQuestionRecovery = async () => {
+    if (securityRecoveryAnswer.trim().length < 10) {
+      toast({ title: "Enter your answer phrase", variant: "destructive" });
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast({ title: "Password too short", description: "Use at least 8 characters.", variant: "destructive" });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({ title: "Passwords don't match", variant: "destructive" });
+      return;
+    }
+    setPhoneLoading(true);
+    try {
+      const response = await fetch("/api/auth/security-question/recovery/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          challengeId: securityChallengeId,
+          answer: securityRecoveryAnswer,
+          newPassword,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "The answer could not be verified.");
+      setStep("done");
+    } catch (error: unknown) {
+      toast({
+        title: "Recovery failed",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "destructive",
+      });
+    } finally {
+      setPhoneLoading(false);
+    }
+  };
+
   // ── Passkey / biometric recovery ──────────────────────────────────────────
   const doPasskeyVerify = async () => {
     setPasskeyLoading(true);
@@ -288,6 +366,19 @@ export default function ForgotPassword() {
         navigate("/auth");
         return;
       }
+        if ((loginResult.securityQuestionRequired || loginResult.securityQuestionSetupRequired) && loginResult.challengeId) {
+          sessionStorage.setItem(PENDING_LOGIN_SECURITY_KEY, JSON.stringify({
+            challengeId: loginResult.challengeId,
+            question: loginResult.question || "",
+            setupRequired: Boolean(loginResult.securityQuestionSetupRequired),
+          }));
+          toast({
+            title: "Security check required",
+            description: "Answer your security question to finish signing in.",
+          });
+          navigate("/auth");
+          return;
+        }
 
       if (autoSignedIn) {
         // Signed in — redirect home and suggest changing password
@@ -499,6 +590,23 @@ export default function ForgotPassword() {
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             Get a 6-digit code sent to your mobile number
+          </p>
+        </div>
+      </Button>
+
+      <Button
+        variant="ghost"
+        onClick={() => setStep("security_phone")}
+        className="h-auto min-h-24 whitespace-normal w-full justify-start flex items-start gap-4 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 p-4 text-left transition-all"
+        data-testid="button-recover-security-question"
+      >
+        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+          <ShieldCheck className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <p className="font-semibold text-sm">Via Security Question</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Answer your private phrase and choose a new password
           </p>
         </div>
       </Button>
@@ -796,6 +904,128 @@ export default function ForgotPassword() {
     </div>
   );
 
+  const renderSecurityPhoneForm = () => (
+    <div className="space-y-5">
+      <MobilePWABanner />
+      <p className="text-sm text-muted-foreground">
+        Enter the phone number on your account. You will need your saved answer phrase to continue.
+      </p>
+      <div className="space-y-2">
+        <Label className="flex items-center gap-2">
+          <Phone className="w-4 h-4" /> Mobile Number
+        </Label>
+        <div className="flex gap-2">
+          <select
+            className="h-10 rounded-md border bg-background px-2 text-sm shrink-0"
+            value={countryCode}
+            onChange={(event) => setCountryCode(event.target.value)}
+            data-testid="select-security-recovery-country"
+          >
+            {COUNTRY_CODES.map((country) => (
+              <option key={country.code} value={country.code}>{country.label}</option>
+            ))}
+          </select>
+          <Input
+            type="tel"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            placeholder="e.g. 6001234"
+            className="flex-1"
+            autoFocus
+            data-testid="input-security-recovery-phone"
+          />
+        </div>
+      </div>
+      <Button
+        className="w-full gap-2"
+        onClick={startSecurityQuestionRecovery}
+        disabled={phoneLoading || !rawPhone}
+        data-testid="button-start-security-recovery"
+      >
+        {phoneLoading
+          ? <><Loader2 className="w-4 h-4 animate-spin" /> Checking…</>
+          : <><ShieldCheck className="w-4 h-4" /> Continue</>}
+      </Button>
+      <Button variant="outline" className="w-full gap-2" onClick={() => setStep("phone_form")}>
+        <Phone className="w-4 h-4" /> Use Phone Code Instead
+      </Button>
+      <Button variant="ghost" className="w-full" onClick={() => setStep("choose")}>
+        Back to recovery options
+      </Button>
+    </div>
+  );
+
+  const renderSecurityRecovery = () => (
+    <div className="space-y-5">
+      <div className="rounded-lg bg-primary/10 border border-primary/30 p-3 flex gap-3">
+        <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+        <div>
+          <p className="font-medium text-sm">Answer your security question</p>
+          <p className="text-sm text-muted-foreground mt-1" data-testid="text-security-recovery-question">
+            {securityQuestion}
+          </p>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="security-recovery-answer">Private answer phrase</Label>
+        <Input
+          id="security-recovery-answer"
+          type="password"
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          value={securityRecoveryAnswer}
+          onChange={(event) => setSecurityRecoveryAnswer(event.target.value)}
+          placeholder="Enter your answer phrase"
+          minLength={10}
+          maxLength={200}
+          data-testid="input-security-recovery-answer"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="security-recovery-new-password">New Password</Label>
+        <Input
+          id="security-recovery-new-password"
+          type={showPass ? "text" : "password"}
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          placeholder="At least 8 characters"
+          minLength={8}
+          maxLength={128}
+          data-testid="input-security-recovery-new-password"
+        />
+        <StrengthBar password={newPassword} />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="security-recovery-confirm-password">Confirm New Password</Label>
+        <Input
+          id="security-recovery-confirm-password"
+          type={showPass ? "text" : "password"}
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          placeholder="Re-enter your new password"
+        />
+      </div>
+      <Button
+        className="w-full gap-2"
+        onClick={verifySecurityQuestionRecovery}
+        disabled={phoneLoading || securityRecoveryAnswer.trim().length < 10 || newPassword.length < 8 || newPassword !== confirmPassword}
+        data-testid="button-submit-security-recovery"
+      >
+        {phoneLoading
+          ? <><Loader2 className="w-4 h-4 animate-spin" /> Resetting…</>
+          : <><KeyRound className="w-4 h-4" /> Reset Password</>}
+      </Button>
+      <Button
+        variant="ghost"
+        className="w-full"
+        onClick={() => { setStep("security_phone"); setSecurityRecoveryAnswer(""); }}
+      >
+        Use another phone number
+      </Button>
+    </div>
+  );
+
   // ── STEP: OTP + new password ──────────────────────────────────────────────
   const renderOtp = () => (
     <div className="space-y-5">
@@ -914,6 +1144,8 @@ export default function ForgotPassword() {
     if (step === "email_form" || step === "phone_form" || step === "passkey") setStep("choose");
     else if (step === "email_sent")    setStep("email_form");
     else if (step === "otp")           setStep("phone_form");
+    else if (step === "security_phone") setStep("choose");
+    else if (step === "security_recovery") setStep("security_phone");
     else if (step === "passkey_reset") setStep("passkey");
     else navigate("/auth");
   };
@@ -928,7 +1160,9 @@ export default function ForgotPassword() {
     email_sent:    { title: "Email Sent",       desc: "Open the link in your email to continue",   progress: 3, icon: <Mail className="w-5 h-5 text-primary" /> },
     phone_form:    { title: "Reset via SMS",    desc: "We'll text a code to your mobile number",   progress: 2, icon: <Phone className="w-5 h-5 text-primary" /> },
     otp:           { title: "Enter Reset Code", desc: "Enter the code and set your new password",  progress: 3, icon: <ShieldCheck className="w-5 h-5 text-primary" /> },
-    done:          { title: "Password Reset",   desc: "Your account is secured",                   progress: 3, icon: <CheckCircle2 className="w-5 h-5 text-success" /> },
+    security_phone: { title: "Security Question", desc: "Find your recovery question", progress: 2, icon: <ShieldCheck className="w-5 h-5 text-primary" /> },
+    security_recovery: { title: "Verify Answer", desc: "Answer and set a new password", progress: 3, icon: <KeyRound className="w-5 h-5 text-primary" /> },
+    done:          { title: "Password Reset",  desc: "Your account is secured",                   progress: 3, icon: <CheckCircle2 className="w-5 h-5 text-success" /> },
   };
   const { title, desc, progress, icon } = stepMeta[step];
 
@@ -972,6 +1206,8 @@ export default function ForgotPassword() {
             {step === "email_sent"    && renderEmailSent()}
             {step === "phone_form"    && renderPhoneForm()}
             {step === "otp"           && renderOtp()}
+            {step === "security_phone" && renderSecurityPhoneForm()}
+            {step === "security_recovery" && renderSecurityRecovery()}
             {step === "done"          && renderDone()}
           </CardContent>
         </Card>

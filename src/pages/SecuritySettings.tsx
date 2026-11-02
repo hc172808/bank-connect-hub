@@ -157,24 +157,17 @@ const SecuritySettings = () => {
   const [userEmail, setUserEmail] = useState("");
   const [deviceLoginApprovalEnabled, setDeviceLoginApprovalEnabled] = useState(false);
   const [deviceApprovalSaving, setDeviceApprovalSaving] = useState(false);
+  const [securityQuestion, setSecurityQuestion] = useState("");
+  const [securityQuestionConfigured, setSecurityQuestionConfigured] = useState(false);
+  const [securityQuestionLoading, setSecurityQuestionLoading] = useState(true);
+  const [securityQuestionSaving, setSecurityQuestionSaving] = useState(false);
+  const [securityQuestionDraft, setSecurityQuestionDraft] = useState("");
+  const [securityAnswerDraft, setSecurityAnswerDraft] = useState("");
+  const [securityCurrentPassword, setSecurityCurrentPassword] = useState("");
   const [revokingOthers, setRevokingOthers] = useState(false);
   const [accountLocked, setAccountLocked] = useState(false);
   const [lockLoading, setLockLoading] = useState(false);
   const [recentAlerts, setRecentAlerts] = useState<{ action: string; created_at: string; ip?: string }[]>([]);
-
-  useEffect(() => {
-    void load();
-  }, []);
-
-  useEffect(() => {
-    const refresh = () => void refreshSessions();
-    const interval = window.setInterval(refresh, 30_000);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("focus", refresh);
-    };
-  }, []);
 
   const emergencyLock = async () => {
     if (!confirm("EMERGENCY LOCK: This will immediately sign you out of ALL devices and sessions. No transactions will be possible until you contact support. Continue?")) return;
@@ -205,7 +198,6 @@ const SecuritySettings = () => {
   };
 
   async function load() {
-    setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setLoading(false);
@@ -241,6 +233,61 @@ const SecuritySettings = () => {
 
     setLoading(false);
   }
+
+  async function loadSecurityQuestion() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const response = await fetch("/api/auth/security-question", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Could not load your security question.");
+      setSecurityQuestionConfigured(Boolean(result.configured));
+      setSecurityQuestion(result.question || "");
+      setSecurityQuestionDraft(result.question || "");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load your security question.");
+    } finally {
+      setSecurityQuestionLoading(false);
+    }
+  }
+
+  const saveSecurityQuestion = async () => {
+    if (securityQuestionDraft.trim().length < 6 || securityAnswerDraft.trim().length < 10 || !securityCurrentPassword) {
+      toast.error("Enter a question, an answer phrase of at least 10 characters, and your current password.");
+      return;
+    }
+    setSecurityQuestionSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Your sign-in session has expired.");
+      const response = await fetch("/api/auth/security-question", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          question: securityQuestionDraft,
+          answer: securityAnswerDraft,
+          currentPassword: securityCurrentPassword,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Could not save your security question.");
+      setSecurityQuestionConfigured(true);
+      setSecurityQuestion(result.question || securityQuestionDraft.trim());
+      setSecurityQuestionDraft(result.question || securityQuestionDraft.trim());
+      setSecurityAnswerDraft("");
+      setSecurityCurrentPassword("");
+      toast.success("Security question updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save your security question.");
+    } finally {
+      setSecurityQuestionSaving(false);
+    }
+  };
 
   async function refreshSessions(userId?: string) {
     const resolvedUserId = userId || (await supabase.auth.getUser()).data.user?.id;
@@ -408,6 +455,26 @@ const SecuritySettings = () => {
     }
   };
 
+  // These are one-time page-load and refresh subscriptions; the loaders read
+  // current Supabase state when they run.
+  useEffect(() => {
+    const startup = window.setTimeout(() => {
+      void load();
+      void loadSecurityQuestion();
+    }, 0);
+    return () => window.clearTimeout(startup);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const refresh = () => void refreshSessions();
+    const interval = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-background pb-20">
       <header className="bg-primary text-primary-foreground p-4 flex items-center gap-3">
@@ -456,6 +523,84 @@ const SecuritySettings = () => {
               <Button variant="destructive" onClick={disable2FA}>
                 <ShieldOff className="h-4 w-4 mr-2" /> Disable 2FA
               </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5" />
+              Security Question
+              {securityQuestionConfigured && <Badge>Set</Badge>}
+            </CardTitle>
+            <CardDescription>
+              Use a private answer phrase to verify new devices and recover your password.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {securityQuestionLoading ? (
+              <p className="text-sm text-muted-foreground">Loading security question…</p>
+            ) : (
+              <>
+                {securityQuestionConfigured && (
+                  <div className="rounded-md bg-muted p-3">
+                    <p className="text-xs text-muted-foreground mb-1">Current question</p>
+                    <p className="text-sm" data-testid="text-current-security-question">{securityQuestion}</p>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="security-question-setting">Security question</Label>
+                  <Input
+                    id="security-question-setting"
+                    value={securityQuestionDraft}
+                    onChange={(event) => setSecurityQuestionDraft(event.target.value)}
+                    placeholder="Write a question only you can answer"
+                    minLength={6}
+                    maxLength={160}
+                    data-testid="input-security-question-setting"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="security-answer-setting">New private answer phrase</Label>
+                  <Input
+                    id="security-answer-setting"
+                    type="password"
+                    autoComplete="new-password"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    value={securityAnswerDraft}
+                    onChange={(event) => setSecurityAnswerDraft(event.target.value)}
+                    placeholder="At least 10 characters"
+                    minLength={10}
+                    maxLength={200}
+                    data-testid="input-security-answer-setting"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter a new answer to change it. The app never shows your saved answer.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="security-current-password">Current password</Label>
+                  <Input
+                    id="security-current-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={securityCurrentPassword}
+                    onChange={(event) => setSecurityCurrentPassword(event.target.value)}
+                    placeholder="Confirm your current password"
+                    data-testid="input-security-current-password"
+                  />
+                </div>
+                <Button
+                  className="w-full"
+                  onClick={() => void saveSecurityQuestion()}
+                  disabled={securityQuestionSaving || securityQuestionDraft.trim().length < 6 || securityAnswerDraft.trim().length < 10 || !securityCurrentPassword}
+                  data-testid="button-save-security-question"
+                >
+                  {securityQuestionSaving ? "Saving…" : securityQuestionConfigured ? "Update Security Question" : "Set Security Question"}
+                </Button>
+              </>
             )}
           </CardContent>
         </Card>

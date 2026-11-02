@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,23 +15,19 @@ type AccountType = 'client' | 'vendor';
 
 export default function Register() {
   const [fullName, setFullName] = useState('');
+  const [searchParams] = useSearchParams();
   const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [referralCode, setReferralCode] = useState('');
+  const [securityQuestion, setSecurityQuestion] = useState('');
+  const [securityAnswer, setSecurityAnswer] = useState('');
+  const [referralCode, setReferralCode] = useState(() => searchParams.get('ref')?.toUpperCase() || '');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [accountType, setAccountType] = useState<AccountType>('client');
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [searchParams] = useSearchParams();
-
-  useEffect(() => {
-    const ref = searchParams.get('ref');
-    if (ref) setReferralCode(ref.toUpperCase());
-  }, [searchParams]);
-
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -47,6 +43,14 @@ export default function Register() {
 
     if (password.length < 6) {
       toast({ variant: "destructive", title: "Weak password", description: "Password must be at least 6 characters" });
+      return;
+    }
+    if (securityQuestion.trim().length < 6 || securityAnswer.trim().length < 10) {
+      toast({
+        variant: "destructive",
+        title: "Security question required",
+        description: "Enter a question and an answer phrase of at least 10 characters.",
+      });
       return;
     }
 
@@ -69,6 +73,8 @@ export default function Register() {
             phone_number: phoneNumber,
             account_type: accountType,
           },
+          securityQuestion,
+          securityAnswer,
         }),
       });
 
@@ -86,8 +92,12 @@ export default function Register() {
           : "Check your email to confirm your account, then sign in.",
       });
       navigate('/auth');
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Registration failed", description: error.message });
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Registration failed",
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setLoading(false);
     }
@@ -170,6 +180,40 @@ export default function Register() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="john@example.com"
               />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Security Question</label>
+              <Input
+                type="text"
+                value={securityQuestion}
+                onChange={(e) => setSecurityQuestion(e.target.value)}
+                placeholder="Write a question only you can answer"
+                minLength={6}
+                maxLength={160}
+                required
+                data-testid="input-registration-security-question"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Private Answer Phrase</label>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={securityAnswer}
+                onChange={(e) => setSecurityAnswer(e.target.value)}
+                placeholder="Use at least 10 characters"
+                minLength={10}
+                maxLength={200}
+                required
+                data-testid="input-registration-security-answer"
+              />
+              <p className="text-xs text-muted-foreground">
+                Choose a unique phrase others cannot guess. You can update both in Security settings.
+              </p>
             </div>
 
             <div className="space-y-2">

@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 const DEVICE_ID_KEY = "vbank_device_id";
 export const PENDING_LOGIN_APPROVAL_KEY = "vbank_pending_login_approval";
+export const PENDING_LOGIN_SECURITY_KEY = "vbank_pending_login_security";
 
 const DEVICE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

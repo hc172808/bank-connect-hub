@@ -1891,6 +1891,24 @@ function phoneEmailCandidates(value) {
   ].filter((email) => !email.startsWith("@")))];
 }
 
+async function findAuthUserByPhone(admin, phone) {
+  const candidateEmails = new Set(phoneEmailCandidates(phone).map((email) => email.toLowerCase()));
+  const normalizedPhone = normalizePhoneDigits(phone);
+  const perPage = 1000;
+  for (let page = 1; page <= 100; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    if (error) throw error;
+    const users = data?.users || [];
+    const found = users.find((user) =>
+      candidateEmails.has(String(user.email || "").toLowerCase()) ||
+      (normalizedPhone && normalizePhoneDigits(user.user_metadata?.phone_number) === normalizedPhone)
+    );
+    if (found) return found;
+    if (users.length < perPage) return null;
+  }
+  return null;
+}
+
 function phoneToE164(value) {
   const digits = normalizePhoneDigits(value);
   return digits ? `+${digits}` : "";
@@ -1902,6 +1920,70 @@ function normalizeDocumentNumber(value) {
 
 function hashOtp(otp) {
   return crypto.createHash("sha256").update(otp).digest("hex");
+}
+
+function normalizeSecurityQuestion(value) {
+  return String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ");
+}
+
+function normalizeSecurityAnswer(value) {
+  return String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+}
+
+function validateSecurityQuestionInput(question, answer) {
+  const normalizedQuestion = normalizeSecurityQuestion(question);
+  const normalizedAnswer = normalizeSecurityAnswer(answer);
+  if (normalizedQuestion.length < 6 || normalizedQuestion.length > 160) {
+    throw deviceRouteError(400, "Your security question must be between 6 and 160 characters.", "INVALID_SECURITY_QUESTION");
+  }
+  if (normalizedAnswer.length < 10 || normalizedAnswer.length > 200) {
+    throw deviceRouteError(400, "Your answer phrase must be between 10 and 200 characters.", "INVALID_SECURITY_ANSWER");
+  }
+  return { question: normalizedQuestion, answer: normalizedAnswer };
+}
+
+async function hashSecurityAnswer(answer, salt = crypto.randomBytes(16).toString("hex")) {
+  const key = await new Promise((resolve, reject) => {
+    crypto.scrypt(
+      normalizeSecurityAnswer(answer),
+      salt,
+      64,
+      { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 },
+      (error, result) => error ? reject(error) : resolve(result),
+    );
+  });
+  return { salt, hash: key.toString("hex") };
+}
+
+async function verifySecurityAnswer(answer, salt, expectedHash) {
+  if (!salt || !/^[a-f0-9]{128}$/i.test(String(expectedHash || ""))) return false;
+  const actual = await hashSecurityAnswer(answer, salt);
+  const expectedBuffer = Buffer.from(expectedHash, "hex");
+  const actualBuffer = Buffer.from(actual.hash, "hex");
+  return expectedBuffer.length === actualBuffer.length &&
+    crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+async function getStoredSecurityQuestion(admin, userId) {
+  const { data, error } = await admin.from("user_security_questions")
+    .select("question,answer_salt,answer_hash")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function saveStoredSecurityQuestion(admin, userId, question, answer) {
+  const normalized = validateSecurityQuestionInput(question, answer);
+  const hashed = await hashSecurityAnswer(normalized.answer);
+  const { error } = await admin.from("user_security_questions").upsert({
+    user_id: userId,
+    question: normalized.question,
+    answer_salt: hashed.salt,
+    answer_hash: hashed.hash,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "user_id" });
+  if (error) throw error;
 }
 
 function generateOtp() {
@@ -1923,9 +2005,59 @@ app.get("/api/auth/reset-status", (_req, res) => {
 const loginOtpStore = new Map();
 const loginApprovalStore = new Map();
 const deviceLoginLocks = new Map();
+const loginSecurityQuestionStore = new Map();
+const securityQuestionRecoveryStore = new Map();
+const securityQuestionAttemptStore = new Map();
+const securityQuestionRecoveryRequestStore = new Map();
 const DEVICE_LOGIN_TTL_MS = 5 * 60 * 1000;
+const SECURITY_QUESTION_WINDOW_MS = 15 * 60 * 1000;
 const DEVICE_SESSION_STALE_MS = 30 * 24 * 60 * 60 * 1000;
 const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function checkSecurityAttemptLimit(_req, userId) {
+  const now = Date.now();
+  const keys = [{ key: `user:${userId}`, limit: 8 }];
+  if (securityQuestionAttemptStore.size > 1000) {
+    for (const [key, entry] of securityQuestionAttemptStore) {
+      if (entry.resetAt <= now) securityQuestionAttemptStore.delete(key);
+    }
+  }
+  for (const { key } of keys) {
+    const entry = securityQuestionAttemptStore.get(key);
+    if (entry && entry.resetAt <= now) securityQuestionAttemptStore.delete(key);
+  }
+  for (const { key, limit } of keys) {
+    const entry = securityQuestionAttemptStore.get(key);
+    if ((entry?.count || 0) >= limit) return false;
+  }
+  for (const { key } of keys) {
+    const entry = securityQuestionAttemptStore.get(key);
+    securityQuestionAttemptStore.set(key, entry && entry.resetAt > now
+      ? { count: entry.count + 1, resetAt: entry.resetAt }
+      : { count: 1, resetAt: now + SECURITY_QUESTION_WINDOW_MS });
+  }
+  return true;
+}
+
+function checkRecoveryRequestLimit(_req, normalizedPhone) {
+  const now = Date.now();
+  if (securityQuestionRecoveryRequestStore.size > 1000) {
+    for (const [key, entry] of securityQuestionRecoveryRequestStore) {
+      if (entry.resetAt <= now) securityQuestionRecoveryRequestStore.delete(key);
+    }
+  }
+  const key = `phone:${crypto.createHash("sha256").update(normalizedPhone).digest("hex")}`;
+  let entry = securityQuestionRecoveryRequestStore.get(key);
+  if (entry && entry.resetAt <= now) {
+    securityQuestionRecoveryRequestStore.delete(key);
+    entry = undefined;
+  }
+  if ((entry?.count || 0) >= 5) return false;
+  securityQuestionRecoveryRequestStore.set(key, entry && entry.resetAt > now
+    ? { count: entry.count + 1, resetAt: entry.resetAt }
+    : { count: 1, resetAt: now + SECURITY_QUESTION_WINDOW_MS });
+  return true;
+}
 
 function deviceRouteError(status, message, code = "DEVICE_LOGIN_ERROR") {
   const error = new Error(message);
@@ -1940,6 +2072,13 @@ function isMissingDeviceSchema(error) {
   return ["42P01", "42703", "PGRST204", "PGRST205"].includes(code) ||
     (/(device_sessions|device_login_approvals)/i.test(message) &&
       /(does not exist|not found|could not find|schema cache)/i.test(message));
+}
+
+function isMissingSecurityQuestionSchema(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return ["42P01", "PGRST204", "PGRST205"].includes(code) &&
+    /user_security_questions/i.test(message);
 }
 
 function isMissingAppSettingsSchema(error) {
@@ -2242,9 +2381,108 @@ async function prepareDeviceLogin(session, user, device) {
   }
 }
 
+function createLoginSecurityQuestionChallenge(session, user, device, questionRecord) {
+  const now = Date.now();
+  for (const [id, entry] of loginSecurityQuestionStore) {
+    if (entry.expiresAt <= now) loginSecurityQuestionStore.delete(id);
+  }
+  const challengeId = crypto.randomBytes(32).toString("base64url");
+  loginSecurityQuestionStore.set(challengeId, {
+    session,
+    user,
+    device,
+    question: questionRecord?.question || null,
+    setupRequired: !questionRecord,
+    attempts: 0,
+    expiresAt: now + DEVICE_LOGIN_TTL_MS,
+  });
+  return questionRecord
+    ? {
+        securityQuestionRequired: true,
+        challengeId,
+        question: questionRecord.question,
+        expiresIn: DEVICE_LOGIN_TTL_MS / 1000,
+      }
+    : {
+        securityQuestionSetupRequired: true,
+        challengeId,
+        expiresIn: DEVICE_LOGIN_TTL_MS / 1000,
+      };
+}
+
+async function beginDeviceLogin(session, user, device) {
+  if (!adminOk()) {
+    throw deviceRouteError(
+      503,
+      "New-device security is not configured on the server. Contact an administrator.",
+      "SECURITY_QUESTION_UNAVAILABLE",
+    );
+  }
+  const admin = await getSupabaseAdminClient();
+  let activeRows = [];
+  try {
+    activeRows = await getActiveDeviceRows(admin, user.id);
+  } catch (error) {
+    if (!isMissingDeviceSchema(error)) throw error;
+  }
+  const sameDevice = activeRows.some((row) => row.device_id === device.deviceId);
+  if (sameDevice) return prepareDeviceLogin(session, user, device);
+
+  const questionRecord = await getStoredSecurityQuestion(admin, user.id);
+  if (!questionRecord && activeRows.length > 0) {
+    throw deviceRouteError(
+      403,
+      "Set up your security question on a device where you are already signed in before adding this device. If you no longer have access, contact support.",
+      "SECURITY_QUESTION_SETUP_REQUIRED",
+    );
+  }
+  return createLoginSecurityQuestionChallenge(session, user, device, questionRecord);
+}
+
+async function completeLoginSecurityQuestion(req, res) {
+  res.set("Cache-Control", "no-store");
+  const challengeId = String(req.body?.challengeId || "");
+  const entry = loginSecurityQuestionStore.get(challengeId);
+  if (!entry) return res.status(400).json({ error: "This security check expired. Sign in again." });
+  if (Date.now() > entry.expiresAt) {
+    loginSecurityQuestionStore.delete(challengeId);
+    return res.status(400).json({ error: "This security check expired. Sign in again." });
+  }
+  if (!checkSecurityAttemptLimit(req, entry.user.id)) {
+    loginSecurityQuestionStore.delete(challengeId);
+    return res.status(429).json({ error: "Too many answer attempts. Wait 15 minutes and sign in again." });
+  }
+  entry.attempts += 1;
+  if (entry.attempts > 5) {
+    loginSecurityQuestionStore.delete(challengeId);
+    return res.status(429).json({ error: "Too many attempts. Sign in again to start a new security check." });
+  }
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    if (entry.setupRequired) {
+      const values = validateSecurityQuestionInput(req.body?.question, req.body?.answer);
+      await saveStoredSecurityQuestion(admin, entry.user.id, values.question, values.answer);
+    } else {
+      const record = await getStoredSecurityQuestion(admin, entry.user.id);
+      if (!record || !(await verifySecurityAnswer(req.body?.answer, record.answer_salt, record.answer_hash))) {
+        return res.status(400).json({ error: "That answer does not match. Try again." });
+      }
+    }
+
+    loginSecurityQuestionStore.delete(challengeId);
+    securityQuestionAttemptStore.delete(`user:${entry.user.id}`);
+    const result = await prepareDeviceLogin(entry.session, entry.user, entry.device);
+    return res.status(result.approvalRequired ? 202 : 200).json(result);
+  } catch (error) {
+    return sendDeviceLoginError(res, error, "Unable to complete the security check.");
+  }
+}
+
 function sendDeviceLoginError(res, error, fallbackMessage = "Unable to verify this device login.") {
   res.set("Cache-Control", "no-store");
-  const status = Number(error?.status) || (isMissingDeviceSchema(error) ? 503 : 500);
+  const missingSecurityQuestion = isMissingSecurityQuestionSchema(error);
+  const status = Number(error?.status) || (isMissingDeviceSchema(error) || missingSecurityQuestion ? 503 : 500);
   if (!error?.status) {
     const code = String(error?.code || "UNKNOWN").slice(0, 40);
     const message = String(error?.message || "Unknown device login failure")
@@ -2255,7 +2493,9 @@ function sendDeviceLoginError(res, error, fallbackMessage = "Unable to verify th
     console.error(`[device-login] Internal failure (${code}): ${message}`);
   }
   const message = error?.status ? error.message :
-    isMissingDeviceSchema(error)
+    missingSecurityQuestion
+      ? "Security questions are not configured yet. Apply the user security question migration before using new-device login."
+      : isMissingDeviceSchema(error)
       ? "Two-device approval is not configured yet. Apply the device login approval migration before signing in on another device."
       : fallbackMessage;
   res.status(status).json({ error: message, code: error?.code || "DEVICE_LOGIN_ERROR" });
@@ -2316,10 +2556,50 @@ app.post("/api/auth/request-device-login", async (req, res) => {
       lastError = result.error;
     }
     if (!authData) return res.status(401).json({ error: lastError?.message || "Invalid phone number or password." });
-    const result = await prepareDeviceLogin(authData.session, authData.user, device);
+    const result = await beginDeviceLogin(authData.session, authData.user, device);
     res.status(result.approvalRequired ? 202 : 200).json(result);
   } catch (error) {
     sendDeviceLoginError(res, error, "Unable to sign in. Check your credentials and try again.");
+  }
+});
+
+app.post("/api/auth/verify-login-security-question", completeLoginSecurityQuestion);
+app.post("/api/auth/setup-login-security-question", completeLoginSecurityQuestion);
+
+app.get("/api/auth/security-question", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "Security settings are not configured on the server." });
+  try {
+    const admin = await getSupabaseAdminClient();
+    const { user } = await getDeviceActor(req, admin);
+    const record = await getStoredSecurityQuestion(admin, user.id);
+    res.json({ configured: Boolean(record), question: record?.question || null });
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to load your security question.");
+  }
+});
+
+app.post("/api/auth/security-question", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "Security settings are not configured on the server." });
+  try {
+    const admin = await getSupabaseAdminClient();
+    const { user } = await getDeviceActor(req, admin);
+    const currentPassword = String(req.body?.currentPassword || "");
+    if (!currentPassword) return res.status(400).json({ error: "Enter your current password to change your security question." });
+    const values = validateSecurityQuestionInput(req.body?.question, req.body?.answer);
+    const { createClient } = await import("@supabase/supabase-js");
+    const authClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      realtime: { transport: WebSocket },
+    });
+    const { error: passwordError } = await authClient.auth.signInWithPassword({
+      email: user.email,
+      password: currentPassword,
+    });
+    if (passwordError) return res.status(403).json({ error: "Your current password is incorrect." });
+    await saveStoredSecurityQuestion(admin, user.id, values.question, values.answer);
+    res.json({ ok: true, configured: true, question: values.question });
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to save your security question.");
   }
 });
 
@@ -2890,7 +3170,7 @@ app.post("/api/auth/request-login-otp", async (req, res) => {
     }
 
     if (!requireWhatsAppCode) {
-      const result = await prepareDeviceLogin(authData.session, authData.user, device);
+      const result = await beginDeviceLogin(authData.session, authData.user, device);
       return res.status(result.approvalRequired ? 202 : 200).json({ ok: true, ...result });
     }
 
@@ -2951,7 +3231,7 @@ app.post("/api/auth/verify-login-otp", async (req, res) => {
 
   loginOtpStore.delete(challengeId);
   try {
-    const result = await prepareDeviceLogin(entry.session, entry.user, entry.device);
+    const result = await beginDeviceLogin(entry.session, entry.user, entry.device);
     res.status(result.approvalRequired ? 202 : 200).json(result);
   } catch (error) {
     sendDeviceLoginError(res, error, "Unable to finish login verification.");
@@ -3053,6 +3333,90 @@ app.post("/api/auth/verify-reset", async (req, res) => {
   } catch (err) {
     console.error("[reset] admin reset error:", err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/security-question/recovery/start", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (!adminOk()) return res.status(503).json({ error: "Recovery is not fully configured. Contact support." });
+  const { phone, countryCode = "" } = req.body || {};
+  const normalizedPhone = normalizePhoneDigits(`${countryCode}${phone || ""}`);
+  if (normalizedPhone.length < 7 || normalizedPhone.length > 15) {
+    return res.status(400).json({ error: "Enter a valid phone number." });
+  }
+  if (!checkRecoveryRequestLimit(req, normalizedPhone)) {
+    return res.status(429).json({ error: "Too many recovery requests. Wait 15 minutes before trying again." });
+  }
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const user = await findAuthUserByPhone(admin, `${countryCode}${phone}`);
+    if (!user) {
+      return res.status(404).json({ error: "Security question recovery is not available for this account. Use another recovery option." });
+    }
+    const record = await getStoredSecurityQuestion(admin, user.id);
+    if (!record) {
+      return res.status(404).json({ error: "Security question recovery is not available for this account. Use another recovery option." });
+    }
+
+    const now = Date.now();
+    for (const [id, entry] of securityQuestionRecoveryStore) {
+      if (entry.expiresAt <= now) securityQuestionRecoveryStore.delete(id);
+    }
+    const challengeId = crypto.randomBytes(32).toString("base64url");
+    securityQuestionRecoveryStore.set(challengeId, {
+      userId: user.id,
+      expiresAt: now + DEVICE_LOGIN_TTL_MS,
+      attempts: 0,
+    });
+    res.json({
+      ok: true,
+      challengeId,
+      question: record.question,
+      expiresIn: DEVICE_LOGIN_TTL_MS / 1000,
+    });
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to start password recovery.");
+  }
+});
+
+app.post("/api/auth/security-question/recovery/verify", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const challengeId = String(req.body?.challengeId || "");
+  const answer = String(req.body?.answer || "");
+  const newPassword = String(req.body?.newPassword || "");
+  const entry = securityQuestionRecoveryStore.get(challengeId);
+  if (!entry) return res.status(400).json({ error: "This recovery check expired. Start again." });
+  if (Date.now() > entry.expiresAt) {
+    securityQuestionRecoveryStore.delete(challengeId);
+    return res.status(400).json({ error: "This recovery check expired. Start again." });
+  }
+  if (newPassword.length < 8 || newPassword.length > 128) {
+    return res.status(400).json({ error: "Your new password must be between 8 and 128 characters." });
+  }
+  if (!checkSecurityAttemptLimit(req, entry.userId)) {
+    securityQuestionRecoveryStore.delete(challengeId);
+    return res.status(429).json({ error: "Too many answer attempts. Wait 15 minutes before trying again." });
+  }
+  entry.attempts += 1;
+  if (entry.attempts > 5) {
+    securityQuestionRecoveryStore.delete(challengeId);
+    return res.status(429).json({ error: "Too many attempts. Start recovery again later." });
+  }
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const record = await getStoredSecurityQuestion(admin, entry.userId);
+    if (!record || !(await verifySecurityAnswer(answer, record.answer_salt, record.answer_hash))) {
+      return res.status(400).json({ error: "That answer does not match. Try again." });
+    }
+    const { error } = await admin.auth.admin.updateUserById(entry.userId, { password: newPassword });
+    if (error) throw error;
+    securityQuestionRecoveryStore.delete(challengeId);
+    securityQuestionAttemptStore.delete(`user:${entry.userId}`);
+    res.json({ ok: true });
+  } catch (error) {
+    sendDeviceLoginError(res, error, "Unable to reset your password.");
   }
 });
 
@@ -3334,12 +3698,15 @@ app.post("/api/auth/create-user", async (req, res) => {
 // The service-role key stays on the server so email confirmation can be skipped
 // when configured. Never allow a browser request to create an admin account.
 app.post("/api/auth/register", async (req, res) => {
-  const { email, password, metadata = {} } = req.body || {};
+  const { email, password, metadata = {}, securityQuestion, securityAnswer } = req.body || {};
   if (!email || !password) {
     return res.status(400).json({ error: "Email and password are required." });
   }
   if (String(password).length < 6) {
     return res.status(400).json({ error: "Password must be at least 6 characters." });
+  }
+  if (!adminOk()) {
+    return res.status(503).json({ error: "Secure registration is not configured on the server. No account was created." });
   }
 
   const safeMetadata = {
@@ -3347,64 +3714,50 @@ app.post("/api/auth/register", async (req, res) => {
     phone_number: String(metadata.phone_number || "").trim(),
     account_type: metadata.account_type === "vendor" ? "vendor" : "client",
   };
-  const internalPhoneEmail = /@(vbank\.com|virtualbank\.app)$/i.test(String(email).trim());
 
   try {
-    const { createClient } = await import("@supabase/supabase-js");
+    const values = validateSecurityQuestionInput(securityQuestion, securityAnswer);
+    const admin = await getSupabaseAdminClient();
+    const { error: schemaError } = await admin.from("user_security_questions").select("user_id").limit(0);
+    if (schemaError) throw schemaError;
 
-    if (adminOk()) {
-      const admin = createClient(SUPABASE_URL, SUPABASE_ADMIN_KEY, {
-        auth: { autoRefreshToken: false, persistSession: false },
-        realtime: { transport: WebSocket },
-      });
-      const { data, error } = await admin.auth.admin.createUser({
-        email: String(email).trim().toLowerCase(),
-        password: String(password),
-        user_metadata: safeMetadata,
-        email_confirm: true,
-      });
-      if (error) throw new Error(error.message);
-
-      // The auth trigger normally creates this row. Upsert keeps registration
-      // working if a deployment has not applied the trigger yet.
-      const { error: roleError } = await admin.from("user_roles").upsert(
-        { user_id: data.user.id, role: safeMetadata.account_type },
-        { onConflict: "user_id,role" },
-      );
-      if (roleError) console.warn("[register] user_roles upsert:", roleError.message);
-
-      return res.json({ ok: true, userId: data.user.id, confirmed: true });
-    }
-
-    if (internalPhoneEmail) {
-      return res.status(503).json({
-        error: "Phone registration needs the Supabase service-role key on the server so the account can be confirmed. No account was created.",
-      });
-    }
-
-    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-      return res.status(503).json({ error: "Supabase is not configured on this server." });
-    }
-
-    const client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-      realtime: { transport: WebSocket },
-    });
-    const { data, error } = await client.auth.signUp({
+    const { data, error } = await admin.auth.admin.createUser({
       email: String(email).trim().toLowerCase(),
       password: String(password),
-      options: { data: safeMetadata },
+      user_metadata: safeMetadata,
+      email_confirm: true,
     });
-    if (error) throw new Error(error.message);
+    if (error) throw error;
 
-    return res.json({
-      ok: true,
-      userId: data.user?.id || null,
-      confirmed: Boolean(data.session),
-      needsConfirmation: !data.session,
-    });
+    try {
+      await saveStoredSecurityQuestion(admin, data.user.id, values.question, values.answer);
+    } catch (securityError) {
+      const { error: cleanupError } = await admin.auth.admin.deleteUser(data.user.id);
+      if (cleanupError) {
+        console.error("[register] Account cleanup failed after security enrollment error:", cleanupError.message);
+      }
+      throw securityError;
+    }
+
+    // The auth trigger normally creates this row. Upsert keeps registration
+    // working if a deployment has not applied the trigger yet.
+    const { error: roleError } = await admin.from("user_roles").upsert(
+      { user_id: data.user.id, role: safeMetadata.account_type },
+      { onConflict: "user_id,role" },
+    );
+    if (roleError) console.warn("[register] user_roles upsert:", roleError.message);
+
+    return res.json({ ok: true, userId: data.user.id, confirmed: true });
   } catch (err) {
+    if (isMissingSecurityQuestionSchema(err)) {
+      return res.status(503).json({
+        error: "The security-question database migration must be applied before registration. No account was created.",
+      });
+    }
     console.error("[register]", err.message);
-    return res.status(500).json({ error: err.message });
+    return res.status(Number(err?.status) || 500).json({
+      error: err?.status ? err.message : err.message || "Registration failed.",
+    });
   }
 });
 
