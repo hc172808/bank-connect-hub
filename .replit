@@ -62,7 +62,7 @@ SUPABASE_URL = "https://nrmzexwkeoekbqigdwod.supabase.co"
 
 [[ports]]
 localPort = 3001
-externalPort = 3003
+externalPort = 3001
 
 [[ports]]
 localPort = 5000
@@ -71,7 +71,3 @@ externalPort = 80
 [[ports]]
 localPort = 5001
 externalPort = 3000
-
-[[ports]]
-localPort = 5002
-externalPort = 3001
