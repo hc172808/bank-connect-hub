@@ -52,10 +52,10 @@ async function fetchUserRole(userId: string): Promise<UserRole> {
   }
 
   const validRoles: UserRole[] = ["admin", "founder", "agent", "client", "vendor"];
-  const roles = new Set(
+  const roles = new Set<UserRole>(
     (data ?? [])
-      .map((row) => row.role)
-      .filter((role): role is UserRole => validRoles.includes(role as UserRole)),
+      .map((row): string => row.role)
+      .filter((role): role is UserRole => validRoles.some((validRole) => validRole === role)),
   );
 
   // Some accounts have more than one role. Resolve deterministically so an

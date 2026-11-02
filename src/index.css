@@ -139,6 +139,16 @@
   letter-spacing: 0;
   color-scheme: dark;
 }
+.banking-auth-image { opacity: .38; object-position: 32% center; }
+.banking-auth-scrim { background: linear-gradient(90deg, hsl(var(--background) / .8), hsl(var(--background) / .4) 35%, hsl(var(--background) / .97) 65%); }
+.banking-auth-form input { min-height: 3rem; background: hsl(var(--card) / .85); border-radius: .5rem; }
+.banking-auth-form input:focus-visible { box-shadow: 0 0 0 2px hsl(var(--primary) / .3); }
+.banking-auth-form [role="combobox"] { height: 100%; min-height: 3rem; }
+.banking-auth-form form > button[type="submit"] { min-height: 3rem; }
+@media (max-width: 1023px) {
+  .banking-auth-image { height: 320px; opacity: .23; object-position: center top; }
+  .banking-auth-scrim { background: linear-gradient(180deg, hsl(var(--background) / .35), hsl(var(--background)) 360px); }
+}
 .banking-stat { border-top: 2px solid hsl(var(--primary)); }
 .banking-stat-success { border-top-color: hsl(var(--success)); }
 .banking-stat-warning { border-top-color: hsl(var(--warning)); }

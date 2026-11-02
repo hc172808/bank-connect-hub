@@ -9,6 +9,7 @@ import { CountryPhoneInput } from '@/components/CountryPhoneInput';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { storeUsedReferralCode } from '@/lib/rewards';
+import { BankingAuthLayout } from '@/components/BankingAuthLayout';
 
 type AccountType = 'client' | 'vendor';
 
@@ -93,15 +94,15 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-primary/5 to-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md shadow-2xl border-primary/20">
-        <CardHeader className="space-y-2 text-center">
-          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-primary to-yellow-600 bg-clip-text text-transparent">
+    <BankingAuthLayout>
+      <div>
+        <div className="space-y-2 mb-7">
+          <h1 className="text-3xl font-bold text-foreground">
             Create Account
-          </CardTitle>
-          <CardDescription>Register for a new account</CardDescription>
-        </CardHeader>
-        <CardContent>
+          </h1>
+          <p className="text-muted-foreground">Join NETLIFE CASH.</p>
+        </div>
+        <div>
           <form onSubmit={handleRegister} className="space-y-4">
             {/* Account Type Selection */}
             <div className="space-y-3">
@@ -181,13 +182,15 @@ export default function Register() {
                   placeholder="Enter password"
                   required
                 />
-                <button
+                <Button variant="ghost" size="icon"
                   type="button"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  title={showPassword ? 'Hide password' : 'Show password'}
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -220,7 +223,7 @@ export default function Register() {
 
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-primary to-yellow-600 hover:opacity-90"
+              className="w-full h-12"
               disabled={loading}
             >
               {loading ? 'Creating Account...' : 'Register'}
@@ -228,17 +231,17 @@ export default function Register() {
 
             <div className="text-center text-sm">
               <span className="text-muted-foreground">Already have an account? </span>
-              <button
+              <Button variant="link"
                 type="button"
                 onClick={() => navigate('/auth')}
-                className="text-primary hover:underline font-medium"
+                className="px-1"
               >
                 Sign In
-              </button>
+              </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </div>
+    </BankingAuthLayout>
   );
 }

@@ -16,6 +16,7 @@ import {
   hasStoredBiometric,
 } from "@/lib/biometricAuth";
 import { getDeviceInfo, PENDING_LOGIN_APPROVAL_KEY } from "@/hooks/useDeviceSession";
+import { BankingAuthLayout } from "@/components/BankingAuthLayout";
 
 type AuthMode = "signin" | "signup";
 type AccountType = "client" | "vendor";
@@ -232,7 +233,8 @@ const Auth = () => {
         return;
       }
 
-      const authData = getBiometricAuthData(result.userId!);
+      if (!result.userId) return;
+      const authData = getBiometricAuthData(result.userId);
       if (!authData) {
         toast({ variant: "destructive", title: "No Linked Account", description: "Please sign in with password first, then enroll biometrics from Profile settings." });
         return;
@@ -374,39 +376,27 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-card rounded-3xl shadow-card overflow-hidden">
-          <div className="h-3 flex">
-            <div className="flex-1 bg-card-stripe-1" />
-            <div className="flex-1 bg-card-stripe-2" />
-            <div className="flex-1 bg-card-stripe-3" />
-          </div>
-
-          <div className="p-8">
-            <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-2xl mb-4">
-                <div className="grid grid-cols-2 gap-1">
-                  {[...Array(4)].map((_, i) => (
-                    <div key={i} className="w-2 h-2 bg-foreground rounded-full" />
-                  ))}
-                </div>
+    <BankingAuthLayout>
+          <div>
+            <div className="mb-8">
+              <div className="inline-flex items-center justify-center w-12 h-12 border border-primary/30 bg-primary/10 rounded-lg mb-5">
+                <ShieldCheck className="h-6 w-6 text-primary banking-glow" />
               </div>
               <h1 className="text-3xl font-bold text-foreground mb-2">
                 {mode === "signin"
-                  ? loginStep === "approval" ? "Approve this sign-in" : "Sign in"
-                  : "Register Now"}
+                  ? loginStep === "approval" ? "Approve this sign-in" : "Welcome back"
+                  : "Create your account"}
               </h1>
               <p className="text-muted-foreground">
                 {mode === "signin" && loginStep === "approval"
                   ? "Your account stays signed out here until you approve it on your other device."
                   : mode === "signin"
-                    ? "Hello! Enter your details to sign in to your account."
+                    ? "Sign in to your NETLIFE CASH account."
                     : "Create your account to get started."}
               </p>
             </div>
 
-            <form onSubmit={mode === "signin" && loginStep === "otp" ? handleVerifyLoginOtp : handleAuth} className="space-y-6">
+            <form onSubmit={mode === "signin" && loginStep === "otp" ? handleVerifyLoginOtp : handleAuth} className="space-y-5">
               {mode === "signin" && loginStep === "approval" ? (
                 <div className="space-y-5">
                   <div className="rounded-2xl bg-primary/10 p-5 text-center">
@@ -453,12 +443,12 @@ const Auth = () => {
                     {loading ? "Verifying…" : "Confirm and sign in"}
                   </Button>
                   <div className="flex items-center justify-between text-sm">
-                    <button type="button" className="text-primary underline" onClick={() => { setLoginStep("credentials"); setLoginChallenge(""); }}>
+                    <Button variant="link" type="button" className="px-0" onClick={() => { setLoginStep("credentials"); setLoginChallenge(""); }}>
                       Use different details
-                    </button>
-                    <button type="button" className="text-primary underline" disabled={loading} onClick={() => { setLoading(true); requestLoginOtp(phoneNumber, password).catch((error) => toast({ variant: "destructive", title: "Could not resend code", description: error.message })).finally(() => setLoading(false)); }}>
+                    </Button>
+                    <Button variant="link" type="button" className="px-0" disabled={loading} onClick={() => { setLoading(true); requestLoginOtp(phoneNumber, password).catch((error) => toast({ variant: "destructive", title: "Could not resend code", description: error.message })).finally(() => setLoading(false)); }}>
                       Resend code
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ) : (
@@ -531,25 +521,27 @@ const Auth = () => {
                     required
                     className="h-14 rounded-xl pr-12"
                   />
-                  <button
+                  <Button variant="ghost" size="icon"
                     type="button"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    title={showPassword ? "Hide password" : "Show password"}
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
                   >
                     {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               {mode === "signin" && (
                 <div className="flex justify-end">
-                  <button
+                  <Button variant="link"
                     type="button"
                     onClick={() => navigate("/forgot-password")}
-                    className="text-sm text-primary hover:text-primary/80 font-medium underline underline-offset-2"
+                    className="h-auto px-0 py-0 text-sm"
                   >
                     Forgot password?
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -558,7 +550,7 @@ const Auth = () => {
                 disabled={loading}
                 className="w-full h-14 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-lg"
               >
-                {loading ? "Please wait..." : mode === "signin" ? "Next" : "Sign Up"}
+                {loading ? "Please wait..." : mode === "signin" ? "Sign in" : "Create account"}
               </Button>
 
               {mode === "signin" && biometricAvailable && (
@@ -636,9 +628,7 @@ const Auth = () => {
               </div>
             )}
           </div>
-        </div>
-      </div>
-    </div>
+    </BankingAuthLayout>
   );
 };
 
