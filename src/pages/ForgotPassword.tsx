@@ -1,3 +1,4 @@
+import { BankingAuthLayout } from "@/components/BankingAuthLayout";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase, initSupabase } from "@/integrations/supabase/client";
@@ -56,7 +57,7 @@ function StrengthBar({ password }: { password: string }) {
     /[^A-Za-z0-9]/.test(password),
   ];
   const score = checks.filter(Boolean).length;
-  const colors = ["", "bg-red-500", "bg-orange-400", "bg-yellow-400", "bg-blue-400", "bg-green-500"];
+  const colors = ["", "bg-destructive", "bg-warning", "bg-warning", "bg-primary", "bg-success"];
   const labels = ["", "Very weak", "Weak", "Fair", "Good", "Strong"];
   if (!password) return null;
   return (
@@ -66,7 +67,7 @@ function StrengthBar({ password }: { password: string }) {
           <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i <= score ? colors[score] : "bg-muted"}`} />
         ))}
       </div>
-      <p className={`text-[11px] font-medium ${score <= 2 ? "text-red-500" : score <= 3 ? "text-yellow-600" : "text-green-600"}`}>
+      <p className={`text-[11px] font-medium ${score <= 2 ? "text-destructive" : score <= 3 ? "text-warning" : "text-success"}`}>
         {labels[score]}
       </p>
     </div>
@@ -396,9 +397,9 @@ export default function ForgotPassword() {
   // ── Shared sub-components ─────────────────────────────────────────────────
   const MobilePWABanner = () =>
     isPWA ? (
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 flex gap-3">
-        <Smartphone className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-        <div className="text-sm text-blue-800">
+      <div className="rounded-lg border border-primary/30 bg-primary/10 p-3 flex gap-3">
+        <Smartphone className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+        <div className="text-sm text-primary">
           <p className="font-medium">You're using the NETLIFE CASH app</p>
           <p className="text-xs mt-0.5">
             Both email and phone recovery work inside the app. After resetting, sign back in to continue.
@@ -411,7 +412,7 @@ export default function ForgotPassword() {
     whatsappNumber ? (
       <Button
         variant="outline"
-        className="w-full gap-2 border-green-300 text-green-700 hover:bg-green-50"
+        className="w-full gap-2 border-success/30 text-success hover:bg-success/10"
         onClick={() =>
           window.open(
             `https://wa.me/${whatsappNumber.replace(/\D/g, "")}?text=${encodeURIComponent(context)}`,
@@ -438,7 +439,7 @@ export default function ForgotPassword() {
 
       {/* Passkey option — shown only if biometric available */}
       {biometricAvailable && (
-        <button
+        <Button variant="ghost"
           onClick={() => setStep("passkey")}
           className="w-full flex items-start gap-4 rounded-xl border-2 border-primary/40 bg-primary/5 hover:border-primary/70 hover:bg-primary/10 p-4 text-left transition-all group"
         >
@@ -456,11 +457,11 @@ export default function ForgotPassword() {
               Use your fingerprint or Face ID to verify your identity
             </p>
           </div>
-        </button>
+        </Button>
       )}
 
       {/* Email option */}
-      <button
+      <Button variant="ghost"
         onClick={() => setStep("email_form")}
         className="w-full flex items-start gap-4 rounded-xl border-2 border-muted hover:border-primary/60 hover:bg-primary/5 p-4 text-left transition-all group"
       >
@@ -473,10 +474,10 @@ export default function ForgotPassword() {
             Receive a secure reset link in your inbox
           </p>
         </div>
-      </button>
+      </Button>
 
       {/* Phone / SMS option */}
-      <button
+      <Button variant="ghost"
         onClick={() => setStep("phone_form")}
         disabled={smsAvailable === false}
         className="w-full flex items-start gap-4 rounded-xl border-2 border-muted hover:border-primary/60 hover:bg-primary/5 p-4 text-left transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
@@ -488,7 +489,7 @@ export default function ForgotPassword() {
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-semibold text-sm">Via Phone Number (SMS)</p>
             {smsAvailable === false && (
-              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">
+              <span className="text-[10px] bg-warning/10 text-warning px-1.5 py-0.5 rounded font-medium">
                 Unavailable
               </span>
             )}
@@ -500,7 +501,7 @@ export default function ForgotPassword() {
             Get a 6-digit code sent to your mobile number
           </p>
         </div>
-      </button>
+      </Button>
 
       {whatsappNumber && (
         <WhatsAppBtn context="I need help resetting my NETLIFE CASH password" />
@@ -529,9 +530,9 @@ export default function ForgotPassword() {
       </div>
 
       {passkeyError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 flex gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-          <div className="text-sm text-red-800">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 flex gap-3">
+          <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+          <div className="text-sm text-destructive">
             <p className="font-medium">Verification failed</p>
             <p className="text-xs mt-0.5">{passkeyError}</p>
           </div>
@@ -574,9 +575,9 @@ export default function ForgotPassword() {
   // ── STEP: passkey reset (set new password after passkey ID) ───────────────
   const renderPasskeyReset = () => (
     <div className="space-y-5">
-      <div className="rounded-lg border border-green-200 bg-green-50 p-3 flex gap-3">
-        <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
-        <div className="text-sm text-green-800">
+      <div className="rounded-lg border border-success/30 bg-success/10 p-3 flex gap-3">
+        <CheckCircle2 className="w-5 h-5 text-success shrink-0 mt-0.5" />
+        <div className="text-sm text-success">
           <p className="font-medium">Identity verified!</p>
           <p className="text-xs mt-0.5">
             Your passkey confirmed who you are. Set a new password below.
@@ -595,13 +596,13 @@ export default function ForgotPassword() {
             className="pr-10"
             autoFocus
           />
-          <button
+          <Button variant="ghost"
             type="button"
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             onClick={() => setShowPasskeyPass(v => !v)}
           >
             {showPasskeyPass ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
+          </Button>
         </div>
         <StrengthBar password={passkeyNewPass} />
       </div>
@@ -615,7 +616,7 @@ export default function ForgotPassword() {
           placeholder="Re-enter your new password"
         />
         {passkeyConfirmPass && passkeyConfirmPass !== passkeyNewPass && (
-          <p className="text-xs text-red-500">Passwords do not match</p>
+          <p className="text-xs text-destructive">Passwords do not match</p>
         )}
       </div>
 
@@ -686,8 +687,8 @@ export default function ForgotPassword() {
   // ── STEP: email sent ──────────────────────────────────────────────────────
   const renderEmailSent = () => (
     <div className="text-center space-y-5 py-2">
-      <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto">
-        <Mail className="w-8 h-8 text-blue-600" />
+      <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
+        <Mail className="w-8 h-8 text-primary" />
       </div>
       <div>
         <h3 className="text-xl font-bold">Check your inbox</h3>
@@ -698,9 +699,9 @@ export default function ForgotPassword() {
       </div>
 
       {isPWA && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-left flex gap-3">
-          <Smartphone className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-          <div className="text-sm text-blue-800">
+        <div className="rounded-lg border border-primary/30 bg-primary/10 p-3 text-left flex gap-3">
+          <Smartphone className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+          <div className="text-sm text-primary">
             <p className="font-medium">On the mobile app?</p>
             <p className="text-xs mt-0.5">
               Open your email app and tap the reset link — it opens in your browser.
@@ -764,9 +765,9 @@ export default function ForgotPassword() {
       </div>
 
       {smsAvailable === false && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-          <div className="text-sm text-amber-800">
+        <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 flex gap-3">
+          <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+          <div className="text-sm text-warning">
             <p className="font-medium">SMS is not configured</p>
             <p className="text-xs mt-0.5">Use email reset or contact support on WhatsApp.</p>
           </div>
@@ -798,9 +799,9 @@ export default function ForgotPassword() {
   // ── STEP: OTP + new password ──────────────────────────────────────────────
   const renderOtp = () => (
     <div className="space-y-5">
-      <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 flex gap-3">
-        <ShieldCheck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-        <p className="text-sm text-blue-800">
+      <div className="rounded-lg bg-primary/10 border border-primary/30 p-3 flex gap-3">
+        <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+        <p className="text-sm text-primary">
           A 6-digit code was sent to <strong>{maskedPhone}</strong>. Expires in 5 minutes.
         </p>
       </div>
@@ -829,13 +830,13 @@ export default function ForgotPassword() {
             placeholder="Minimum 6 characters"
             className="pr-10"
           />
-          <button
+          <Button variant="ghost"
             type="button"
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             onClick={() => setShowPass(!showPass)}
           >
             {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
+          </Button>
         </div>
         <StrengthBar password={newPassword} />
       </div>
@@ -849,7 +850,7 @@ export default function ForgotPassword() {
           placeholder="Re-enter your new password"
         />
         {confirmPassword && confirmPassword !== newPassword && (
-          <p className="text-xs text-red-500">Passwords do not match</p>
+          <p className="text-xs text-destructive">Passwords do not match</p>
         )}
       </div>
 
@@ -864,7 +865,7 @@ export default function ForgotPassword() {
       </Button>
 
       <div className="flex items-center justify-between text-sm">
-        <button
+        <Button variant="ghost"
           className="text-muted-foreground hover:text-foreground underline disabled:opacity-40"
           disabled={resendCooldown > 0 || phoneLoading || resendCount >= MAX_RESENDS}
           onClick={() => { setOtp(""); sendOtp(); }}
@@ -874,13 +875,13 @@ export default function ForgotPassword() {
             : resendCooldown > 0
               ? `Resend in ${resendCooldown}s`
               : `Resend code (${MAX_RESENDS - resendCount} left)`}
-        </button>
-        <button
+        </Button>
+        <Button variant="ghost"
           className="text-muted-foreground hover:text-foreground underline"
           onClick={() => { setStep("phone_form"); setOtp(""); }}
         >
           Change number
-        </button>
+        </Button>
       </div>
       {resendCount >= MAX_RESENDS && (
         <p className="text-xs text-destructive text-center">
@@ -893,8 +894,8 @@ export default function ForgotPassword() {
   // ── STEP: done ────────────────────────────────────────────────────────────
   const renderDone = () => (
     <div className="text-center space-y-5 py-4">
-      <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-        <CheckCircle2 className="w-9 h-9 text-green-600" />
+      <div className="w-16 h-16 bg-success/10 rounded-full flex items-center justify-center mx-auto">
+        <CheckCircle2 className="w-9 h-9 text-success" />
       </div>
       <div>
         <h3 className="text-xl font-bold">Password reset!</h3>
@@ -927,12 +928,12 @@ export default function ForgotPassword() {
     email_sent:    { title: "Email Sent",       desc: "Open the link in your email to continue",   progress: 3, icon: <Mail className="w-5 h-5 text-primary" /> },
     phone_form:    { title: "Reset via SMS",    desc: "We'll text a code to your mobile number",   progress: 2, icon: <Phone className="w-5 h-5 text-primary" /> },
     otp:           { title: "Enter Reset Code", desc: "Enter the code and set your new password",  progress: 3, icon: <ShieldCheck className="w-5 h-5 text-primary" /> },
-    done:          { title: "Password Reset",   desc: "Your account is secured",                   progress: 3, icon: <CheckCircle2 className="w-5 h-5 text-green-600" /> },
+    done:          { title: "Password Reset",   desc: "Your account is secured",                   progress: 3, icon: <CheckCircle2 className="w-5 h-5 text-success" /> },
   };
   const { title, desc, progress, icon } = stepMeta[step];
 
   return (
-    <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
+    <BankingAuthLayout>
       <div className="w-full max-w-md space-y-4">
         {step !== "done" && (
           <Button variant="ghost" onClick={handleBack} className="gap-2">
@@ -941,8 +942,8 @@ export default function ForgotPassword() {
           </Button>
         )}
 
-        <Card className="shadow-xl border-primary/20">
-          <CardHeader>
+        <Card className="border-0 bg-transparent shadow-none">
+          <CardHeader className="px-0 pt-0">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                 {icon}
@@ -963,7 +964,7 @@ export default function ForgotPassword() {
               </div>
             )}
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-0">
             {step === "choose"        && renderChoose()}
             {step === "passkey"       && renderPasskey()}
             {step === "passkey_reset" && renderPasskeyReset()}
@@ -978,12 +979,12 @@ export default function ForgotPassword() {
         {step === "choose" && (
           <p className="text-center text-xs text-muted-foreground">
             Remember your password?{" "}
-            <button className="underline hover:text-foreground" onClick={() => navigate("/auth")}>
+            <Button variant="ghost" className="underline hover:text-foreground" onClick={() => navigate("/auth")}>
               Sign in
-            </button>
+            </Button>
           </p>
         )}
       </div>
-    </div>
+    </BankingAuthLayout>
   );
 }

@@ -1,3 +1,4 @@
+import { BankingAuthLayout } from "@/components/BankingAuthLayout";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,7 +18,7 @@ function StrengthBar({ password }: { password: string }) {
     /[^A-Za-z0-9]/.test(password),
   ];
   const score = checks.filter(Boolean).length;
-  const colors = ["", "bg-red-500", "bg-orange-400", "bg-yellow-400", "bg-blue-400", "bg-green-500"];
+  const colors = ["", "bg-destructive", "bg-warning", "bg-warning", "bg-primary", "bg-success"];
   const labels = ["", "Very weak", "Weak", "Fair", "Good", "Strong"];
   if (!password) return null;
   return (
@@ -27,7 +28,7 @@ function StrengthBar({ password }: { password: string }) {
           <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i <= score ? colors[score] : "bg-muted"}`} />
         ))}
       </div>
-      <p className={`text-[11px] font-medium ${score <= 2 ? "text-red-500" : score <= 3 ? "text-yellow-600" : "text-green-600"}`}>
+      <p className={`text-[11px] font-medium ${score <= 2 ? "text-destructive" : score <= 3 ? "text-warning" : "text-success"}`}>
         {labels[score]}
       </p>
     </div>
@@ -96,9 +97,9 @@ export default function ResetPassword() {
   // Explicit failure screen
   if (failure) {
     return (
-      <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md shadow-xl border-destructive/30">
-          <CardContent className="p-8 text-center space-y-5">
+      <BankingAuthLayout>
+        <Card className="w-full max-w-md border-0 bg-transparent shadow-none">
+          <CardContent className="py-8 px-0 text-center space-y-5">
             <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mx-auto">
               <KeyRound className="w-8 h-8 text-destructive" />
             </div>
@@ -117,16 +118,16 @@ export default function ResetPassword() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </BankingAuthLayout>
     );
   }
 
   // Invalid / expired link
   if (!isRecovery && !done) {
     return (
-      <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md shadow-xl border-primary/20">
-          <CardContent className="p-8 text-center space-y-4">
+      <BankingAuthLayout>
+        <Card className="w-full max-w-md border-0 bg-transparent shadow-none">
+          <CardContent className="py-8 px-0 text-center space-y-4">
             <div className="w-14 h-14 bg-destructive/10 rounded-full flex items-center justify-center mx-auto">
               <KeyRound className="w-7 h-7 text-destructive" />
             </div>
@@ -144,18 +145,18 @@ export default function ResetPassword() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </BankingAuthLayout>
     );
   }
 
   // Success state
   if (done) {
     return (
-      <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md shadow-xl border-primary/20">
-          <CardContent className="p-8 text-center space-y-5">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-9 h-9 text-green-600" />
+      <BankingAuthLayout>
+        <Card className="w-full max-w-md border-0 bg-transparent shadow-none">
+          <CardContent className="py-8 px-0 text-center space-y-5">
+            <div className="w-16 h-16 bg-success/10 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-9 h-9 text-success" />
             </div>
             <div>
               <h2 className="text-xl font-bold">Password updated!</h2>
@@ -164,15 +165,15 @@ export default function ResetPassword() {
             <Button className="w-full" onClick={() => navigate("/auth")}>Sign In Now</Button>
           </CardContent>
         </Card>
-      </div>
+      </BankingAuthLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-primary/10 flex items-center justify-center p-4">
+    <BankingAuthLayout>
       <div className="w-full max-w-md">
-        <Card className="shadow-xl border-primary/20">
-          <CardHeader>
+        <Card className="border-0 bg-transparent shadow-none">
+          <CardHeader className="px-0 pt-0">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
                 <ShieldCheck className="w-5 h-5 text-primary" />
@@ -183,7 +184,7 @@ export default function ResetPassword() {
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-0">
             <form onSubmit={handleReset} className="space-y-5">
               <div className="space-y-2">
                 <Label>New Password</Label>
@@ -197,13 +198,13 @@ export default function ResetPassword() {
                     className="pr-10"
                     autoFocus
                   />
-                  <button
+                  <Button variant="ghost"
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+                  </Button>
                 </div>
                 <StrengthBar password={password} />
               </div>
@@ -218,7 +219,7 @@ export default function ResetPassword() {
                   required
                 />
                 {confirmPassword && confirmPassword !== password && (
-                  <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
+                  <p className="text-xs text-destructive mt-1">Passwords do not match</p>
                 )}
               </div>
 
@@ -235,6 +236,6 @@ export default function ResetPassword() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </BankingAuthLayout>
   );
 }
