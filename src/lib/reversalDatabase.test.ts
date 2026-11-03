@@ -33,8 +33,10 @@ beforeAll(async () => {
 afterAll(async () => { await client.end(); });
 
 async function asUser(userId: string) {
+  // Sandbox SQL sessions cannot SET ROLE authenticated. Exercise the RPC's
+  // server-side auth checks with transaction-local claims; inspect grants
+  // explicitly below. Browser/session verification is a separate check.
   await client.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [userId]);
-  await client.query("SET LOCAL ROLE authenticated");
 }
 async function rpc(name: "request_fund_reversal" | "reject_fund_reversal", args: unknown[]) {
   const params = args.map((_, i) => `$${i + 1}`).join(",");
@@ -120,8 +122,8 @@ describe("fund reversals (rollback-only integration)", () => {
   test("authenticated callers cannot write reversal statuses directly", async () => rollbackTest(async () => {
     await asUser(adminId);
     const privileges = (await client.query(`SELECT
-      has_table_privilege(current_user, 'public.fund_reversals', 'INSERT') AS insert_allowed,
-      has_table_privilege(current_user, 'public.fund_reversals', 'UPDATE') AS update_allowed`)).rows[0];
+      has_table_privilege('authenticated', 'public.fund_reversals', 'INSERT') AS insert_allowed,
+      has_table_privilege('authenticated', 'public.fund_reversals', 'UPDATE') AS update_allowed`)).rows[0];
     expect(privileges.insert_allowed).toBe(false);
     expect(privileges.update_allowed).toBe(false);
   }));
