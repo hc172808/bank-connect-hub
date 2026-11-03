@@ -79,6 +79,15 @@ export default function Register() {
       });
 
       const result = await res.json();
+      if (!res.ok && res.status === 409) {
+        toast({
+          variant: "destructive",
+          title: "Account already exists",
+          description: result.error || "This phone number is already linked to an account. Sign in or use Forgot password.",
+        });
+        navigate('/auth');
+        return;
+      }
       if (!res.ok) throw new Error(result.error || 'Registration failed');
 
       if (referralCode.trim()) {

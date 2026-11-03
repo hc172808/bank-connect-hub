@@ -3,22 +3,10 @@ name: App Lock
 description: Idle-timeout app lock — hook, screen, settings card
 ---
 
-## Architecture
-- `src/hooks/useAppLock.ts` — two exports:
-  - `useAppLock()` — used in `AppRoutes` (App.tsx); returns `{ locked, unlock }`; listens to mouse/key/touch events; setTimeout for idle
-  - `useAppLockSettings()` — used in SecuritySettings; reads/writes `localStorage("vbank_applock_v1")`
-- `src/components/AppLockScreen.tsx` — full-screen overlay; PIN entry validates against `profiles.transaction_pin` (SHA-256); fallback signs out
-- `src/pages/SecuritySettings.tsx` — `AppLockCard` component (defined inline); uses Switch + Select for enable/timeout
+App Lock is mandatory for authenticated users. Leaving or backgrounding the app locks it immediately; the saved lock marker survives a reload. An inactivity timeout also locks the app. Users unlock with the existing 4-digit PIN stored as `profiles.pin_hash`; if none exists, they must set one through `set_user_pin` before continuing. Signing out remains available from the lock screen.
 
-## Wiring in App.tsx
-```tsx
-const { locked, unlock } = useAppLock();
-if (locked && user) return <AppLockScreen onUnlock={unlock} />;
-```
-Placed immediately after the loading check, before route rendering.
+Settings are stored in `vbank_applock_v1` with `timeoutMinutes`; `enabled` is always true. `vbank_lastactive_v1` records activity and `vbank_applock_required_v1` preserves the lock across app restarts.
 
-## Storage
-- Settings: `vbank_applock_v1` → `{ enabled: boolean, timeoutMinutes: number }`
-- Last activity: `vbank_lastactive_v1` → unix ms timestamp
+**Why:** The user requires a PIN whenever anyone returns to the app after leaving it, so this cannot be an optional per-device setting or silently bypassed when a user has not yet created a PIN.
 
-**Why:** PIN validated against the existing `profiles.transaction_pin` field (already used for transactions) rather than a separate PIN, to avoid managing two separate PINs for the user. If no PIN is set, lock screen bypasses to unlock.
+**How to apply:** Keep lifecycle locking tied to authenticated sessions, persist the pending-lock marker before backgrounding, and require PIN setup for profiles without `pin_hash`. Do not add a no-PIN unlock fallback.

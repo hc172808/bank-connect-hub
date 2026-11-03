@@ -401,7 +401,13 @@ const Auth = () => {
           const availability = await fetch(`/api/auth/phone-availability?phone=${encodeURIComponent(phoneNumber)}`);
           const availabilityResult = await availability.json().catch(() => ({}));
           if (availability.ok && availabilityResult.available === false) {
-            throw new Error("That phone number is already registered. Use another number or sign in.");
+            setMode("signin");
+            toast({
+              variant: "destructive",
+              title: "Account already exists",
+              description: "This phone number is linked to an account. Sign in or use Forgot password.",
+            });
+            return;
           }
           if (!availability.ok) {
             console.warn("[auth] Phone availability check skipped:", availabilityResult.error || availability.statusText);

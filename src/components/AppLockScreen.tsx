@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Lock, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,11 +12,62 @@ interface Props {
 export function AppLockScreen({ onUnlock }: Props) {
   const { t } = useT();
   const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [hasPin, setHasPin] = useState<boolean | null>(null);
+  const [checkingPin, setCheckingPin] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!user) throw new Error("Your sign-in session has expired.");
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("pin_hash")
+        .eq("id", user.id)
+        .single();
+      if (profileError) throw profileError;
+      if (active) setHasPin(Boolean(profile?.pin_hash));
+    })().catch((loadError: unknown) => {
+      if (active) setError(loadError instanceof Error ? loadError.message : t("common.error"));
+    }).finally(() => {
+      if (active) setCheckingPin(false);
+    });
+    return () => { active = false; };
+  }, [t]);
+
+  const setNewPin = async () => {
+    if (pin.length !== 4 || confirmPin.length !== 4) {
+      setError("Enter and confirm a 4-digit PIN.");
+      return;
+    }
+    if (pin !== confirmPin) {
+      setError("The PINs do not match.");
+      setConfirmPin("");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const { data, error: pinError } = await supabase.rpc("set_user_pin", { user_pin: pin });
+      if (pinError) throw pinError;
+      if (data !== true) throw new Error("The PIN could not be saved. Please try again.");
+      setPin("");
+      setConfirmPin("");
+      setHasPin(true);
+      onUnlock();
+    } catch (saveError: unknown) {
+      setError(saveError instanceof Error ? saveError.message : t("common.error"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const tryUnlock = async () => {
-    if (pin.length !== 4) return;
+    if (pin.length !== 4 || hasPin !== true) return;
     setLoading(true);
     setError("");
     try {
@@ -30,8 +81,8 @@ export function AppLockScreen({ onUnlock }: Props) {
         .single();
 
       if (!profile?.pin_hash) {
-        // No PIN set — just unlock (PIN was never configured)
-        onUnlock();
+        setHasPin(false);
+        setPin("");
         return;
       }
 
@@ -70,7 +121,13 @@ export function AppLockScreen({ onUnlock }: Props) {
       </div>
 
       <div className="w-full max-w-xs space-y-3">
-        <p className="text-sm text-center text-muted-foreground">{t("appLock.enterPin")}</p>
+        <p className="text-sm text-center text-muted-foreground">
+          {checkingPin
+            ? t("actions.loading")
+            : hasPin
+              ? t("appLock.enterPin")
+              : "Set a 4-digit PIN to secure this app."}
+        </p>
         <Input
           type="password"
           inputMode="numeric"
@@ -83,11 +140,31 @@ export function AppLockScreen({ onUnlock }: Props) {
           onKeyDown={(e) => e.key === "Enter" && tryUnlock()}
           className="text-center text-2xl tracking-[0.5em] h-14"
           placeholder="••••"
-          autoFocus
+          autoFocus={!checkingPin}
         />
+        {!checkingPin && hasPin === false && (
+          <Input
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            value={confirmPin}
+            onChange={(e) => {
+              setConfirmPin(e.target.value.replace(/\D/g, ""));
+              setError("");
+            }}
+            onKeyDown={(e) => e.key === "Enter" && void setNewPin()}
+            className="text-center text-2xl tracking-[0.5em] h-14"
+            placeholder="Confirm PIN"
+            aria-label="Confirm 4-digit PIN"
+          />
+        )}
         {error && <p className="text-xs text-destructive text-center">{error}</p>}
-        <Button onClick={tryUnlock} disabled={pin.length !== 4 || loading} className="w-full">
-          {loading ? t("actions.loading") : t("appLock.unlockWithPin")}
+        <Button
+          onClick={hasPin === true ? tryUnlock : setNewPin}
+          disabled={checkingPin || hasPin === null || pin.length !== 4 || loading || (hasPin === false && confirmPin.length !== 4)}
+          className="w-full"
+        >
+          {loading || checkingPin ? t("actions.loading") : hasPin ? t("appLock.unlockWithPin") : "Set PIN and unlock"}
         </Button>
       </div>
 

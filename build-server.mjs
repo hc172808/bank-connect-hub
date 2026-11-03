@@ -2555,7 +2555,11 @@ app.post("/api/auth/request-device-login", async (req, res) => {
       }
       lastError = result.error;
     }
-    if (!authData) return res.status(401).json({ error: lastError?.message || "Invalid phone number or password." });
+    if (!authData) {
+      return res.status(401).json({
+        error: "Invalid phone number or password. If this number already has an account, use Forgot password.",
+      });
+    }
     const result = await beginDeviceLogin(authData.session, authData.user, device);
     res.status(result.approvalRequired ? 202 : 200).json(result);
   } catch (error) {
@@ -3718,6 +3722,14 @@ app.post("/api/auth/register", async (req, res) => {
   try {
     const values = validateSecurityQuestionInput(securityQuestion, securityAnswer);
     const admin = await getSupabaseAdminClient();
+    if (safeMetadata.phone_number) {
+      const existingPhoneUser = await findAuthUserByPhone(admin, safeMetadata.phone_number);
+      if (existingPhoneUser) {
+        return res.status(409).json({
+          error: "This phone number already has an account. Sign in or recover that account instead.",
+        });
+      }
+    }
     const { error: schemaError } = await admin.from("user_security_questions").select("user_id").limit(0);
     if (schemaError) throw schemaError;
 

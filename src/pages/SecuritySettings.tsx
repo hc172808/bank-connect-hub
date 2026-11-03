@@ -14,7 +14,6 @@ import QRCode from "qrcode";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useAppLockSettings } from "@/hooks/useAppLock";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 
 const AppLockCard = () => {
   const { settings, update } = useAppLockSettings();
@@ -22,42 +21,37 @@ const AppLockCard = () => {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Timer className="h-5 w-5" /> App Lock</CardTitle>
-        <CardDescription>Automatically lock the app after a period of inactivity.</CardDescription>
+        <CardDescription>The app requires your 4-digit PIN whenever you return after leaving it.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-medium text-sm">Enable App Lock</p>
-            <p className="text-xs text-muted-foreground">Require PIN to resume after idle timeout</p>
+            <p className="font-medium text-sm">App Lock is required</p>
+            <p className="text-xs text-muted-foreground">A PIN will be required on return and after inactivity.</p>
           </div>
-          <Switch
-            checked={settings.enabled}
-            onCheckedChange={(v) => update({ enabled: v })}
-          />
+          <Badge variant="secondary">Required</Badge>
         </div>
-        {settings.enabled && (
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Lock after inactivity</Label>
-            <Select
-              value={String(settings.timeoutMinutes)}
-              onValueChange={(v) => update({ timeoutMinutes: parseInt(v) })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">1 minute</SelectItem>
-                <SelectItem value="5">5 minutes</SelectItem>
-                <SelectItem value="15">15 minutes</SelectItem>
-                <SelectItem value="30">30 minutes</SelectItem>
-                <SelectItem value="60">1 hour</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground mt-1">
-              You will need your transaction PIN to unlock the app.
-            </p>
-          </div>
-        )}
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Lock after inactivity</Label>
+          <Select
+            value={String(settings.timeoutMinutes)}
+            onValueChange={(v) => update({ timeoutMinutes: parseInt(v) })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">1 minute</SelectItem>
+              <SelectItem value="5">5 minutes</SelectItem>
+              <SelectItem value="15">15 minutes</SelectItem>
+              <SelectItem value="30">30 minutes</SelectItem>
+              <SelectItem value="60">1 hour</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground mt-1">
+            The app locks immediately when it is sent to the background. If you have not set a transaction PIN, you will be asked to create one the first time it locks.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

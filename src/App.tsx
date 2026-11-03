@@ -483,7 +483,7 @@ const AppRoutes = () => {
   const { user, role, loading } = useAuth();
   const location = useLocation();
   useAutoPushSubscribe(user?.id);
-  const { locked, unlock } = useAppLock();
+  const { locked, unlock } = useAppLock(Boolean(user));
   const navigate = useNavigate();
   const { setNavigate: setAlertNavigate } = useNewReleaseAlert(user?.id);
 
