@@ -15,6 +15,13 @@
       "when": 1793666946969,
       "tag": "0001_safe_fund_reversals",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793667032764,
+      "tag": "0002_reversal_founder_role_compatibility",
+      "breakpoints": true
     }
   ]
 }

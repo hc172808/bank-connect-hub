@@ -4,3 +4,4 @@
 - Scope the mockup-inspired neon tokens to `.banking-dashboard`, including the shared `BankingAuthLayout` for account-access screens; unrelated pages retain runtime theme settings.
 - Personal dashboards read the signed-in user's wallet separately from bank reserves and on-chain balances, so the views do not imply these are interchangeable funds.
 - Keep separately deployed reversal RPC compatibility in `reversalRpc.ts`; missing database functions must fail clearly without simulating success or changing balances.
+- Test reversal requests and rejections inside rollback-only database transactions; never invoke approval or return processing during no-funds verification.
