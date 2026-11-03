@@ -4184,6 +4184,469 @@ REVOKE ALL PRIVILEGES ON public.device_sessions FROM PUBLIC, anon, authenticated
 GRANT SELECT ON public.device_sessions TO authenticated;
 
 
+-- ===== Source migration: 20261011150000_safe_fund_reversals.sql =====
+-- Make reversal requests and approvals server-authoritative and atomic.
+-- Approval holds the recipient's funds; a separate scheduled worker returns
+-- them after one hour and posts an auditable ledger transaction.
+
+ALTER TABLE public.fund_reversals
+  ADD COLUMN IF NOT EXISTS reversal_transaction_id uuid
+  REFERENCES public.transactions(id);
+
+CREATE INDEX IF NOT EXISTS fund_reversals_due_processing_idx
+  ON public.fund_reversals (funds_held_at, id)
+  WHERE status = 'approved';
+
+CREATE INDEX IF NOT EXISTS fund_reversals_transaction_status_idx
+  ON public.fund_reversals (transaction_id, status);
+
+CREATE UNIQUE INDEX IF NOT EXISTS fund_reversals_return_transaction_id_uidx
+  ON public.fund_reversals (reversal_transaction_id)
+  WHERE reversal_transaction_id IS NOT NULL;
+
+-- A returned reversal is a transfer in the existing ledger vocabulary; the
+-- description and reversal_transaction_id provide the audit link.
+CREATE OR REPLACE FUNCTION public.request_fund_reversal(
+  _transaction_id uuid,
+  _reason text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _requester_id uuid := auth.uid();
+  _original public.transactions%ROWTYPE;
+  _reversal_id uuid;
+  _reason_value text := NULLIF(btrim(_reason), '');
+BEGIN
+  IF _requester_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Not authenticated');
+  END IF;
+
+  IF _transaction_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Choose a valid transaction');
+  END IF;
+
+  IF _reason_value IS NOT NULL AND char_length(_reason_value) > 500 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Reason must be 500 characters or fewer');
+  END IF;
+
+  -- Serialize requests for the same original transfer, including concurrent
+  -- requests from the same account.
+  PERFORM pg_advisory_xact_lock(hashtextextended(_transaction_id::text, 0::bigint));
+
+  SELECT t.* INTO _original
+  FROM public.transactions AS t
+  WHERE t.id = _transaction_id;
+
+  IF NOT FOUND
+     OR _original.sender_id IS DISTINCT FROM _requester_id
+     OR _original.status IS DISTINCT FROM 'completed'
+     OR _original.transaction_type IS DISTINCT FROM 'transfer'
+     OR _original.amount <= 0
+     OR _original.receiver_id = _requester_id THEN
+    RETURN jsonb_build_object('success', false, 'error', 'This transfer is not eligible for reversal');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.fund_reversals AS r
+    WHERE r.transaction_id = _transaction_id
+      AND r.status IN ('pending', 'approved', 'completed')
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'A reversal request already exists for this transfer');
+  END IF;
+
+  INSERT INTO public.fund_reversals (
+    transaction_id,
+    requester_id,
+    recipient_id,
+    amount,
+    reason
+  )
+  VALUES (
+    _transaction_id,
+    _requester_id,
+    _original.receiver_id,
+    _original.amount,
+    COALESCE(_reason_value, 'Sent to wrong user')
+  )
+  RETURNING id INTO _reversal_id;
+
+  RETURN jsonb_build_object('success', true, 'reversal_id', _reversal_id);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.approve_fund_reversal(_reversal_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _actor_id uuid := auth.uid();
+  _reversal public.fund_reversals%ROWTYPE;
+  _original public.transactions%ROWTYPE;
+  _recipient_balance numeric;
+  _held_at timestamptz;
+BEGIN
+  IF _actor_id IS NULL
+     OR NOT (
+       public.has_role(_actor_id, 'admin')
+       OR public.has_role(_actor_id, 'founder')
+       OR public.has_role(_actor_id, 'agent')
+     ) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Unauthorized');
+  END IF;
+
+  SELECT r.* INTO _reversal
+  FROM public.fund_reversals AS r
+  WHERE r.id = _reversal_id
+  FOR UPDATE;
+
+  IF NOT FOUND OR _reversal.status <> 'pending' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Reversal not found or already processed');
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended(_reversal.transaction_id::text, 0::bigint));
+
+  SELECT t.* INTO _original
+  FROM public.transactions AS t
+  WHERE t.id = _reversal.transaction_id;
+
+  IF NOT FOUND
+     OR _original.sender_id IS DISTINCT FROM _reversal.requester_id
+     OR _original.receiver_id IS DISTINCT FROM _reversal.recipient_id
+     OR _original.amount IS DISTINCT FROM _reversal.amount
+     OR _original.status IS DISTINCT FROM 'completed'
+     OR _original.transaction_type IS DISTINCT FROM 'transfer' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Original transfer details no longer match this request');
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.fund_reversals AS r
+    WHERE r.transaction_id = _reversal.transaction_id
+      AND r.id <> _reversal.id
+      AND r.status IN ('pending', 'approved', 'completed')
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Another active reversal already exists for this transfer');
+  END IF;
+
+  SELECT w.balance INTO _recipient_balance
+  FROM public.wallets AS w
+  WHERE w.user_id = _reversal.recipient_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Recipient wallet was not found');
+  END IF;
+
+  IF _recipient_balance < _reversal.amount THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Recipient has insufficient balance for reversal');
+  END IF;
+
+  UPDATE public.wallets
+  SET balance = balance - _reversal.amount,
+      updated_at = now()
+  WHERE user_id = _reversal.recipient_id;
+
+  _held_at := now();
+  UPDATE public.fund_reversals
+  SET status = 'approved',
+      approved_by = _actor_id,
+      approved_at = _held_at,
+      funds_held_at = _held_at
+  WHERE id = _reversal.id
+    AND status = 'pending';
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Reversal state changed during approval';
+  END IF;
+
+  INSERT INTO public.notifications (user_id, title, message, type)
+  VALUES (
+    _reversal.recipient_id,
+    'Fund reversal hold',
+    '$' || _reversal.amount || ' was placed on hold after a reversal request was approved.',
+    'warning'
+  );
+
+  INSERT INTO public.notifications (user_id, title, message, type)
+  VALUES (
+    _reversal.requester_id,
+    'Reversal approved',
+    'Your request for $' || _reversal.amount || ' was approved. The funds are scheduled to return after a one-hour hold.',
+    'success'
+  );
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'message', 'Funds are held and scheduled for return after one hour.',
+    'return_at', _held_at + interval '1 hour'
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.reject_fund_reversal(_reversal_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _actor_id uuid := auth.uid();
+  _reversal public.fund_reversals%ROWTYPE;
+BEGIN
+  IF _actor_id IS NULL
+     OR NOT (
+       public.has_role(_actor_id, 'admin')
+       OR public.has_role(_actor_id, 'founder')
+       OR public.has_role(_actor_id, 'agent')
+     ) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Unauthorized');
+  END IF;
+
+  SELECT r.* INTO _reversal
+  FROM public.fund_reversals AS r
+  WHERE r.id = _reversal_id
+  FOR UPDATE;
+
+  IF NOT FOUND OR _reversal.status <> 'pending' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Reversal not found or already processed');
+  END IF;
+
+  UPDATE public.fund_reversals
+  SET status = 'rejected',
+      approved_by = _actor_id,
+      approved_at = now()
+  WHERE id = _reversal.id
+    AND status = 'pending';
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Reversal state changed during rejection';
+  END IF;
+
+  INSERT INTO public.notifications (user_id, title, message, type)
+  VALUES (
+    _reversal.requester_id,
+    'Reversal request rejected',
+    'Your reversal request for $' || _reversal.amount || ' was rejected. No funds were moved.',
+    'info'
+  );
+
+  RETURN jsonb_build_object('success', true, 'message', 'Reversal rejected; no funds were moved.');
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.process_pending_reversals()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _reversal public.fund_reversals%ROWTYPE;
+  _return_transaction_id uuid;
+  _wallet_user_id uuid;
+  _processed integer := 0;
+  _failed integer := 0;
+  _blocked integer := 0;
+BEGIN
+  FOR _reversal IN
+    SELECT r.*
+    FROM public.fund_reversals AS r
+    WHERE r.status = 'approved'
+      AND r.funds_held_at IS NOT NULL
+      AND r.funds_held_at + interval '1 hour' <= now()
+      AND r.reversal_transaction_id IS NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.fund_reversals AS other
+        WHERE other.transaction_id = r.transaction_id
+          AND other.id <> r.id
+          AND other.status IN ('pending', 'approved', 'completed')
+      )
+    ORDER BY r.funds_held_at, r.id
+    LIMIT 100
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    BEGIN
+      UPDATE public.wallets
+      SET balance = balance + _reversal.amount,
+          updated_at = now()
+      WHERE user_id = _reversal.requester_id
+      RETURNING user_id INTO _wallet_user_id;
+
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'Requester wallet was not found';
+      END IF;
+
+      INSERT INTO public.transactions (
+        sender_id,
+        receiver_id,
+        amount,
+        fee,
+        status,
+        transaction_type,
+        description,
+        completed_at
+      )
+      VALUES (
+        _reversal.recipient_id,
+        _reversal.requester_id,
+        _reversal.amount,
+        0,
+        'completed',
+        'transfer',
+        'Fund reversal return: request ' || _reversal.id::text,
+        now()
+      )
+      RETURNING id INTO _return_transaction_id;
+
+      UPDATE public.fund_reversals
+      SET status = 'completed',
+          funds_returned_at = now(),
+          reversal_transaction_id = _return_transaction_id
+      WHERE id = _reversal.id
+        AND status = 'approved'
+        AND reversal_transaction_id IS NULL;
+
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'Reversal state changed during return';
+      END IF;
+
+      _processed := _processed + 1;
+    EXCEPTION WHEN OTHERS THEN
+      -- Roll back only this reversal and continue with other due requests.
+      _failed := _failed + 1;
+      RAISE WARNING 'Could not process fund reversal %: %', _reversal.id, SQLERRM;
+    END;
+  END LOOP;
+
+  SELECT count(*)::integer INTO _blocked
+  FROM public.fund_reversals AS r
+  WHERE r.status = 'approved'
+    AND r.funds_held_at IS NOT NULL
+    AND r.funds_held_at + interval '1 hour' <= now()
+    AND r.reversal_transaction_id IS NULL
+    AND EXISTS (
+      SELECT 1
+      FROM public.fund_reversals AS other
+      WHERE other.transaction_id = r.transaction_id
+        AND other.id <> r.id
+        AND other.status IN ('pending', 'approved', 'completed')
+    );
+
+  IF _blocked > 0 THEN
+    RAISE WARNING '% due reversal(s) are blocked because duplicate requests need review', _blocked;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', _failed = 0 AND _blocked = 0,
+    'processed', _processed,
+    'failed', _failed,
+    'blocked', _blocked
+  );
+END;
+$$;
+
+-- Tell the transaction trigger to send a reversal-specific message, not a
+-- misleading "Payment Sent" notification to the recipient.
+CREATE OR REPLACE FUNCTION public.notify_transaction()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _sender_name text;
+  _receiver_name text;
+BEGIN
+  IF NEW.status != 'completed' THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.transaction_type = 'transfer'
+     AND COALESCE(NEW.description, '') LIKE 'Fund reversal return:%' THEN
+    INSERT INTO public.notifications (user_id, title, message, type)
+    VALUES (
+      NEW.receiver_id,
+      'Funds returned',
+      '$' || NEW.amount || ' was returned through an approved fund reversal.',
+      'success'
+    );
+    RETURN NEW;
+  END IF;
+
+  SELECT full_name INTO _sender_name FROM public.profiles WHERE id = NEW.sender_id;
+  SELECT full_name INTO _receiver_name FROM public.profiles WHERE id = NEW.receiver_id;
+
+  INSERT INTO public.notifications (user_id, title, message, type)
+  VALUES (
+    NEW.receiver_id,
+    'Payment Received',
+    'You received $' || NEW.amount || ' from ' || COALESCE(_sender_name, 'someone'),
+    'success'
+  );
+
+  IF NEW.transaction_type = 'transfer' THEN
+    INSERT INTO public.notifications (user_id, title, message, type)
+    VALUES (
+      NEW.sender_id,
+      'Payment Sent',
+      'You sent $' || NEW.amount || ' to ' || COALESCE(_receiver_name, 'someone'),
+      'info'
+    );
+  ELSIF NEW.transaction_type = 'deposit' THEN
+    INSERT INTO public.notifications (user_id, title, message, type)
+    VALUES (
+      NEW.receiver_id,
+      'Deposit Received',
+      'Your account was credited with $' || NEW.amount,
+      'success'
+    );
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- Requests and decisions go through the checked RPCs, never client-supplied
+-- amounts, identities, wallet updates, or reversal status updates.
+DROP POLICY IF EXISTS "Users can create reversal requests" ON public.fund_reversals;
+DROP POLICY IF EXISTS "Admins can update reversals" ON public.fund_reversals;
+DROP POLICY IF EXISTS "Agents can update reversals" ON public.fund_reversals;
+
+REVOKE INSERT, UPDATE ON TABLE public.fund_reversals FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.request_fund_reversal(uuid, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.approve_fund_reversal(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.reject_fund_reversal(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.process_pending_reversals() FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.request_fund_reversal(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.approve_fund_reversal(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reject_fund_reversal(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.process_pending_reversals() TO service_role;
+
+NOTIFY pgrst, 'reload schema';
+
+
+-- ===== Source migration: 20261011160000_schedule_fund_reversal_processing.sql =====
+-- Supabase Cron runs due reversal returns every minute. The database function
+-- itself enforces the full one-hour hold and safely handles concurrent runs.
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+SELECT cron.schedule(
+  'netlifecash-process-fund-reversals',
+  '* * * * *',
+  'SELECT public.process_pending_reversals();'
+);
+
+
 -- ===== Source migration: 20261016110000_unlimited_device_sessions.sql =====
 -- Keep device approval optional, but do not cap the number of signed-in devices.
 DO $$
@@ -4252,6 +4715,740 @@ CREATE TRIGGER trg_enforce_two_active_device_sessions
   ON public.device_sessions
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_two_active_device_sessions();
+
+
+-- ===== Source migration: 20261018110000_support_assisted_remote_logout.sql =====
+-- Support can initiate a logout, but the account holder must confirm it with
+-- their wallet-lock PIN using a short-lived, single-use confirmation link.
+CREATE TABLE IF NOT EXISTS public.support_logout_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  requested_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  requested_by_role text NOT NULL
+    CHECK (requested_by_role IN ('admin', 'founder', 'agent')),
+  token_hash text NOT NULL UNIQUE
+    CHECK (token_hash ~ '^[a-f0-9]{64}$'),
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'completed', 'expired', 'locked', 'cancelled')),
+  failed_attempts integer NOT NULL DEFAULT 0
+    CHECK (failed_attempts BETWEEN 0 AND 5),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  confirmed_at timestamptz,
+  revoked_session_count integer
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS support_logout_one_pending_per_user
+  ON public.support_logout_requests (user_id)
+  WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS support_logout_expiry_idx
+  ON public.support_logout_requests (expires_at)
+  WHERE status = 'pending';
+
+ALTER TABLE public.support_logout_requests ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.support_logout_requests FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.support_logout_requests TO service_role;
+
+CREATE OR REPLACE FUNCTION public.confirm_support_logout(
+  _token_hash text,
+  _pin text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  _request public.support_logout_requests%ROWTYPE;
+  _stored_hash text;
+  _failed_attempts integer;
+  _recent_attempts integer;
+  _revoked_count integer;
+BEGIN
+  IF _token_hash IS NULL OR _token_hash !~ '^[a-f0-9]{64}$'
+     OR _pin IS NULL OR _pin !~ '^[0-9]{4}$' THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'invalid_or_expired');
+  END IF;
+
+  SELECT * INTO _request
+  FROM public.support_logout_requests
+  WHERE token_hash = _token_hash
+  FOR UPDATE;
+
+  IF NOT FOUND OR _request.status <> 'pending' THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'invalid_or_expired');
+  END IF;
+
+  IF _request.expires_at <= now() THEN
+    UPDATE public.support_logout_requests
+    SET status = 'expired'
+    WHERE id = _request.id;
+    RETURN jsonb_build_object('ok', false, 'code', 'invalid_or_expired');
+  END IF;
+
+  SELECT pin_hash INTO _stored_hash
+  FROM public.profiles
+  WHERE id = _request.user_id;
+
+  SELECT COALESCE(SUM(failed_attempts), 0)::integer INTO _recent_attempts
+  FROM public.support_logout_requests
+  WHERE user_id = _request.user_id
+    AND created_at > now() - interval '1 hour';
+
+  IF _recent_attempts >= 5 THEN
+    UPDATE public.support_logout_requests
+    SET status = 'locked'
+    WHERE id = _request.id;
+    RETURN jsonb_build_object('ok', false, 'code', 'locked');
+  END IF;
+
+  IF _stored_hash IS NULL
+     OR _stored_hash <> encode(extensions.digest(_pin, 'sha256'), 'hex') THEN
+    _failed_attempts := _request.failed_attempts + 1;
+    UPDATE public.support_logout_requests
+    SET failed_attempts = _failed_attempts,
+        status = CASE WHEN _recent_attempts + 1 >= 5 THEN 'locked' ELSE 'pending' END
+    WHERE id = _request.id;
+    RETURN jsonb_build_object(
+      'ok', false,
+      'code', CASE WHEN _recent_attempts + 1 >= 5 THEN 'locked' ELSE 'invalid_pin' END,
+      'attempts_remaining', GREATEST(0, 5 - _recent_attempts - 1)
+    );
+  END IF;
+
+  UPDATE public.device_sessions
+  SET revoked_at = now(), pending_until = NULL
+  WHERE user_id = _request.user_id
+    AND revoked_at IS NULL;
+  GET DIAGNOSTICS _revoked_count = ROW_COUNT;
+
+  UPDATE public.support_logout_requests
+  SET status = 'completed',
+      confirmed_at = now(),
+      revoked_session_count = _revoked_count
+  WHERE id = _request.id;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'revoked_count', _revoked_count
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.confirm_support_logout(text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.confirm_support_logout(text, text) TO service_role;
+
+
+-- ===== Source migration: 20261018113000_ensure_founder_app_role.sql =====
+-- Some deployed Supabase projects still have the older app_role enum. Add the
+-- founder value in its own migration so later migrations can safely reference
+-- it after this transaction commits. Projects that store roles as text need no
+-- change.
+DO $$
+DECLARE
+  _role_type oid := to_regtype('public.app_role');
+BEGIN
+  IF _role_type IS NOT NULL
+     AND EXISTS (
+       SELECT 1
+         FROM pg_type
+        WHERE oid = _role_type
+          AND typtype = 'e'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+         FROM pg_enum
+        WHERE enumtypid = _role_type
+          AND enumlabel = 'founder'
+     ) THEN
+    EXECUTE 'ALTER TYPE public.app_role ADD VALUE ''founder''';
+  END IF;
+END
+$$;
+
+
+-- ===== Source migration: 20261018120000_user_feature_access_enforcement_and_audit.sql =====
+-- Enforce per-user feature access at the database boundary for customer
+-- financial writes, and retain an append-only history of staff changes.
+
+CREATE OR REPLACE FUNCTION public.user_feature_access_is_enabled(
+  _user_id uuid,
+  _feature_key text
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _user_enabled boolean;
+  _global_enabled boolean;
+BEGIN
+  IF _user_id IS NULL OR NULLIF(BTRIM(_feature_key), '') IS NULL THEN
+    RETURN false;
+  END IF;
+
+  IF public.has_role(_user_id, 'admin')
+     OR public.has_role(_user_id, 'founder') THEN
+    RETURN true;
+  END IF;
+
+  SELECT access.is_enabled
+    INTO _user_enabled
+    FROM public.user_feature_access AS access
+   WHERE access.user_id = _user_id
+     AND access.feature_key = _feature_key;
+
+  SELECT toggle.is_enabled
+    INTO _global_enabled
+    FROM public.feature_toggles AS toggle
+   WHERE toggle.feature_key = _feature_key;
+
+  RETURN COALESCE(_user_enabled, true) AND COALESCE(_global_enabled, true);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.user_feature_access_is_enabled(uuid, text)
+  FROM PUBLIC, anon, authenticated;
+
+-- Feature-specific transaction names are enforced by the trigger below rather
+-- than the older four-value check from the initial transaction schema.
+ALTER TABLE public.transactions
+  DROP CONSTRAINT IF EXISTS transactions_transaction_type_check;
+
+CREATE OR REPLACE FUNCTION public.guard_transaction_feature_access()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _actor_id uuid := auth.uid();
+  _feature_key text;
+BEGIN
+  -- Scheduled workers and trusted server jobs have no end-user JWT.
+  IF _actor_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.has_role(_actor_id, 'admin')
+     OR public.has_role(_actor_id, 'founder') THEN
+    RETURN NEW;
+  END IF;
+
+  -- Agent cash withdrawals are a staff workflow, not a client-menu feature.
+  IF NEW.transaction_type = 'withdrawal'
+     AND public.has_role(_actor_id, 'agent') THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.sender_id IS DISTINCT FROM _actor_id THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'You cannot create a transaction for another account.';
+  END IF;
+
+  _feature_key := CASE LOWER(BTRIM(NEW.transaction_type))
+    WHEN 'transfer' THEN 'client_menu_send_money'
+    WHEN 'nfc_payment' THEN 'client_menu_nfc_payment'
+    WHEN 'scan_to_pay' THEN 'client_menu_scan_to_pay'
+    WHEN 'merchant_payment' THEN 'client_menu_pay_merchant'
+    WHEN 'purchase' THEN 'client_menu_shop'
+    WHEN 'international_transfer' THEN 'client_menu_international_transfers'
+    WHEN 'bill_payment' THEN 'client_menu_pay_bills'
+    WHEN 'deposit' THEN 'client_menu_add_money'
+    WHEN 'investment_purchase' THEN 'client_menu_investments'
+    WHEN 'cashback_redemption' THEN 'client_menu_rewards'
+    WHEN 'blockchain_transfer' THEN 'client_menu_send_money'
+    ELSE NULL
+  END;
+
+  IF _feature_key IS NULL THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'This transaction type is not available for direct client writes.';
+  END IF;
+
+  IF LOWER(BTRIM(NEW.transaction_type)) IN ('merchant_payment', 'purchase')
+     AND NOT public.has_role(NEW.receiver_id, 'vendor') THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'Merchant payments must be sent to a registered vendor account.';
+  END IF;
+
+  IF NOT public.user_feature_access_is_enabled(_actor_id, _feature_key) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'This feature is disabled for your account.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS guard_transaction_feature_access ON public.transactions;
+CREATE TRIGGER guard_transaction_feature_access
+  BEFORE INSERT ON public.transactions
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_transaction_feature_access();
+REVOKE ALL ON FUNCTION public.guard_transaction_feature_access()
+  FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.guard_fund_request_feature_access()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _actor_id uuid := auth.uid();
+BEGIN
+  IF _actor_id IS NULL
+     OR public.has_role(_actor_id, 'admin')
+     OR public.has_role(_actor_id, 'founder') THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.requester_id IS DISTINCT FROM _actor_id THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'You cannot create a fund request for another account.';
+  END IF;
+
+  IF NOT public.user_feature_access_is_enabled(_actor_id, 'client_menu_request_funds') THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'Fund requests are disabled for your account.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS guard_fund_request_feature_access ON public.fund_requests;
+CREATE TRIGGER guard_fund_request_feature_access
+  BEFORE INSERT ON public.fund_requests
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_fund_request_feature_access();
+REVOKE ALL ON FUNCTION public.guard_fund_request_feature_access()
+  FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.guard_fund_reversal_feature_access()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _actor_id uuid := auth.uid();
+BEGIN
+  IF _actor_id IS NULL
+     OR public.has_role(_actor_id, 'admin')
+     OR public.has_role(_actor_id, 'founder') THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.requester_id IS DISTINCT FROM _actor_id THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'You cannot create a reversal request for another account.';
+  END IF;
+
+  IF NOT public.user_feature_access_is_enabled(_actor_id, 'client_menu_reverse_funds') THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'Fund reversals are disabled for your account.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS guard_fund_reversal_feature_access ON public.fund_reversals;
+CREATE TRIGGER guard_fund_reversal_feature_access
+  BEFORE INSERT ON public.fund_reversals
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_fund_reversal_feature_access();
+REVOKE ALL ON FUNCTION public.guard_fund_reversal_feature_access()
+  FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.guard_pending_deposit_feature_access()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _actor_id uuid := auth.uid();
+BEGIN
+  IF _actor_id IS NULL
+     OR public.has_role(_actor_id, 'admin')
+     OR public.has_role(_actor_id, 'founder') THEN
+    RETURN NEW;
+  END IF;
+
+  IF NOT public.has_role(_actor_id, 'agent')
+     OR NEW.agent_id IS DISTINCT FROM _actor_id THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'Only the signed-in agent can create a pending deposit.';
+  END IF;
+
+  IF NOT public.user_feature_access_is_enabled(NEW.user_id, 'client_menu_add_money') THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'Adding money is disabled for this account.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS guard_pending_deposit_feature_access ON public.pending_deposits;
+CREATE TRIGGER guard_pending_deposit_feature_access
+  BEFORE INSERT ON public.pending_deposits
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_pending_deposit_feature_access();
+REVOKE ALL ON FUNCTION public.guard_pending_deposit_feature_access()
+  FROM PUBLIC, anon, authenticated;
+
+CREATE TABLE IF NOT EXISTS public.user_feature_access_audit (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_id uuid NOT NULL,
+  actor_role text NOT NULL CHECK (actor_role IN ('admin', 'founder')),
+  user_id uuid NOT NULL,
+  feature_key text NOT NULL CHECK (feature_key ~ '^client_menu_[a-z0-9_]+$'),
+  old_is_enabled boolean NOT NULL,
+  new_is_enabled boolean NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_feature_access_audit_user_created
+  ON public.user_feature_access_audit (user_id, created_at DESC);
+
+ALTER TABLE public.user_feature_access_audit ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.user_feature_access_audit FROM PUBLIC, anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE ON TABLE public.user_feature_access_audit FROM service_role;
+GRANT SELECT ON TABLE public.user_feature_access_audit TO service_role;
+
+CREATE OR REPLACE FUNCTION public.set_user_feature_access_with_audit(
+  _actor_id uuid,
+  _user_id uuid,
+  _feature_key text,
+  _is_enabled boolean
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  _actor_role text;
+  _old_is_enabled boolean;
+  _user_exists boolean;
+BEGIN
+  IF _actor_id IS NULL OR _user_id IS NULL OR _is_enabled IS NULL
+     OR _feature_key IS NULL
+     OR _feature_key !~ '^client_menu_[a-z0-9_]+$' THEN
+    RAISE EXCEPTION 'A valid actor, user, client-menu feature, and enabled state are required.';
+  END IF;
+
+  IF public.has_role(_actor_id, 'founder') THEN
+    _actor_role := 'founder';
+  ELSIF public.has_role(_actor_id, 'admin') THEN
+    _actor_role := 'admin';
+  ELSE
+    RAISE EXCEPTION 'Only admins and founders can change user feature access.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM auth.users WHERE id = _user_id
+  ) INTO _user_exists;
+  IF NOT _user_exists THEN
+    RAISE EXCEPTION 'User account not found.';
+  END IF;
+
+  IF public.has_role(_user_id, 'admin')
+     OR public.has_role(_user_id, 'founder') THEN
+    RAISE EXCEPTION 'Admin and founder accounts cannot be managed here.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended(_user_id::text || ':' || _feature_key, 0::bigint)
+  );
+
+  SELECT access.is_enabled
+    INTO _old_is_enabled
+    FROM public.user_feature_access AS access
+   WHERE access.user_id = _user_id
+     AND access.feature_key = _feature_key
+   FOR UPDATE;
+  _old_is_enabled := COALESCE(_old_is_enabled, true);
+
+  INSERT INTO public.user_feature_access (
+    user_id, feature_key, is_enabled, updated_by, updated_at
+  )
+  VALUES (_user_id, _feature_key, _is_enabled, _actor_id, now())
+  ON CONFLICT (user_id, feature_key) DO UPDATE
+    SET is_enabled = EXCLUDED.is_enabled,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = EXCLUDED.updated_at;
+
+  INSERT INTO public.user_feature_access_audit (
+    actor_id, actor_role, user_id, feature_key, old_is_enabled, new_is_enabled
+  )
+  VALUES (_actor_id, _actor_role, _user_id, _feature_key, _old_is_enabled, _is_enabled);
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'userId', _user_id,
+    'featureKey', _feature_key,
+    'is_enabled', _is_enabled,
+    'old_is_enabled', _old_is_enabled
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.set_user_feature_access_with_audit(uuid, uuid, text, boolean)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.set_user_feature_access_with_audit(uuid, uuid, text, boolean)
+  TO service_role;
+
+NOTIFY pgrst, 'reload schema';
+
+
+-- ===== Source migration: 20261019120000_user_security_questions.sql =====
+-- Store only a salted, slow hash of a user's recovery answer.
+-- Access is server-only; the answer is never readable by browser clients.
+CREATE TABLE IF NOT EXISTS public.user_security_questions (
+  user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  question text NOT NULL CHECK (char_length(question) BETWEEN 6 AND 160),
+  answer_salt text NOT NULL CHECK (answer_salt ~ '^[0-9a-f]{32}$'),
+  answer_hash text NOT NULL CHECK (answer_hash ~ '^[0-9a-f]{128}$'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.user_security_questions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.user_security_questions FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.user_security_questions TO service_role;
+
+CREATE INDEX IF NOT EXISTS user_security_questions_updated_at_idx
+  ON public.user_security_questions (updated_at DESC);
+
+
+-- ===== Source migration: 20261102121500_set_user_pin_rpc.sql =====
+-- Let an authenticated user set only their own 4-digit app/transaction PIN.
+CREATE OR REPLACE FUNCTION public.set_user_pin(user_pin text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+BEGIN
+  IF user_pin IS NULL OR user_pin !~ '^[0-9]{4}$' THEN
+    RAISE EXCEPTION 'PIN must be exactly 4 digits';
+  END IF;
+
+  UPDATE public.profiles
+  SET pin_hash = encode(extensions.digest(user_pin, 'sha256'), 'hex')
+  WHERE id = auth.uid();
+
+  RETURN FOUND;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.set_user_pin(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.set_user_pin(text) TO authenticated;
+
+
+-- ===== Source migration: 20261103090000_wallet_bootstrap_and_pin_length.sql =====
+-- Existing accounts created before the wallet trigger was installed must have
+-- a zero-value wallet row so the banking dashboard can load consistently.
+-- Existing balances are never changed.
+INSERT INTO public.wallets (user_id, balance)
+SELECT u.id, 0
+FROM auth.users AS u
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM public.wallets AS w
+  WHERE w.user_id = u.id
+)
+ON CONFLICT (user_id) DO NOTHING;
+
+-- Wallet security PINs may contain 4-10 digits. Existing 4-digit PIN hashes
+-- remain valid because the hashing algorithm and stored representation do not change.
+CREATE OR REPLACE FUNCTION public.set_user_pin(user_pin text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+BEGIN
+  IF user_pin IS NULL OR user_pin !~ '^[0-9]{4,10}$' THEN
+    RAISE EXCEPTION 'PIN must be between 4 and 10 digits';
+  END IF;
+
+  UPDATE public.profiles
+  SET pin_hash = encode(extensions.digest(user_pin, 'sha256'), 'hex')
+  WHERE id = auth.uid();
+
+  RETURN FOUND;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.set_user_pin(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.set_user_pin(text) TO authenticated;
+
+-- Keep staff-assisted logout confirmation compatible with the same PIN length.
+CREATE OR REPLACE FUNCTION public.confirm_support_logout(
+  _token_hash text,
+  _pin text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  _request public.support_logout_requests%ROWTYPE;
+  _stored_hash text;
+  _failed_attempts integer;
+  _recent_attempts integer;
+  _revoked_count integer;
+BEGIN
+  IF _token_hash IS NULL OR _token_hash !~ '^[a-f0-9]{64}$'
+     OR _pin IS NULL OR _pin !~ '^[0-9]{4,10}$' THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'invalid_or_expired');
+  END IF;
+
+  SELECT * INTO _request
+  FROM public.support_logout_requests
+  WHERE token_hash = _token_hash
+  FOR UPDATE;
+
+  IF NOT FOUND OR _request.status <> 'pending' THEN
+    RETURN jsonb_build_object('ok', false, 'code', 'invalid_or_expired');
+  END IF;
+
+  IF _request.expires_at <= now() THEN
+    UPDATE public.support_logout_requests
+    SET status = 'expired'
+    WHERE id = _request.id;
+    RETURN jsonb_build_object('ok', false, 'code', 'invalid_or_expired');
+  END IF;
+
+  SELECT pin_hash INTO _stored_hash
+  FROM public.profiles
+  WHERE id = _request.user_id;
+
+  SELECT COALESCE(SUM(failed_attempts), 0)::integer INTO _recent_attempts
+  FROM public.support_logout_requests
+  WHERE user_id = _request.user_id
+    AND created_at > now() - interval '1 hour';
+
+  IF _recent_attempts >= 5 THEN
+    UPDATE public.support_logout_requests
+    SET status = 'locked'
+    WHERE id = _request.id;
+    RETURN jsonb_build_object('ok', false, 'code', 'locked');
+  END IF;
+
+  IF _stored_hash IS NULL
+     OR _stored_hash <> encode(extensions.digest(_pin, 'sha256'), 'hex') THEN
+    _failed_attempts := _request.failed_attempts + 1;
+    UPDATE public.support_logout_requests
+    SET failed_attempts = _failed_attempts,
+        status = CASE WHEN _recent_attempts + 1 >= 5 THEN 'locked' ELSE 'pending' END
+    WHERE id = _request.id;
+    RETURN jsonb_build_object(
+      'ok', false,
+      'code', CASE WHEN _recent_attempts + 1 >= 5 THEN 'locked' ELSE 'invalid_pin' END,
+      'attempts_remaining', GREATEST(0, 5 - _recent_attempts - 1)
+    );
+  END IF;
+
+  UPDATE public.device_sessions
+  SET revoked_at = now(), pending_until = NULL
+  WHERE user_id = _request.user_id
+    AND revoked_at IS NULL;
+  GET DIAGNOSTICS _revoked_count = ROW_COUNT;
+
+  UPDATE public.support_logout_requests
+  SET status = 'completed',
+      confirmed_at = now(),
+      revoked_session_count = _revoked_count
+  WHERE id = _request.id;
+
+  RETURN jsonb_build_object('ok', true, 'revoked_count', _revoked_count);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.confirm_support_logout(text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.confirm_support_logout(text, text) TO service_role;
+
+
+-- ===== Source migration: 20261103100000_support_chat.sql =====
+-- Support chat data is accessed only by authenticated server routes using the
+-- service role. The browser never receives direct access to these tables.
+CREATE TABLE IF NOT EXISTS public.support_chat_sessions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  agent_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  status text NOT NULL DEFAULT 'waiting'
+    CHECK (status IN ('waiting', 'active', 'ai', 'closed')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  last_message_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.support_chat_messages (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id uuid NOT NULL REFERENCES public.support_chat_sessions(id) ON DELETE CASCADE,
+  sender_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  sender_role text NOT NULL CHECK (sender_role IN ('user', 'agent', 'assistant', 'system')),
+  body text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 2000),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.support_chat_presence (
+  agent_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  available boolean NOT NULL DEFAULT false,
+  last_seen_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS support_chat_sessions_waiting_idx
+  ON public.support_chat_sessions (created_at)
+  WHERE status = 'waiting';
+CREATE INDEX IF NOT EXISTS support_chat_sessions_user_open_idx
+  ON public.support_chat_sessions (user_id, updated_at DESC)
+  WHERE status <> 'closed';
+CREATE INDEX IF NOT EXISTS support_chat_sessions_agent_open_idx
+  ON public.support_chat_sessions (agent_id, updated_at DESC)
+  WHERE status = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS support_chat_sessions_one_open_per_user_idx
+  ON public.support_chat_sessions (user_id)
+  WHERE status <> 'closed';
+CREATE INDEX IF NOT EXISTS support_chat_messages_session_created_idx
+  ON public.support_chat_messages (session_id, created_at);
+CREATE INDEX IF NOT EXISTS support_chat_presence_online_idx
+  ON public.support_chat_presence (last_seen_at DESC)
+  WHERE available = true;
+
+ALTER TABLE public.support_chat_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.support_chat_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.support_chat_presence ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.support_chat_sessions FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.support_chat_messages FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.support_chat_presence FROM PUBLIC, anon, authenticated;
+GRANT ALL ON TABLE public.support_chat_sessions TO service_role;
+GRANT ALL ON TABLE public.support_chat_messages TO service_role;
+GRANT ALL ON TABLE public.support_chat_presence TO service_role;
 
 
 -- ===== Fresh-project compatibility and app RPCs =====

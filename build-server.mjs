@@ -4315,6 +4315,42 @@ app.get("/api/auth/all-users", async (req, res) => {
   }
 });
 
+// GET /api/auth/my-wallet-balance — the signed-in user's own ledger balance.
+// Read through the service client so personal banking works even if browser
+// RLS configuration drifts; the verified JWT still scopes the lookup to self.
+app.get("/api/auth/my-wallet-balance", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "Supabase service role is not configured." });
+  const authorization = String(req.headers.authorization || "");
+  const accessToken = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+  if (!accessToken) return res.status(401).json({ error: "Sign-in required." });
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const { data: authResult, error: authError } = await admin.auth.getUser(accessToken);
+    if (authError || !authResult?.user) {
+      return res.status(401).json({ error: "Session is invalid or expired." });
+    }
+
+    const { data: wallet, error } = await admin
+      .from("wallets")
+      .select("balance, currency")
+      .eq("user_id", authResult.user.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+
+    res.json({
+      wallet: wallet
+        ? { balance: wallet.balance, currency: wallet.currency || "USD" }
+        : null,
+    });
+  } catch (err) {
+    console.error("[auth] personal wallet lookup failed:", err.message);
+    res.status(500).json({ error: "Could not load your wallet balance." });
+  }
+});
+
 // GET /api/auth/wallet-balances — staff-only internal ledger balances.
 // The service client avoids making the admin UI depend on client-side RLS
 // configuration, while this route keeps the agent visibility boundary intact.

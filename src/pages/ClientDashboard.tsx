@@ -89,22 +89,39 @@ const ClientDashboard = () => {
   const { toast } = useToast();
 
   const fetchWalletBalance = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data, error } = await supabase
-      .from("wallets")
-      .select("balance, currency")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setWalletLoadError(true);
+        return;
+      }
 
-    if (error) {
+      const response = await fetch("/api/auth/my-wallet-balance", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok && result.wallet) {
+        setWallet(result.wallet as WalletData);
+        setWalletLoadError(false);
+        return;
+      }
+
+      // Keep the owner-scoped browser read as a fallback for offline/mobile
+      // builds where the same-origin API may not be reachable.
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error(result.error || "Sign-in required.");
+      const { data, error } = await supabase
+        .from("wallets")
+        .select("balance, currency")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (error) throw error;
+      setWallet(data);
+      setWalletLoadError(!data);
+    } catch (error) {
       console.error("Could not refresh the internal ledger balance:", error);
       setWalletLoadError(true);
-      return;
     }
-
-    setWallet(data);
-    setWalletLoadError(!data);
   }, []);
 
   useEffect(() => {
@@ -156,8 +173,8 @@ const ClientDashboard = () => {
       }
     });
 
-    const [walletRes, profileRes] = await Promise.all([
-      supabase.from("wallets").select("balance, currency").eq("user_id", user.id).maybeSingle(),
+    const [, profileRes] = await Promise.all([
+      fetchWalletBalance(),
       supabase.from("profiles").select("full_name, wallet_address").eq("id", user.id).single(),
     ]);
     const [features, access] = await Promise.all([
@@ -165,13 +182,6 @@ const ClientDashboard = () => {
       fetchCurrentUserFeatureAccess().catch(() => ({})),
     ]);
 
-    if (walletRes.error) {
-      console.error("Could not load the internal ledger balance:", walletRes.error);
-      setWalletLoadError(true);
-    } else {
-      setWallet(walletRes.data);
-      setWalletLoadError(!walletRes.data);
-    }
     if (profileRes.data) setProfile(profileRes.data);
     setFeatureToggles(features);
     setUserFeatureAccess(access);
