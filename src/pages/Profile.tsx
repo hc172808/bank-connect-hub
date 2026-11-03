@@ -1012,7 +1012,7 @@ export default function Profile() {
           <CardContent>
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Your 4-digit PIN is used to verify transactions when others scan your QR code.
+                Your 4 to 10 digit PIN is used to verify transactions when others scan your QR code.
               </p>
               {hasPin ? (
                 <div className="flex items-center gap-3">

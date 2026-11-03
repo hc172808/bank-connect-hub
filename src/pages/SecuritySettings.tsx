@@ -21,7 +21,7 @@ const AppLockCard = () => {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Timer className="h-5 w-5" /> App Lock</CardTitle>
-        <CardDescription>The app requires your 4-digit PIN whenever you return after leaving it.</CardDescription>
+        <CardDescription>The app requires your 4 to 10 digit PIN whenever you return after leaving it.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between">

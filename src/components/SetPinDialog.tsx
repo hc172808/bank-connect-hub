@@ -23,11 +23,11 @@
    const { toast } = useToast();
  
    const handleSetPin = async () => {
-     if (pin.length !== 4) {
+      if (!/^\d{4,10}$/.test(pin)) {
        toast({
          variant: "destructive",
          title: "Invalid PIN",
-         description: "PIN must be exactly 4 digits",
+          description: "PIN must be between 4 and 10 digits",
        });
        return;
      }
@@ -77,17 +77,18 @@
          </DialogHeader>
          <div className="space-y-4 pt-4">
            <p className="text-sm text-muted-foreground">
-             Create a 4-digit PIN to secure your transactions
+              Create a PIN of 4 to 10 digits to secure your transactions
            </p>
  
            <div className="space-y-2">
              <label className="text-sm font-medium">Enter PIN</label>
              <Input
                type="password"
-               maxLength={4}
+                inputMode="numeric"
+                maxLength={10}
                value={pin}
-               onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-               placeholder="••••"
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                placeholder="••••••••••"
                className="text-center text-2xl tracking-widest"
              />
            </div>
@@ -96,17 +97,18 @@
              <label className="text-sm font-medium">Confirm PIN</label>
              <Input
                type="password"
-               maxLength={4}
+                inputMode="numeric"
+                maxLength={10}
                value={confirmPin}
-               onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ""))}
-               placeholder="••••"
+                onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                placeholder="••••••••••"
                className="text-center text-2xl tracking-widest"
              />
            </div>
  
            <Button
              onClick={handleSetPin}
-             disabled={loading || pin.length !== 4 || confirmPin.length !== 4}
+              disabled={loading || !/^\d{4,10}$/.test(pin) || !/^\d{4,10}$/.test(confirmPin)}
              className="w-full"
            >
              {loading ? "Setting PIN..." : "Set PIN"}

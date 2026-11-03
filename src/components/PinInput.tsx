@@ -16,11 +16,11 @@
    const { toast } = useToast();
  
    const handleVerify = async () => {
-     if (pin.length !== 4) {
+      if (!/^\d{4,10}$/.test(pin)) {
        toast({
          variant: "destructive",
          title: "Invalid PIN",
-         description: "PIN must be 4 digits",
+          description: "PIN must be 4 to 10 digits",
        });
        return;
      }
@@ -60,16 +60,17 @@
        <div className="text-center">
          <h3 className="text-lg font-semibold mb-2">Enter Your PIN</h3>
          <p className="text-sm text-muted-foreground">
-           Enter your 4-digit PIN to continue
+            Enter your 4 to 10 digit PIN to continue
          </p>
        </div>
  
        <Input
          type="password"
-         maxLength={4}
+          inputMode="numeric"
+          maxLength={10}
          value={pin}
-         onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-         placeholder="••••"
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 10))}
+          placeholder="••••••••••"
          className="text-center text-2xl tracking-widest"
          autoFocus
        />
@@ -78,7 +79,7 @@
          <Button variant="outline" onClick={onCancel} className="flex-1">
            Cancel
          </Button>
-         <Button onClick={handleVerify} disabled={loading || pin.length !== 4} className="flex-1">
+          <Button onClick={handleVerify} disabled={loading || !/^\d{4,10}$/.test(pin)} className="flex-1">
            {loading ? "Verifying..." : "Verify"}
          </Button>
        </div>

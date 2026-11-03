@@ -40,8 +40,8 @@ export function AppLockScreen({ onUnlock }: Props) {
   }, [t]);
 
   const setNewPin = async () => {
-    if (pin.length !== 4 || confirmPin.length !== 4) {
-      setError("Enter and confirm a 4-digit PIN.");
+    if (!/^\d{4,10}$/.test(pin) || !/^\d{4,10}$/.test(confirmPin)) {
+      setError("Enter and confirm a PIN of 4 to 10 digits.");
       return;
     }
     if (pin !== confirmPin) {
@@ -67,7 +67,7 @@ export function AppLockScreen({ onUnlock }: Props) {
   };
 
   const tryUnlock = async () => {
-    if (pin.length !== 4 || hasPin !== true) return;
+    if (!/^\d{4,10}$/.test(pin) || hasPin !== true) return;
     setLoading(true);
     setError("");
     try {
@@ -126,15 +126,15 @@ export function AppLockScreen({ onUnlock }: Props) {
             ? t("actions.loading")
             : hasPin
               ? t("appLock.enterPin")
-              : "Set a 4-digit PIN to secure this app."}
+              : "Set a PIN of 4 to 10 digits to secure this app."}
         </p>
         <Input
           type="password"
           inputMode="numeric"
-          maxLength={4}
+          maxLength={10}
           value={pin}
           onChange={(e) => {
-            setPin(e.target.value.replace(/\D/g, ""));
+            setPin(e.target.value.replace(/\D/g, "").slice(0, 10));
             setError("");
           }}
           onKeyDown={(e) => e.key === "Enter" && tryUnlock()}
@@ -146,22 +146,22 @@ export function AppLockScreen({ onUnlock }: Props) {
           <Input
             type="password"
             inputMode="numeric"
-            maxLength={4}
+            maxLength={10}
             value={confirmPin}
             onChange={(e) => {
-              setConfirmPin(e.target.value.replace(/\D/g, ""));
+              setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 10));
               setError("");
             }}
             onKeyDown={(e) => e.key === "Enter" && void setNewPin()}
             className="text-center text-2xl tracking-[0.5em] h-14"
             placeholder="Confirm PIN"
-            aria-label="Confirm 4-digit PIN"
+            aria-label="Confirm 4 to 10 digit PIN"
           />
         )}
         {error && <p className="text-xs text-destructive text-center">{error}</p>}
         <Button
           onClick={hasPin === true ? tryUnlock : setNewPin}
-          disabled={checkingPin || hasPin === null || pin.length !== 4 || loading || (hasPin === false && confirmPin.length !== 4)}
+          disabled={checkingPin || hasPin === null || !/^\d{4,10}$/.test(pin) || loading || (hasPin === false && !/^\d{4,10}$/.test(confirmPin))}
           className="w-full"
         >
           {loading || checkingPin ? t("actions.loading") : hasPin ? t("appLock.unlockWithPin") : "Set PIN and unlock"}

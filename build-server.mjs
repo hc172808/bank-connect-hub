@@ -529,28 +529,30 @@ app.post("/api/build/pwa", async (_req, res) => {
   }
 });
 
-// POST /api/git-pull — pull latest code from git
-app.post("/api/git-pull", (req, res) => {
+// POST /api/git-pull — legacy pull endpoint, kept for older clients.
+app.post("/api/git-pull", async (req, res) => {
   try {
-    const { remote, branch = "main" } = req.body || {};
-    const output = [];
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireFeatureAdmin(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
 
-    if (remote) {
-      try {
-        const setRemote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: __dirname }).toString().trim();
-        if (setRemote !== remote) {
-          execFileSync("git", ["remote", "set-url", "origin", remote], { cwd: __dirname });
-          output.push(`Remote updated to: ${remote}`);
-        }
-      } catch {
-        execFileSync("git", ["remote", "add", "origin", remote], { cwd: __dirname });
-        output.push(`Remote set to: ${remote}`);
-      }
+    const { branch = "main" } = req.body || {};
+    if (typeof branch !== "string" || !/^[A-Za-z0-9._/-]{1,100}$/.test(branch) || branch.startsWith("-") || branch.includes("..")) {
+      return res.status(400).json({ error: "Invalid Git branch name." });
     }
+    const gitRoot = findGitRoot();
+    if (!gitRoot) return res.status(409).json({ error: "This workspace is not a Git checkout." });
+    const currentBranch = execFileSync("git", ["branch", "--show-current"], { cwd: gitRoot }).toString().trim();
+    if (!currentBranch || currentBranch !== branch) {
+      return res.status(409).json({ error: `The workspace is on ${currentBranch || "a detached HEAD"}, not ${branch}.` });
+    }
+    const dirty = execFileSync("git", ["status", "--porcelain"], { cwd: gitRoot }).toString().trim();
+    if (dirty) return res.status(409).json({ error: "Commit or stash local changes before pulling." });
 
-    const activeRemote = remote || execFileSync("git", ["remote", "get-url", "origin"], { cwd: __dirname }).toString().trim();
-    const pullOut = execFileSync("git", ["pull", "origin", branch], {
-      cwd: __dirname,
+    const output = [];
+    const activeRemote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: gitRoot }).toString().trim();
+    const pullOut = execFileSync("git", ["pull", "--ff-only", "origin", branch], {
+      cwd: gitRoot,
       timeout: 120_000,
       stdio: ["ignore", "pipe", "pipe"],
       env: gitEnvForRemote(activeRemote),
@@ -735,8 +737,11 @@ app.get("/api/update/schedule", (_req, res) => {
 });
 
 // POST /api/update/schedule — enable/disable the monthly update schedule
-app.post("/api/update/schedule", (req, res) => {
+app.post("/api/update/schedule", async (req, res) => {
   try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireFeatureAdmin(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
     const schedule = writeUpdateSchedule(req.body || {});
     res.json({ ok: true, schedule });
   } catch (error) {
@@ -763,6 +768,9 @@ function updateSseClose() {
 
 // GET /api/update/stream — SSE stream of update progress
 app.get("/api/update/stream", (req, res) => {
+  if (!updateJob || !req.query.token || req.query.token !== updateJob.streamToken) {
+    return res.status(401).json({ error: "Update stream authorization is invalid." });
+  }
   sseInit(res);
 
   if (!updateJob) {
@@ -804,15 +812,49 @@ app.get("/api/update/stream", (req, res) => {
 });
 
 // POST /api/update — pull latest code, install deps, optionally restart
-app.post("/api/update", (req, res) => {
+app.post("/api/update", async (req, res) => {
+  let admin;
+  try {
+    admin = await getSupabaseAdminClient();
+  } catch (error) {
+    return res.status(503).json({ error: error.message });
+  }
+  const actor = await requireFeatureAdmin(req, admin);
+  if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
   if (updateJob && updateJob.status === "running") {
     return res.status(409).json({ error: "An update is already in progress" });
   }
 
-  const { branch = "main", remote, restart = false } = req.body || {};
+  const { branch = "main", restart = false } = req.body || {};
+  if (typeof branch !== "string" || !/^[A-Za-z0-9._/-]{1,100}$/.test(branch) || branch.startsWith("-") || branch.includes("..")) {
+    return res.status(400).json({ error: "Invalid Git branch name." });
+  }
+  if (typeof restart !== "boolean") return res.status(400).json({ error: "restart must be a boolean." });
 
-  updateJob = { logs: [], status: "running", listeners: [] };
-  res.json({ ok: true, message: "Update started — connect to /api/update/stream for progress" });
+  const gitRoot = findGitRoot();
+  if (!gitRoot) {
+    return res.status(409).json({ error: "This workspace is not a Git checkout." });
+  }
+  let currentBranch;
+  let activeRemote;
+  let dirty;
+  try {
+    currentBranch = execFileSync("git", ["branch", "--show-current"], { cwd: gitRoot }).toString().trim();
+    activeRemote = execFileSync("git", ["remote", "get-url", "origin"], { cwd: gitRoot }).toString().trim();
+    dirty = execFileSync("git", ["status", "--porcelain"], { cwd: gitRoot }).toString().trim();
+  } catch {
+    return res.status(409).json({ error: "Could not read the current Git branch, remote, or worktree status." });
+  }
+  if (!currentBranch || currentBranch !== branch) {
+    return res.status(409).json({ error: `The workspace is on ${currentBranch || "a detached HEAD"}, not ${branch}.` });
+  }
+  if (!activeRemote) return res.status(409).json({ error: "No Git origin is configured for this workspace." });
+  if (dirty) return res.status(409).json({ error: "Commit or stash local changes before pulling. No files were changed." });
+
+  const streamToken = crypto.randomBytes(32).toString("hex");
+  updateJob = { logs: [], status: "running", listeners: [], streamToken };
+  res.json({ ok: true, streamToken, message: "Update started." });
 
   // Run steps sequentially in background
   (async () => {
@@ -826,63 +868,37 @@ app.post("/api/update", (req, res) => {
     };
 
     try {
-      // ── Step 1: optionally update remote ───────────────────────────────────
-      if (remote) {
-        step("Configuring git remote…");
-        const gitRoot = findGitRoot();
-        if (!gitRoot) {
-          throw new Error(
-            "This running app is not inside a Git repository. Open the Replit workspace from the repository checkout or initialize/clone the repository before using Pull & Update.",
-          );
-        }
-        try {
-          const existing = execFileSync("git", ["remote", "get-url", "origin"], { cwd: gitRoot }).toString().trim();
-          if (existing !== remote) {
-            execFileSync("git", ["remote", "set-url", "origin", remote], { cwd: gitRoot });
-            log(`Remote updated to: ${remote}`);
-          }
-        } catch {
-          execFileSync("git", ["remote", "add", "origin", remote], { cwd: gitRoot });
-          log(`Remote added: ${remote}`);
-        }
-      }
-
       // ── Step 2: git pull ───────────────────────────────────────────────────
       step(`Pulling from origin/${branch}…`);
-      const gitRoot = findGitRoot();
-      if (!gitRoot) {
-        throw new Error(
-          "This running app is not inside a Git repository. Pull & Update cannot run until the project is started from a Git checkout.",
-        );
-      }
-      const activeRemote = remote || execFileSync("git", ["remote", "get-url", "origin"], { cwd: gitRoot }).toString().trim();
       await new Promise((resolve, reject) => {
-        const proc = spawn("git", ["pull", "origin", branch], {
+        const proc = spawn("git", ["pull", "--ff-only", "origin", branch], {
           cwd: gitRoot,
           stdio: ["ignore", "pipe", "pipe"],
           env: gitEnvForRemote(activeRemote),
         });
+        const timeout = setTimeout(() => {
+          proc.kill("SIGTERM");
+          reject(new Error("Git pull timed out after 2 minutes."));
+        }, 120_000);
         proc.stdout.on("data", (d) => d.toString().split("\n").filter(Boolean).forEach(log));
         proc.stderr.on("data", (d) => d.toString().split("\n").filter(Boolean).forEach(log));
-        proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`git pull exited ${code}`)));
+        proc.on("error", (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+        proc.on("close", (code) => {
+          clearTimeout(timeout);
+          code === 0 ? resolve() : reject(new Error(`git pull exited ${code}`));
+        });
       });
 
       // ── Step 3: npm install ────────────────────────────────────────────────
-      step("Installing dependencies (npm install)…");
-      await new Promise((resolve, reject) => {
-        const proc = spawn("npm", ["install", "--no-audit", "--no-fund"], {
-          cwd: __dirname,
-          stdio: ["ignore", "pipe", "pipe"],
-          env: { ...process.env, CI: "true" },
-        });
-        proc.stdout.on("data", (d) => d.toString().split("\n").filter(Boolean).forEach(log));
-        proc.stderr.on("data", (d) => {
-          const text = d.toString();
-          text.split("\n").filter(Boolean)
-            .filter((l) => !l.startsWith("npm warn") && !l.startsWith("npm notice"))
-            .forEach(log);
-        });
-        proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`npm install exited ${code}`)));
+      const installCommand = fs.existsSync(path.join(gitRoot, "package-lock.json")) ? "ci" : "install";
+      step(`Installing dependencies (npm ${installCommand})…`);
+      await runUpdateProcess("npm", [installCommand, "--no-audit", "--no-fund"], {
+        cwd: gitRoot,
+        log,
+        env: { ...process.env, CI: "true" },
       });
 
       if (restart) {
@@ -1674,8 +1690,419 @@ async function getUserRole(admin, userId, user = null) {
   const roles = (roleRows || []).map((row) => row.role);
   if (roles.includes("founder")) return "founder";
   if (roles.includes("admin")) return "admin";
+  if (roles.includes("agent")) return "agent";
+  if (roles.includes("vendor")) return "vendor";
   return roles[0] || user?.user_metadata?.account_type || user?.user_metadata?.role || "client";
 }
+
+async function getSupportActor(req, admin) {
+  const auth = await requireBearerUser(req, admin);
+  if (auth.error) return auth;
+  try {
+    const role = await getUserRole(admin, auth.user.id, auth.user);
+    return { ...auth, role };
+  } catch (error) {
+    return { status: 503, error: error.message };
+  }
+}
+
+async function getOnlineSupportAgentIds(admin) {
+  const cutoff = new Date(Date.now() - 60_000).toISOString();
+  const [{ data: roleRows, error: roleError }, { data: presenceRows, error: presenceError }] = await Promise.all([
+    admin.from("user_roles").select("user_id").eq("role", "agent"),
+    admin.from("support_chat_presence").select("agent_id").eq("available", true).gte("last_seen_at", cutoff),
+  ]);
+  if (roleError || presenceError) {
+    throw new Error(roleError?.message || presenceError?.message || "Could not check agent availability.");
+  }
+  const activeAgents = new Set((roleRows || []).map((row) => row.user_id));
+  return (presenceRows || []).map((row) => row.agent_id).filter((agentId) => activeAgents.has(agentId));
+}
+
+async function insertSupportChatMessage(admin, { sessionId, senderId = null, senderRole, body }) {
+  const { data, error } = await admin
+    .from("support_chat_messages")
+    .insert({ session_id: sessionId, sender_id: senderId, sender_role: senderRole, body })
+    .select("*")
+    .single();
+  if (error) throw new Error(error.message);
+  const { error: updateError } = await admin
+    .from("support_chat_sessions")
+    .update({ updated_at: new Date().toISOString(), last_message_at: data.created_at })
+    .eq("id", sessionId);
+  if (updateError) throw new Error(updateError.message);
+  return data;
+}
+
+async function getSupportChatMessages(admin, sessionId) {
+  const { data, error } = await admin
+    .from("support_chat_messages")
+    .select("id, session_id, sender_id, sender_role, body, created_at")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) throw new Error(error.message);
+  return (data || []).reverse();
+}
+
+async function callSupportChatAssistant(messages) {
+  const { connectors, modelId } = await getSystemDoctorModel();
+  const response = await connectors.proxy("xai", "/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: modelId,
+      input: [
+        {
+          role: "system",
+          content: [
+            "You are the app's automated support answer service. Answer only general questions about how the app and its ordinary banking features work.",
+            "You are not a human agent. You have no tools and cannot access or change any account, wallet, balance, transaction, settings, permissions, or other data.",
+            "Never claim to have performed an action. Never give account-specific comments, judgments, or assurances. Never ask for or repeat passwords, PINs, one-time codes, or full payment credentials.",
+            "If the user asks for an account-specific answer, a balance, a payment, a change, an investigation, or any action, say you cannot do that and ask them to request a human agent.",
+            "If the user did not ask a general question, ask briefly what question they need answered. Do not provide unsolicited commentary.",
+          ].join(" "),
+        },
+        ...messages.map((message) => ({
+          role: message.sender_role === "assistant" ? "assistant" : "user",
+          content: message.body,
+        })),
+      ],
+      temperature: 0.2,
+      max_output_tokens: 500,
+    }),
+  });
+  if (!response.ok) throw new Error("The automated support service is unavailable.");
+  const result = await response.json();
+  const answer = extractSystemDoctorText(result);
+  if (!answer) throw new Error("The automated support service returned no answer.");
+  return answer.slice(0, 2000);
+}
+
+async function fetchSupportChatSession(admin, sessionId) {
+  const { data, error } = await admin
+    .from("support_chat_sessions")
+    .select("id, user_id, agent_id, status, created_at, updated_at, last_message_at")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function addSupportProfileNames(admin, sessions, idKey) {
+  const profileIds = [...new Set(sessions.map((session) => session[idKey]).filter(Boolean))];
+  if (profileIds.length === 0) return sessions.map((session) => ({ ...session, display_name: "Customer" }));
+  const { data, error } = await admin.from("profiles").select("id, full_name, store_name").in("id", profileIds);
+  if (error) throw new Error(error.message);
+  const names = new Map((data || []).map((profile) => [profile.id, profile.store_name || profile.full_name || "Customer"]));
+  return sessions.map((session) => ({ ...session, display_name: names.get(session[idKey]) || "Customer" }));
+}
+
+app.post("/api/support-chat/open", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (!["client", "vendor"].includes(actor.role)) {
+      return res.status(403).json({ error: "Support chat is for customer and vendor accounts." });
+    }
+
+    const { data: existing, error: existingError } = await admin
+      .from("support_chat_sessions")
+      .select("id, user_id, agent_id, status, created_at, updated_at, last_message_at")
+      .eq("user_id", actor.user.id)
+      .neq("status", "closed")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingError) throw new Error(existingError.message);
+    if (existing) return res.json({ session: existing, messages: await getSupportChatMessages(admin, existing.id) });
+
+    const agentIds = await getOnlineSupportAgentIds(admin);
+    const status = agentIds.length > 0 ? "waiting" : "ai";
+    const { data: session, error: insertError } = await admin
+      .from("support_chat_sessions")
+      .insert({ user_id: actor.user.id, status })
+      .select("id, user_id, agent_id, status, created_at, updated_at, last_message_at")
+      .single();
+    if (insertError) throw new Error(insertError.message);
+    await insertSupportChatMessage(admin, {
+      sessionId: session.id,
+      senderRole: "system",
+      body: status === "waiting"
+        ? "Your request is in the queue. An agent will join as soon as one is available."
+        : "No agents are online, so automated support is available. It can answer general questions but cannot view or change your account.",
+    });
+    res.status(201).json({ session, messages: await getSupportChatMessages(admin, session.id) });
+  } catch (error) {
+    console.error("[support-chat] open failed:", error.message);
+    res.status(503).json({ error: "Support chat could not be opened. Please try again." });
+  }
+});
+
+app.get("/api/support-chat/me", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (!["client", "vendor"].includes(actor.role)) {
+      return res.status(403).json({ error: "Customer support chat is not available for this account." });
+    }
+    const { data: session, error } = await admin
+      .from("support_chat_sessions")
+      .select("id, user_id, agent_id, status, created_at, updated_at, last_message_at")
+      .eq("user_id", actor.user.id)
+      .neq("status", "closed")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!session) return res.json({ session: null, messages: [] });
+
+    const onlineAgentIds = await getOnlineSupportAgentIds(admin);
+    const agentDisconnected = session.status === "active" && session.agent_id && !onlineAgentIds.includes(session.agent_id);
+    const noAgentForWaitingRequest = session.status === "waiting" && onlineAgentIds.length === 0;
+    if (agentDisconnected || noAgentForWaitingRequest) {
+      const nextStatus = onlineAgentIds.length > 0 ? "waiting" : "ai";
+      const { data: updated, error: updateError } = await admin
+        .from("support_chat_sessions")
+        .update({
+          status: nextStatus,
+          ...(agentDisconnected ? { agent_id: null } : {}),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", session.id)
+        .eq("status", session.status)
+        .select("id, user_id, agent_id, status, created_at, updated_at, last_message_at")
+        .maybeSingle();
+      if (updateError) throw new Error(updateError.message);
+      if (updated) {
+        await insertSupportChatMessage(admin, {
+          sessionId: session.id,
+          senderRole: "system",
+          body: nextStatus === "waiting"
+            ? "Your previous agent is no longer online. Your conversation is back in the human-agent queue."
+            : "No agents are currently online. Automated support can answer general questions; request a human when one is available.",
+        });
+        Object.assign(session, updated);
+      }
+    }
+    res.json({ session, messages: await getSupportChatMessages(admin, session.id) });
+  } catch (error) {
+    console.error("[support-chat] customer session read failed:", error.message);
+    res.status(503).json({ error: "Support chat could not be loaded." });
+  }
+});
+
+app.post("/api/support-chat/presence", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (actor.role !== "agent") return res.status(403).json({ error: "Only support agents can change chat availability." });
+    if (typeof req.body?.available !== "boolean") {
+      return res.status(400).json({ error: "available must be a boolean." });
+    }
+    const { error } = await admin.from("support_chat_presence").upsert({
+      agent_id: actor.user.id,
+      available: req.body.available,
+      last_seen_at: new Date().toISOString(),
+    }, { onConflict: "agent_id" });
+    if (error) throw new Error(error.message);
+    res.json({ ok: true, available: req.body.available });
+  } catch (error) {
+    console.error("[support-chat] presence update failed:", error.message);
+    res.status(503).json({ error: "Agent availability could not be updated." });
+  }
+});
+
+app.get("/api/support-chat/presence", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (actor.role !== "agent") return res.status(403).json({ error: "Only support agents can view chat availability." });
+    const { data, error } = await admin
+      .from("support_chat_presence")
+      .select("available, last_seen_at")
+      .eq("agent_id", actor.user.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    const fresh = Boolean(data?.last_seen_at && Date.now() - new Date(data.last_seen_at).getTime() < 60_000);
+    res.json({ available: Boolean(data?.available && fresh) });
+  } catch (error) {
+    console.error("[support-chat] presence read failed:", error.message);
+    res.status(503).json({ error: "Agent availability could not be loaded." });
+  }
+});
+
+app.get("/api/support-chat/queue", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (actor.role !== "agent") return res.status(403).json({ error: "Only support agents can view the chat queue." });
+
+    const [{ data: waiting, error: waitingError }, { data: active, error: activeError }] = await Promise.all([
+      admin.from("support_chat_sessions")
+        .select("id, user_id, agent_id, status, created_at, updated_at, last_message_at")
+        .eq("status", "waiting").order("created_at", { ascending: true }).limit(100),
+      admin.from("support_chat_sessions")
+        .select("id, user_id, agent_id, status, created_at, updated_at, last_message_at")
+        .eq("status", "active").eq("agent_id", actor.user.id).order("updated_at", { ascending: false }).limit(100),
+    ]);
+    if (waitingError || activeError) throw new Error(waitingError?.message || activeError?.message);
+    res.json({
+      waiting: await addSupportProfileNames(admin, waiting || [], "user_id"),
+      active: await addSupportProfileNames(admin, active || [], "user_id"),
+    });
+  } catch (error) {
+    console.error("[support-chat] queue read failed:", error.message);
+    res.status(503).json({ error: "The support queue could not be loaded." });
+  }
+});
+
+app.post("/api/support-chat/:sessionId/accept", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (actor.role !== "agent") return res.status(403).json({ error: "Only support agents can accept chats." });
+    if (!(await getOnlineSupportAgentIds(admin)).includes(actor.user.id)) {
+      return res.status(409).json({ error: "Mark yourself available before accepting a request." });
+    }
+
+    const { data: session, error } = await admin
+      .from("support_chat_sessions")
+      .update({ status: "active", agent_id: actor.user.id, updated_at: new Date().toISOString() })
+      .eq("id", req.params.sessionId)
+      .eq("status", "waiting")
+      .select("id, user_id, agent_id, status, created_at, updated_at, last_message_at")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!session) return res.status(409).json({ error: "This request was already accepted or is no longer waiting." });
+    await insertSupportChatMessage(admin, {
+      sessionId: session.id,
+      senderId: actor.user.id,
+      senderRole: "system",
+      body: "A human support agent has joined the chat and is ready to help.",
+    });
+    res.json({ session, messages: await getSupportChatMessages(admin, session.id) });
+  } catch (error) {
+    console.error("[support-chat] accept failed:", error.message);
+    res.status(503).json({ error: "This chat could not be accepted." });
+  }
+});
+
+app.post("/api/support-chat/:sessionId/request-human", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    if (!["client", "vendor"].includes(actor.role)) {
+      return res.status(403).json({ error: "Only customers can request a human agent." });
+    }
+    const session = await fetchSupportChatSession(admin, req.params.sessionId);
+    if (!session || session.user_id !== actor.user.id) return res.status(404).json({ error: "Chat not found." });
+    if (session.status !== "ai") return res.status(409).json({ error: "This chat is not waiting for an agent request." });
+    if ((await getOnlineSupportAgentIds(admin)).length === 0) {
+      return res.status(409).json({ error: "No human agents are online yet. Automated support remains available." });
+    }
+    const { data: updated, error } = await admin
+      .from("support_chat_sessions")
+      .update({ status: "waiting", updated_at: new Date().toISOString() })
+      .eq("id", session.id)
+      .eq("status", "ai")
+      .select("id, user_id, agent_id, status, created_at, updated_at, last_message_at")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!updated) return res.status(409).json({ error: "Chat status changed. Refresh and try again." });
+    await insertSupportChatMessage(admin, {
+      sessionId: session.id,
+      senderRole: "system",
+      body: "Your request for a human agent is in the queue.",
+    });
+    res.json({ session: updated, messages: await getSupportChatMessages(admin, session.id) });
+  } catch (error) {
+    console.error("[support-chat] human request failed:", error.message);
+    res.status(503).json({ error: "A human agent could not be requested." });
+  }
+});
+
+app.get("/api/support-chat/:sessionId", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    const session = await fetchSupportChatSession(admin, req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "Chat not found." });
+    const isOwner = session.user_id === actor.user.id && ["client", "vendor"].includes(actor.role);
+    const isAssignedAgent = actor.role === "agent" && session.agent_id === actor.user.id && session.status === "active";
+    if (!isOwner && !isAssignedAgent) return res.status(403).json({ error: "You cannot access this chat." });
+
+    let agentName = null;
+    if (session.agent_id) {
+      const { data: profile } = await admin.from("profiles").select("full_name").eq("id", session.agent_id).maybeSingle();
+      agentName = profile?.full_name || "Support agent";
+    }
+    res.json({ session, agentName, messages: await getSupportChatMessages(admin, session.id) });
+  } catch (error) {
+    console.error("[support-chat] conversation read failed:", error.message);
+    res.status(503).json({ error: "Chat messages could not be loaded." });
+  }
+});
+
+app.post("/api/support-chat/:sessionId/messages", async (req, res) => {
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+    if (!body || body.length > 2000) return res.status(400).json({ error: "Message must contain 1 to 2,000 characters." });
+    const session = await fetchSupportChatSession(admin, req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "Chat not found." });
+
+    const isCustomer = session.user_id === actor.user.id && ["client", "vendor"].includes(actor.role);
+    const isAgent = actor.role === "agent" && session.agent_id === actor.user.id && session.status === "active";
+    if ((!isCustomer && !isAgent) || session.status === "closed") {
+      return res.status(403).json({ error: "You cannot send messages in this chat." });
+    }
+    await insertSupportChatMessage(admin, {
+      sessionId: session.id,
+      senderId: actor.user.id,
+      senderRole: isAgent ? "agent" : "user",
+      body,
+    });
+
+    if (isCustomer && session.status === "ai") {
+      try {
+        const credentialLike = /\b(pin|password|passcode|otp|one[- ]time code|verification code)\b\s*(?:is|:|=)?\s*\S+/i.test(body);
+        const recentMessages = (await getSupportChatMessages(admin, session.id))
+          .filter((message) => ["user", "assistant"].includes(message.sender_role))
+          .slice(-20);
+        const answer = credentialLike
+          ? "For your safety, do not share PINs, passwords, or verification codes in chat. I cannot help with account-specific requests; ask for a human agent if you need account help."
+          : await callSupportChatAssistant(recentMessages);
+        await insertSupportChatMessage(admin, {
+          sessionId: session.id,
+          senderRole: "assistant",
+          body: answer,
+        });
+      } catch {
+        await insertSupportChatMessage(admin, {
+          sessionId: session.id,
+          senderRole: "system",
+          body: "Automated support is temporarily unavailable. You can request a human agent or try again later.",
+        });
+        return res.status(503).json({ error: "Automated support is unavailable right now. Your message was saved." });
+      }
+    }
+    res.json({ session: await fetchSupportChatSession(admin, session.id), messages: await getSupportChatMessages(admin, session.id) });
+  } catch (error) {
+    console.error("[support-chat] message send failed:", error.message);
+    res.status(503).json({ error: "Your message could not be sent." });
+  }
+});
 
 // Feature toggles are public configuration, but some Supabase projects have
 // missing/stale anonymous SELECT policies. Read them through the server-held

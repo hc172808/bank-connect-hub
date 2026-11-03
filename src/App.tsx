@@ -23,6 +23,7 @@ import { RoleGuard } from "./components/RoleGuard";
 import { DashboardSwitcher } from "./components/DashboardSwitcher";
 import { canUseBankingView } from "./lib/dashboardViews";
 import { IncidentBanner } from "./components/IncidentBanner";
+import { SupportChatWidget } from "./components/SupportChatWidget";
 import { toast as sonnerToast } from "sonner";
 import { buildSnapshot, snapshotToText } from "@/lib/bootDiagnostics";
 import { ScrollToTop } from "./components/ScrollToTop";
@@ -786,6 +787,7 @@ const App = () => (
           <ForceUpdateGate>
             <ScrollToTop />
             <GlobalOverlays />
+            <SupportChatWidget />
             <Suspense fallback={<FullScreenLoader />}>
               <AppRoutes />
             </Suspense>

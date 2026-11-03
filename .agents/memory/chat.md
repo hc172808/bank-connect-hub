@@ -1,10 +1,25 @@
 ---
 name: In-app chat system
-description: How real-time chat is implemented without adding new DB tables
+description: Peer messaging and secure in-app human/AI support chat boundaries
 ---
 
 ## Approach
 Chat is built on top of the existing `notifications` table — no schema migrations needed.
+
+Support chat is a separate, database-backed support queue. Its sessions, messages,
+and agent availability are read and written only by authenticated server routes
+using the service-role client; browser clients must not query these tables directly.
+
+**Rule:** Automated support has no tools and may answer general product questions
+only. It must not inspect or change accounts, balances, transactions, or permissions.
+Only an assigned human agent may send agent replies or use the app's independently
+authorized staff functions.
+
+**Why:** The user requires AI support to be informational only and reserves account
+changes and operational comments for human staff with admin-granted permissions.
+
+**How to apply:** Keep AI prompts free of account data, do not expose mutation tools
+to the model, and enforce customer ownership and agent assignment in server routes.
 
 ## Message storage
 When user A sends to user B, two rows are inserted:

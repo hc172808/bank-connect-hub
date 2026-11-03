@@ -15,14 +15,12 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 
 type UpdateStatus = "idle" | "running" | "done" | "failed";
-const DEFAULT_GIT_REMOTE = "https://github.com/hc172808/bank-connect-hub.git";
 
 const SystemSettings = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const logRef = useRef<HTMLDivElement>(null);
 
-  const [gitRemote, setGitRemote] = useState(DEFAULT_GIT_REMOTE);
   const [gitBranch, setGitBranch] = useState("main");
   const [restartAfter, setRestartAfter] = useState(false);
   const [notificationProvider, setNotificationProvider] = useState("in_app");
@@ -86,27 +84,33 @@ const SystemSettings = () => {
   const saveUpdateSchedule = async () => {
     setUpdateScheduleSaving(true);
     let serverError: string | null = null;
+    let databaseError: string | null = null;
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sign in again to update the schedule.");
       const response = await fetch("/api/update/schedule", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({ enabled: updateScheduleEnabled, day: 10, hour: 3, minute: 0 }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({})) as { error?: string };
-        serverError = data.error || response.statusText;
+        throw new Error(data.error || response.statusText);
       }
+      const { error } = await supabase.from("app_settings").upsert({
+        key: "update_schedule",
+        value: { enabled: updateScheduleEnabled, day: 10, hour: 3, minute: 0 },
+      }, { onConflict: "key" });
+      databaseError = error?.message || null;
     } catch (error) {
       serverError = error instanceof Error ? error.message : "Could not reach the update service.";
     }
-
-    const { error: databaseError } = await supabase.from("app_settings").upsert({
-      key: "update_schedule",
-      value: { enabled: updateScheduleEnabled, day: 10, hour: 3, minute: 0 },
-    }, { onConflict: "key" });
     setUpdateScheduleSaving(false);
 
-    const error = serverError || databaseError?.message;
+    const error = serverError || databaseError;
     toast({
       title: error ? "Update schedule failed" : "Update schedule saved",
       description: error || (updateScheduleEnabled
@@ -119,9 +123,9 @@ const SystemSettings = () => {
   const appendLog = (kind: "step" | "log" | "error", text: string) =>
     setLogs((prev) => [...prev, { kind, text }]);
 
-  const connectStream = (withRestart = restartAfter) => {
+  const connectStream = (streamToken: string, withRestart = restartAfter) => {
     esRef.current?.close();
-    const es = new EventSource("/api/update/stream");
+    const es = new EventSource(`/api/update/stream?token=${encodeURIComponent(streamToken)}`);
     esRef.current = es;
 
     es.onmessage = (e) => {
@@ -181,12 +185,16 @@ const SystemSettings = () => {
     setLogs([]);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sign in again to run an update.");
       const r = await fetch("/api/update", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({
           branch: gitBranch || "main",
-          remote: gitRemote || undefined,
           restart: withRestart,
         }),
       });
@@ -198,7 +206,9 @@ const SystemSettings = () => {
         return;
       }
 
-      connectStream(withRestart);
+      const data = await r.json() as { streamToken?: string };
+      if (!data.streamToken) throw new Error("The update stream could not be authorized.");
+      connectStream(data.streamToken, withRestart);
     } catch (err: unknown) {
       setStatus("failed");
       toast({
@@ -246,16 +256,7 @@ const SystemSettings = () => {
 
           <CardContent className="space-y-5">
             {/* Git options */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                  <Label>Remote URL</Label>
-                <Input
-                  value={gitRemote}
-                  onChange={(e) => setGitRemote(e.target.value)}
-                  placeholder="https://github.com/user/repo.git"
-                  disabled={busy}
-                />
-              </div>
+            <div className="grid grid-cols-1 gap-4">
               <div className="space-y-1">
                 <Label>Branch</Label>
                 <Input
@@ -319,8 +320,8 @@ const SystemSettings = () => {
               <div className="flex gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
                 <Info className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
                 <span>
-                  This runs <code className="bg-muted px-1 rounded">git pull</code> then{" "}
-                  <code className="bg-muted px-1 rounded">npm install</code>. Vite's hot-reload
+                  This safely fast-forwards the current Git remote, then installs the locked
+                  dependencies with <code className="bg-muted px-1 rounded">npm ci</code>. Vite's hot-reload
                   picks up frontend changes automatically. Enable "Restart server" if you added
                   new backend packages or changed <code className="bg-muted px-1 rounded">build-server.mjs</code>.
                 </span>

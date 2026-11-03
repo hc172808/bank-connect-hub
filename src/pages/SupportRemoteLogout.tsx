@@ -29,8 +29,8 @@ export default function SupportRemoteLogout() {
 
   const confirmLogout = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!/^\d{4}$/.test(pin) || !token) {
-      setMessage("Enter your four-digit wallet-lock PIN.");
+    if (!/^\d{4,10}$/.test(pin) || !token) {
+      setMessage("Enter your 4 to 10 digit wallet-lock PIN.");
       return;
     }
 
@@ -76,7 +76,7 @@ export default function SupportRemoteLogout() {
           <CardDescription>
             {state === "success"
               ? `Your PIN was confirmed. ${revokedCount ?? 0} active device session${revokedCount === 1 ? " was" : "s were"} signed out.`
-              : "Enter the four-digit PIN you use to unlock your wallet. It is checked securely and is never shown to support staff."}
+              : "Enter the 4 to 10 digit PIN you use to unlock your wallet. It is checked securely and is never shown to support staff."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -109,16 +109,16 @@ export default function SupportRemoteLogout() {
                   type="password"
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  maxLength={4}
+                  maxLength={10}
                   value={pin}
-                  onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                  placeholder="4-digit PIN"
+                  onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 10))}
+                  placeholder="4 to 10 digit PIN"
                   disabled={state === "submitting"}
                   autoFocus
                 />
               </div>
               {message && <p className="text-sm text-destructive" role="alert">{message}</p>}
-              <Button type="submit" className="w-full" disabled={state === "submitting" || pin.length !== 4}>
+              <Button type="submit" className="w-full" disabled={state === "submitting" || !/^\d{4,10}$/.test(pin)}>
                 {state === "submitting" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Confirm and sign out all devices
               </Button>

@@ -399,10 +399,14 @@ const VirtualCards = () => {
                               <Label className="flex items-center gap-2 mb-2"><Smartphone size={14} /> Change PIN</Label>
                               <Input
                                 type="password"
-                                maxLength={4}
-                                placeholder="New 4-digit PIN"
+                                inputMode="numeric"
+                                maxLength={10}
+                                placeholder="New 4 to 10 digit PIN"
+                                onChange={e => {
+                                  e.target.value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                                }}
                                 onBlur={e => {
-                                  if (e.target.value.length === 4 && /^\d{4}$/.test(e.target.value)) {
+                                  if (/^\d{4,10}$/.test(e.target.value)) {
                                     const updated = cards.map(c => c.id === card.id ? { ...c, pin: e.target.value } : c);
                                     saveCards(updated);
                                     toast({ title: "PIN updated" });
@@ -410,7 +414,7 @@ const VirtualCards = () => {
                                   }
                                 }}
                               />
-                              <p className="text-xs text-muted-foreground mt-1">Enter a 4-digit numeric PIN</p>
+                              <p className="text-xs text-muted-foreground mt-1">Enter a numeric PIN with 4 to 10 digits</p>
                             </div>
                             <div className="bg-muted rounded-lg p-3 text-xs space-y-1 text-muted-foreground">
                               <p><strong>Daily limit:</strong> ${(card.daily_limit ?? 500).toFixed(2)}</p>
