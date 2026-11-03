@@ -23,7 +23,7 @@
 - [System Doctor safety](system-doctor.md) — xAI receives only sanitized diagnostics after admin opt-in; it cannot execute repairs or change financial data
 - [Wallet balance visibility](wallet-balance-visibility.md) — Agents see client/vendor balances only; admins and founders see all
 - [Role-based device limits](two-device-login.md) — regular accounts get two active devices; admins/founders are unlimited, with optional approval and user-controlled sign-out
-- [Security question authentication](security-question-auth.md) — keep answer hashes server-only and withhold app login sessions until new-device verification
+- [Security question authentication](security-question-auth.md) — hash answers server-side; prompt legacy users to set one after password verification before releasing sessions
 - [Supabase database connectivity](supabase-connection-ipv6.md) — use an IPv4-compatible pooler URL when direct Supabase PostgreSQL resolves to IPv6 only
 - [Vite preview HMR](vite-preview-hmr.md) — let Vite detect the preview websocket host/protocol; hardcoding TLS localhost broke hot reload
 - [RPC test connectivity](rpc-testing.md) — web balance reads use an authenticated proxy; bundled apps use native HTTP, with the test RPC kept read-only

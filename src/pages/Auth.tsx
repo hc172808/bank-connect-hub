@@ -21,6 +21,13 @@ import {
   PENDING_LOGIN_SECURITY_KEY,
 } from "@/hooks/useDeviceSession";
 import { BankingAuthLayout } from "@/components/BankingAuthLayout";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type AuthMode = "signin" | "signup";
 type AccountType = "client" | "vendor";
@@ -107,11 +114,21 @@ const Auth = () => {
     securityQuestionRequired?: boolean;
     securityQuestionSetupRequired?: boolean;
   }) => {
+    const setupRequired = Boolean(result.securityQuestionSetupRequired);
+    try {
+      sessionStorage.setItem(PENDING_LOGIN_SECURITY_KEY, JSON.stringify({
+        challengeId: result.challengeId,
+        question: result.question || "",
+        setupRequired,
+      }));
+    } catch {
+      // The active challenge remains usable in memory if session storage is unavailable.
+    }
     setSecurityChallenge(result.challengeId);
     setSecurityChallengeQuestion(result.question || "");
     setSecurityAnswerInput("");
     setSecuritySetupQuestion("");
-    setLoginStep(result.securityQuestionSetupRequired ? "security_setup" : "security");
+    setLoginStep(setupRequired ? "security_setup" : "security");
   };
 
   const acceptLoginResult = async (result: {
@@ -497,16 +514,20 @@ const Auth = () => {
                 {mode === "signin"
                   ? loginStep === "approval"
                     ? "Approve this sign-in"
-                    : loginStep === "security" || loginStep === "security_setup"
-                      ? "Verify this device"
+                    : loginStep === "security_setup"
+                      ? "Set up account security"
+                      : loginStep === "security"
+                        ? "Verify this device"
                       : "Welcome back"
                   : "Create your account"}
               </h1>
               <p className="text-muted-foreground">
                 {mode === "signin" && loginStep === "approval"
                   ? "Your account stays signed out here until you approve it on your other device."
-                  : mode === "signin" && (loginStep === "security" || loginStep === "security_setup")
-                    ? "Answer your security question to continue on this device."
+                  : mode === "signin" && loginStep === "security_setup"
+                    ? "Complete this one-time setup to finish signing in."
+                    : mode === "signin" && loginStep === "security"
+                      ? "Answer your security question to continue on this device."
                   : mode === "signin"
                     ? "Sign in to your NETLIFE CASH account."
                     : "Create your account to get started."}
@@ -517,7 +538,7 @@ const Auth = () => {
               onSubmit={
                 mode === "signin" && loginStep === "otp"
                   ? handleVerifyLoginOtp
-                  : mode === "signin" && (loginStep === "security" || loginStep === "security_setup")
+                  : mode === "signin" && loginStep === "security"
                     ? handleVerifySecurityQuestion
                     : handleAuth
               }
@@ -577,32 +598,15 @@ const Auth = () => {
                     </Button>
                   </div>
                 </div>
-              ) : mode === "signin" && (loginStep === "security" || loginStep === "security_setup") ? (
+              ) : mode === "signin" && loginStep === "security" ? (
                 <div className="space-y-5">
                   <div className="rounded-2xl bg-primary/10 p-5">
                     <ShieldCheck className="mb-3 h-10 w-10 text-primary" />
                     <h2 className="font-semibold text-lg">New device security check</h2>
                     <p className="text-sm text-muted-foreground mt-2">
-                      {loginStep === "security_setup"
-                        ? "Set a question and private answer phrase to finish setting up your account security."
-                        : securityChallengeQuestion}
+                      {securityChallengeQuestion}
                     </p>
                   </div>
-                  {loginStep === "security_setup" && (
-                    <div className="space-y-2">
-                      <Label htmlFor="security-setup-question">Your security question</Label>
-                      <Input
-                        id="security-setup-question"
-                        value={securitySetupQuestion}
-                        onChange={(event) => setSecuritySetupQuestion(event.target.value)}
-                        placeholder="Write a question only you can answer"
-                        minLength={6}
-                        maxLength={160}
-                        required
-                        data-testid="input-security-setup-question"
-                      />
-                    </div>
-                  )}
                   <div className="space-y-2">
                     <Label htmlFor="security-login-answer">Your answer phrase</Label>
                     <Input
@@ -619,19 +623,14 @@ const Auth = () => {
                       required
                       data-testid="input-security-login-answer"
                     />
-                    {loginStep === "security_setup" && (
-                      <p className="text-xs text-muted-foreground">
-                        Choose a unique phrase others cannot guess. Your answer is stored as a one-way hash.
-                      </p>
-                    )}
                   </div>
                   <Button
                     type="submit"
-                    disabled={loading || securityAnswerInput.trim().length < 10 || (loginStep === "security_setup" && securitySetupQuestion.trim().length < 6)}
+                    disabled={loading || securityAnswerInput.trim().length < 10}
                     className="w-full h-14 rounded-xl font-semibold"
                     data-testid="button-submit-security-answer"
                   >
-                    {loading ? "Verifying…" : loginStep === "security_setup" ? "Save and sign in" : "Verify and sign in"}
+                    {loading ? "Verifying…" : "Verify and sign in"}
                   </Button>
                   <Button
                     type="button"
@@ -854,6 +853,84 @@ const Auth = () => {
               </div>
             )}
           </div>
+          <Dialog
+            open={mode === "signin" && loginStep === "security_setup"}
+            onOpenChange={(open) => {
+              if (!open && loginStep === "security_setup" && !loading) cancelSecurityChallenge();
+            }}
+          >
+            <DialogContent
+              className="max-w-md"
+              onEscapeKeyDown={(event) => {
+                if (loading) event.preventDefault();
+              }}
+              onPointerDownOutside={(event) => {
+                if (loading) event.preventDefault();
+              }}
+            >
+              <DialogHeader>
+                <DialogTitle>Set up your account security</DialogTitle>
+                <DialogDescription>
+                  Your password has been verified. Set a security question and private answer phrase once to finish signing in.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleVerifySecurityQuestion} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="security-setup-question">Your security question</Label>
+                  <Input
+                    id="security-setup-question"
+                    value={securitySetupQuestion}
+                    onChange={(event) => setSecuritySetupQuestion(event.target.value)}
+                    placeholder="Write a question only you can answer"
+                    minLength={6}
+                    maxLength={160}
+                    required
+                    autoFocus
+                    data-testid="input-security-setup-question"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="security-setup-answer">Your private answer phrase</Label>
+                  <Input
+                    id="security-setup-answer"
+                    type="password"
+                    autoComplete="new-password"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    value={securityAnswerInput}
+                    onChange={(event) => setSecurityAnswerInput(event.target.value)}
+                    placeholder="At least 10 characters"
+                    minLength={10}
+                    maxLength={200}
+                    required
+                    data-testid="input-security-setup-answer"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Choose a unique phrase others cannot guess. It is stored as a one-way hash.
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={cancelSecurityChallenge}
+                    disabled={loading}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="flex-1"
+                    disabled={loading || securitySetupQuestion.trim().length < 6 || securityAnswerInput.trim().length < 10}
+                    data-testid="button-save-login-security"
+                  >
+                    {loading ? "Saving…" : "Save and sign in"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
     </BankingAuthLayout>
   );
 };

@@ -346,8 +346,10 @@ export default function ForgotPassword() {
             setupRequired: Boolean(loginResult.securityQuestionSetupRequired),
           }));
           toast({
-            title: "Security check required",
-            description: "Answer your security question to finish signing in.",
+            title: loginResult.securityQuestionSetupRequired ? "Security setup required" : "Security check required",
+            description: loginResult.securityQuestionSetupRequired
+              ? "Set a security question and private answer phrase to finish signing in."
+              : "Answer your security question to finish signing in.",
           });
           navigate("/auth");
           return;

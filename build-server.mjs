@@ -2419,6 +2419,11 @@ async function beginDeviceLogin(session, user, device) {
     );
   }
   const admin = await getSupabaseAdminClient();
+  const questionRecord = await getStoredSecurityQuestion(admin, user.id);
+  if (!questionRecord) {
+    return createLoginSecurityQuestionChallenge(session, user, device, null);
+  }
+
   let activeRows = [];
   try {
     activeRows = await getActiveDeviceRows(admin, user.id);
@@ -2428,14 +2433,6 @@ async function beginDeviceLogin(session, user, device) {
   const sameDevice = activeRows.some((row) => row.device_id === device.deviceId);
   if (sameDevice) return prepareDeviceLogin(session, user, device);
 
-  const questionRecord = await getStoredSecurityQuestion(admin, user.id);
-  if (!questionRecord && activeRows.length > 0) {
-    throw deviceRouteError(
-      403,
-      "Set up your security question on a device where you are already signed in before adding this device. If you no longer have access, contact support.",
-      "SECURITY_QUESTION_SETUP_REQUIRED",
-    );
-  }
   return createLoginSecurityQuestionChallenge(session, user, device, questionRecord);
 }
 
