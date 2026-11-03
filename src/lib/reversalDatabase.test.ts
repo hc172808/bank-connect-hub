@@ -3,7 +3,8 @@ import pg from "pg";
 
 // Integration tests against the managed database. Every test rolls back;
 // no approval/processing RPC is called and no wallet/transfer is written.
-const client = new pg.Client();
+// The sandbox-managed PostgreSQL endpoint uses its own certificate chain.
+const client = new pg.Client({ ssl: { rejectUnauthorized: false } });
 let transfer: { id: string; sender_id: string; receiver_id: string; amount: string };
 let adminId: string;
 let otherId: string;
