@@ -339,6 +339,19 @@ export default function ForgotPassword() {
           }),
         });
         const loginResult = await loginResponse.json().catch(() => ({}));
+        if ((loginResult.securityQuestionRequired || loginResult.securityQuestionSetupRequired) && loginResult.challengeId) {
+          sessionStorage.setItem(PENDING_LOGIN_SECURITY_KEY, JSON.stringify({
+            challengeId: loginResult.challengeId,
+            question: loginResult.question || "",
+            setupRequired: Boolean(loginResult.securityQuestionSetupRequired),
+          }));
+          toast({
+            title: "Security check required",
+            description: "Answer your security question to finish signing in.",
+          });
+          navigate("/auth");
+          return;
+        }
         if (loginResult.approvalRequired && loginResult.requestToken) {
           sessionStorage.setItem(PENDING_LOGIN_APPROVAL_KEY, loginResult.requestToken);
           approvalRequested = true;
@@ -366,20 +379,6 @@ export default function ForgotPassword() {
         navigate("/auth");
         return;
       }
-        if ((loginResult.securityQuestionRequired || loginResult.securityQuestionSetupRequired) && loginResult.challengeId) {
-          sessionStorage.setItem(PENDING_LOGIN_SECURITY_KEY, JSON.stringify({
-            challengeId: loginResult.challengeId,
-            question: loginResult.question || "",
-            setupRequired: Boolean(loginResult.securityQuestionSetupRequired),
-          }));
-          toast({
-            title: "Security check required",
-            description: "Answer your security question to finish signing in.",
-          });
-          navigate("/auth");
-          return;
-        }
-
       if (autoSignedIn) {
         // Signed in — redirect home and suggest changing password
         toast({

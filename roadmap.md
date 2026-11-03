@@ -9,5 +9,8 @@
 - [x] Redesign sign-in, registration, and password recovery to match the neon banking UI.
 - [x] Verify account-screen navigation and desktop/mobile layouts; run relevant tests.
 
-## External dependency
-- [ ] Install existing safe reversal database update before request/reject reversals can operate; required functions are absent from the connected database. Out of scope for this presentation change.
+## Fund reversal repair
+- [ ] Apply the existing safe reversal database update to the connected database.
+- [ ] Test requests, duplicate protection, and rejection without moving real funds.
+- [ ] Verify authenticated request and rejection screens and unchanged wallet balances.
+- [ ] Repair the current password-recovery compiler error.

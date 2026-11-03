@@ -667,6 +667,7 @@ export type Database = {
           recipient_id: string
           requested_at: string
           requester_id: string
+          reversal_transaction_id: string | null
           status: string
           transaction_id: string
         }
@@ -682,6 +683,7 @@ export type Database = {
           recipient_id: string
           requested_at?: string
           requester_id: string
+          reversal_transaction_id?: string | null
           status?: string
           transaction_id: string
         }
@@ -697,10 +699,19 @@ export type Database = {
           recipient_id?: string
           requested_at?: string
           requester_id?: string
+          reversal_transaction_id?: string | null
           status?: string
           transaction_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "fund_reversals_reversal_transaction_id_fkey"
+            columns: ["reversal_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       gas_fee_ledger: {
         Row: {
@@ -1495,6 +1506,11 @@ export type Database = {
         }
         Returns: Json
       }
+      reject_fund_reversal: { Args: { _reversal_id: string }; Returns: Json }
+      request_fund_reversal: {
+        Args: { _reason?: string; _transaction_id: string }
+        Returns: Json
+      }
       set_bank_reserve: {
         Args: {
           _balance: number
@@ -1507,7 +1523,7 @@ export type Database = {
       verify_pin: { Args: { pin: string; user_id: string }; Returns: boolean }
     }
     Enums: {
-      app_role: "admin" | "agent" | "client" | "vendor"
+      app_role: "admin" | "agent" | "client" | "vendor" | "founder"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1635,7 +1651,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "agent", "client", "vendor"],
+      app_role: ["admin", "agent", "client", "vendor", "founder"],
     },
   },
 } as const
