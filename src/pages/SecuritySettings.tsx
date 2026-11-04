@@ -14,6 +14,7 @@ import QRCode from "qrcode";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useAppLockSettings } from "@/hooks/useAppLock";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 
 const AppLockCard = () => {
   const { settings, update } = useAppLockSettings();

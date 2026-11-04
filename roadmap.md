@@ -10,7 +10,8 @@
 - [x] Verify account-screen navigation and desktop/mobile layouts; run relevant tests.
 
 ## Fund reversal repair
-- [ ] Apply the existing safe reversal database update to the connected database.
-- [ ] Test requests, duplicate protection, and rejection without moving real funds.
-- [ ] Verify authenticated request and rejection screens and unchanged wallet balances.
-- [ ] Repair the current password-recovery compiler error.
+- [x] Apply the existing safe reversal database update to the connected database.
+- [x] Test requests, duplicate protection, and rejection without moving real funds.
+- [ ] Verify authenticated request and rejection screens (blocked: needs a signed-in session).
+- [x] Repair the current password-recovery compiler error.
+- [x] Fix missing Switch import on Security Settings.
