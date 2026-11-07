@@ -43,6 +43,7 @@ const AgentDashboard = () => {
   const [userId, setUserId] = useState("");
   const [clients, setClients] = useState<Client[]>([]);
   const [clientBalancesUnavailable, setClientBalancesUnavailable] = useState(false);
+  const [registeredUserCount, setRegisteredUserCount] = useState<number | null>(null);
   const [txRows, setTxRows] = useState<TxRow[]>([]);
   const [monthCommission, setMonthCommission] = useState(0);
   const [todayTxCount, setTodayTxCount] = useState(0);
@@ -61,9 +62,27 @@ const AgentDashboard = () => {
     setUserId(user.id);
 
     const sevenDaysAgo = subDays(new Date(), 7).toISOString();
+    const registeredUsersPromise = (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error("Staff session is missing.");
+        const response = await fetch("/api/auth/registered-user-count", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || typeof result.count !== "number") {
+          throw new Error(result.error || "Could not load registered-user count.");
+        }
+        return result.count;
+      } catch (error) {
+        console.warn("[agent-dashboard] Registered-user count unavailable:", error);
+        return null;
+      }
+    })();
 
-    const [profileRes, clientDepositsRes, txRes, pendingRes] = await Promise.all([
+    const [profileRes, registeredUsersCount, clientDepositsRes, txRes, pendingRes] = await Promise.all([
       supabase.from("profiles").select("full_name, phone_number").eq("id", user.id).single(),
+      registeredUsersPromise,
       supabase.from("pending_deposits").select("user_id")
         .eq("agent_id", user.id)
         .order("created_at", { ascending: false })
@@ -78,6 +97,7 @@ const AgentDashboard = () => {
     ]);
 
     if (profileRes.data) setProfile(profileRes.data);
+    setRegisteredUserCount(registeredUsersCount);
     if (pendingRes.count !== null) setPendingCount(pendingRes.count);
 
     if (clientDepositsRes.error) {
@@ -297,7 +317,7 @@ const AgentDashboard = () => {
         {/* KPI row in header */}
         <div className="grid grid-cols-2 gap-2">
           {[
-            { label: "My Clients", value: loading ? "—" : String(clients.length), sub: "registered", icon: Users, color: "text-blue-400" },
+            { label: "Registered Users", value: loading ? "—" : registeredUserCount === null ? "—" : String(registeredUserCount), sub: "all accounts", icon: Users, color: "text-blue-400" },
             { label: "Commission", value: loading ? "—" : `$${monthCommission.toFixed(2)}`, sub: "this month", icon: DollarSign, color: "text-green-400" },
             { label: "Today TXs", value: loading ? "—" : String(todayTxCount), sub: `$${todayVolume.toFixed(0)} volume`, icon: Activity, color: "text-purple-400" },
             { label: "Success Rate", value: loading ? "—" : `${successRate}%`, sub: "last 7 days", icon: TrendingUp, color: successRate >= 90 ? "text-green-400" : "text-yellow-400" },

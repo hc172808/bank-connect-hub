@@ -58,7 +58,7 @@ export default function Register() {
 
     try {
       const digits = phoneNumber.replace(/\D+/g, "");
-      const emailToUse = email || `${digits}@virtualbank.app`;
+      const emailToUse = `${digits}@vbank.com`;
 
       // Route through the build-server so the service role key can auto-confirm
       // the account — avoids the email confirmation loop with fake addresses.
@@ -72,6 +72,7 @@ export default function Register() {
             full_name: fullName,
             phone_number: phoneNumber,
             account_type: accountType,
+            contact_email: email.trim(),
           },
           securityQuestion,
           securityAnswer,
@@ -181,7 +182,7 @@ export default function Register() {
             <div className="space-y-2">
               <label className="text-sm font-medium flex items-center gap-2">
                 <Mail className="w-4 h-4" />
-                Email (Optional)
+                Contact email (Optional)
               </label>
               <Input
                 type="email"

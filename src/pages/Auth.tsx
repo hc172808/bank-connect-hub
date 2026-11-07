@@ -34,7 +34,7 @@ type AccountType = "client" | "vendor";
 type LoginStep = "credentials" | "otp" | "security" | "security_setup" | "approval";
 type PendingSecurityChallenge = { challengeId: string; question?: string; setupRequired?: boolean };
 
-const phoneToEmail = (e164: string) => `${e164.replace("+", "")}@vbank.com`;
+const phoneToEmail = (e164: string) => `${e164.replace(/\D/g, "")}@vbank.com`;
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 const readPendingSecurityChallenge = (): PendingSecurityChallenge | null => {
   try {

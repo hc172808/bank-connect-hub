@@ -4126,22 +4126,33 @@ app.post("/api/auth/create-user", async (req, res) => {
 // The service-role key stays on the server so email confirmation can be skipped
 // when configured. Never allow a browser request to create an admin account.
 app.post("/api/auth/register", async (req, res) => {
-  const { email, password, metadata = {}, securityQuestion, securityAnswer } = req.body || {};
-  if (!email || !password) {
-    return res.status(400).json({ error: "Email and password are required." });
+  const { password, metadata = {}, securityQuestion, securityAnswer } = req.body || {};
+  if (!password) {
+    return res.status(400).json({ error: "Password is required." });
   }
   if (String(password).length < 6) {
     return res.status(400).json({ error: "Password must be at least 6 characters." });
+  }
+  const metadataInput = metadata && typeof metadata === "object" ? metadata : {};
+  const phoneDigits = normalizePhoneDigits(metadataInput.phone_number);
+  if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+    return res.status(400).json({ error: "Enter a valid phone number before creating an account." });
+  }
+  const contactEmail = String(metadataInput.contact_email || "").trim().toLowerCase();
+  if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+    return res.status(400).json({ error: "Enter a valid contact email address." });
   }
   if (!adminOk()) {
     return res.status(503).json({ error: "Secure registration is not configured on the server. No account was created." });
   }
 
   const safeMetadata = {
-    full_name: String(metadata.full_name || "").trim(),
-    phone_number: String(metadata.phone_number || "").trim(),
-    account_type: metadata.account_type === "vendor" ? "vendor" : "client",
+    full_name: String(metadataInput.full_name || "").trim(),
+    phone_number: phoneToE164(metadataInput.phone_number),
+    account_type: metadataInput.account_type === "vendor" ? "vendor" : "client",
+    ...(contactEmail ? { contact_email: contactEmail } : {}),
   };
+  const loginEmail = `${phoneDigits}@vbank.com`;
 
   try {
     const values = validateSecurityQuestionInput(securityQuestion, securityAnswer);
@@ -4158,7 +4169,9 @@ app.post("/api/auth/register", async (req, res) => {
     if (schemaError) throw schemaError;
 
     const { data, error } = await admin.auth.admin.createUser({
-      email: String(email).trim().toLowerCase(),
+      // Phone is the login identifier throughout the app. Never let an optional
+      // contact email create an account that cannot be found by phone at login.
+      email: loginEmail,
       password: String(password),
       user_metadata: safeMetadata,
       email_confirm: true,
@@ -4348,6 +4361,25 @@ app.get("/api/auth/my-wallet-balance", async (req, res) => {
   } catch (err) {
     console.error("[auth] personal wallet lookup failed:", err.message);
     res.status(500).json({ error: "Could not load your wallet balance." });
+  }
+});
+
+// GET /api/auth/registered-user-count — staff-only aggregate, no user details.
+app.get("/api/auth/registered-user-count", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "SUPABASE_SERVICE_ROLE_KEY not configured" });
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const { count, error } = await admin
+      .from("profiles")
+      .select("id", { count: "exact", head: true });
+    if (error) throw new Error(error.message);
+    res.json({ count: count ?? 0 });
+  } catch (err) {
+    console.error("[auth] registered-user count failed:", err.message);
+    res.status(500).json({ error: "Could not load the registered-user count." });
   }
 });
 
@@ -5543,7 +5575,12 @@ app.get("/api/nodes/config", (_req, res) => {
 
 // POST /api/nodes/config — write vars to .env, optionally restart litenode
 app.post("/api/nodes/config", async (req, res) => {
+  if (!adminOk()) return res.status(503).json({ error: "Admin verification is not configured on this server." });
   try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
     const vars = {};
     for (const key of NODE_CONFIG_KEYS) {
       if (req.body[key] !== undefined) vars[key] = req.body[key];
@@ -5839,16 +5876,36 @@ app.post("/api/blockchain/rpc-test", async (req, res) => {
 
 // POST /api/nodes/test — test reachability of a given RPC/HTTP URL
 app.post("/api/nodes/test", async (req, res) => {
-  const { url } = req.body;
+  if (!adminOk()) return res.status(503).json({ error: "Admin verification is not configured on this server." });
+  const { url } = req.body || {};
   if (!url || typeof url !== "string") return res.status(400).json({ error: "url required" });
   try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireStaffActor(req, admin, ["admin", "founder"]);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const isEnode = url.startsWith("enode://");
+    let targetUrl = "https://httpbin.org/get";
+    if (!isEnode) {
+      let parsed;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return res.status(400).json({ error: "Enter a valid HTTP(S) RPC URL." });
+      }
+      if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+        return res.status(400).json({ error: "Use an HTTP(S) RPC URL without embedded credentials." });
+      }
+      targetUrl = parsed.toString();
+    }
+
     const { default: fetch } = await import("node-fetch").catch(() => ({ default: globalThis.fetch }));
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
-    const r = await fetch(url.startsWith("enode://") ? `https://httpbin.org/get` : url, {
-      method: url.startsWith("enode://") ? "GET" : "POST",
+    const r = await fetch(targetUrl, {
+      method: isEnode ? "GET" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: url.startsWith("enode://") ? undefined : JSON.stringify({ jsonrpc: "2.0", id: 1, method: "net_version", params: [] }),
+      body: isEnode ? undefined : JSON.stringify({ jsonrpc: "2.0", id: 1, method: "net_version", params: [] }),
       signal: ctrl.signal,
     }).finally(() => clearTimeout(timer));
     const json = await r.json().catch(() => ({}));

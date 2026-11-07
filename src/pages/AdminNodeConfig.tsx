@@ -12,6 +12,8 @@ import {
   Info, Link2, Zap,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { normalizeRpcUrl } from "@/lib/rpcUrl";
+import { supabase } from "@/integrations/supabase/client";
 
 interface NodeConfig {
   UPSTREAM_RPC: string;
@@ -44,7 +46,7 @@ const FIELD_META: { key: keyof NodeConfig; label: string; placeholder: string; h
     key: "UPSTREAM_RPC",
     label: "Upstream RPC (litenode target)",
     placeholder: "https://private-rpc.yourdomain.com",
-    hint: "Optional private node target for controlled legacy administration. Leave blank to prevent upstream forwarding.",
+    hint: "Remote hostnames default to HTTPS; localhost/private hosts default to HTTP. Explicit ports are preserved and none are added automatically.",
     isRPC: true,
   },
   {
@@ -58,21 +60,21 @@ const FIELD_META: { key: keyof NodeConfig; label: string; placeholder: string; h
     key: "FULLNODE_RPC_1",
     label: "Full Node RPC 1",
     placeholder: "https://rpc.yourdomain.com",
-    hint: "Your primary fullnode RPC endpoint. Used as the first fallback in the app's RPC chain.",
+    hint: "Primary RPC fallback. Enter a domain such as rpc.example.com or a full URL; no :8545 port is added.",
     isRPC: true,
   },
   {
     key: "FULLNODE_RPC_2",
     label: "Full Node RPC 2",
     placeholder: "https://rpc2.yourdomain.com",
-    hint: "Secondary fullnode RPC endpoint (optional).",
+    hint: "Optional secondary RPC. Domain-only remote hosts use HTTPS; localhost/private hosts use HTTP.",
     isRPC: true,
   },
   {
     key: "FULLNODE_RPC_3",
     label: "Full Node RPC 3",
     placeholder: "https://rpc3.yourdomain.com",
-    hint: "Third fullnode RPC endpoint (optional).",
+    hint: "Optional third RPC fallback. Explicit ports are preserved; none are added automatically.",
     isRPC: true,
   },
   {
@@ -114,14 +116,20 @@ const AdminNodeConfig = () => {
     setConfig(prev => ({ ...prev, [key]: val }));
 
   const testUrl = async (key: keyof NodeConfig) => {
-    const url = config[key].trim();
-    if (!url) return;
+    const rawUrl = config[key].trim();
+    if (!rawUrl) return;
     setTestStates(p => ({ ...p, [key]: { result: "testing" } }));
     const t0 = Date.now();
     try {
+      const url = normalizeRpcUrl(rawUrl);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sign in as an admin or founder to test this RPC.");
       const res = await fetch("/api/nodes/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({ url }),
       });
       const data = await res.json();
@@ -139,14 +147,27 @@ const AdminNodeConfig = () => {
   const save = async () => {
     setSaving(true);
     try {
+      const normalizedConfig: NodeConfig = {
+        ...config,
+        UPSTREAM_RPC: normalizeRpcUrl(config.UPSTREAM_RPC),
+        FULLNODE_RPC_1: normalizeRpcUrl(config.FULLNODE_RPC_1),
+        FULLNODE_RPC_2: normalizeRpcUrl(config.FULLNODE_RPC_2),
+        FULLNODE_RPC_3: normalizeRpcUrl(config.FULLNODE_RPC_3),
+      };
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sign in as an admin or founder to save node settings.");
       const res = await fetch("/api/nodes/config", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...config, restartLitenode }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ ...normalizedConfig, restartLitenode }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Save failed");
-      setOriginal(config);
+      setConfig(normalizedConfig);
+      setOriginal(normalizedConfig);
       toast({
         title: "Node config saved",
         description: data.restarted

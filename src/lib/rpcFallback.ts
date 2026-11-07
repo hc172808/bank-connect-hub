@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeRpcUrl } from "@/lib/rpcUrl";
 
 const RPC_TIMEOUT_MS = 8000;
 export const WALLET_TEST_RPC_URL =
@@ -48,12 +49,24 @@ export async function getNodeRpcChain(primaryUrl?: string): Promise<string[]> {
   if (config) {
     for (const key of ["FULLNODE_RPC_1", "FULLNODE_RPC_2", "FULLNODE_RPC_3"] as const) {
       const url = config[key]?.trim();
-      if (url) ordered.push(url);
+      if (url) {
+        try {
+          const normalized = normalizeRpcUrl(url);
+          if (!ordered.includes(normalized)) ordered.push(normalized);
+        } catch (error) {
+          console.warn("[rpc] Ignoring invalid configured RPC URL:", error);
+        }
+      }
     }
   }
 
-  if (primaryUrl?.trim() && !ordered.includes(primaryUrl.trim())) {
-    ordered.push(primaryUrl.trim());
+  if (primaryUrl?.trim()) {
+    try {
+      const normalized = normalizeRpcUrl(primaryUrl);
+      if (!ordered.includes(normalized)) ordered.push(normalized);
+    } catch (error) {
+      console.warn("[rpc] Ignoring invalid primary RPC URL:", error);
+    }
   }
 
   return ordered;
@@ -105,12 +118,22 @@ const RPC_CHECK_INTERVAL = 60_000;
  */
 export async function testRpc(url: string): Promise<RpcTestResult> {
   const start = Date.now();
+  let targetUrl: string;
+  try {
+    targetUrl = normalizeRpcUrl(url);
+  } catch (error) {
+    return {
+      url,
+      reachable: false,
+      error: error instanceof Error ? error.message : "Enter a valid RPC host or HTTP(S) URL.",
+    };
+  }
   const nativeRequest = Capacitor.isNativePlatform();
 
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) {
-      return { url, reachable: false, error: "Sign in as an admin or founder to test this RPC." };
+      return { url: targetUrl, reachable: false, error: "Sign in as an admin or founder to test this RPC." };
     }
 
     let status: number;
@@ -120,7 +143,7 @@ export async function testRpc(url: string): Promise<RpcTestResult> {
       // Capacitor's native HTTP client bypasses WebView CORS preflight.
       // Bundled APKs have no same-origin app server to proxy through.
       const response = await CapacitorHttp.post({
-        url,
+          url: targetUrl,
         headers: { "Content-Type": "application/json" },
         data: { jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] },
         connectTimeout: RPC_TIMEOUT_MS,
@@ -139,14 +162,14 @@ export async function testRpc(url: string): Promise<RpcTestResult> {
             "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ url }),
+          body: JSON.stringify({ url: targetUrl }),
           signal: controller.signal,
         });
         status = response.status;
         const body = await response.json().catch(() => null);
         if (!response.ok || body?.ok !== true) {
           return {
-            url,
+            url: targetUrl,
             reachable: false,
             httpStatus: status,
             latencyMs: Date.now() - start,
@@ -161,7 +184,7 @@ export async function testRpc(url: string): Promise<RpcTestResult> {
 
     if (status < 200 || status >= 300) {
       return {
-        url,
+        url: targetUrl,
         reachable: false,
         httpStatus: status,
         latencyMs: Date.now() - start,
@@ -170,7 +193,7 @@ export async function testRpc(url: string): Promise<RpcTestResult> {
     }
     if (rpcBody?.error) {
       return {
-        url,
+        url: targetUrl,
         reachable: false,
         httpStatus: status,
         latencyMs: Date.now() - start,
@@ -179,7 +202,7 @@ export async function testRpc(url: string): Promise<RpcTestResult> {
     }
     if (typeof rpcBody?.result !== "string" || !/^0x[0-9a-f]+$/i.test(rpcBody.result)) {
       return {
-        url,
+        url: targetUrl,
         reachable: false,
         httpStatus: status,
         latencyMs: Date.now() - start,
@@ -187,12 +210,12 @@ export async function testRpc(url: string): Promise<RpcTestResult> {
       };
     }
     const chainId = BigInt(rpcBody.result).toString();
-    return { url, reachable: true, chainId, latencyMs: Date.now() - start, httpStatus: status };
+    return { url: targetUrl, reachable: true, chainId, latencyMs: Date.now() - start, httpStatus: status };
   } catch (err: any) {
     const msg: string = err?.message || String(err);
     const isTimeout = err?.name === "AbortError" || msg.toLowerCase().includes("timeout");
     return {
-      url,
+      url: targetUrl,
       reachable: false,
       latencyMs: Date.now() - start,
       error: isTimeout
@@ -234,8 +257,14 @@ export async function getProviderWithFallback(
 ): Promise<ethers.JsonRpcProvider | null> {
   for (const url of rpcUrls) {
     if (!url) continue;
+    let targetUrl: string;
+    try {
+      targetUrl = normalizeRpcUrl(url);
+    } catch {
+      continue;
+    }
 
-    const cached = rpcStatusCache.get(url);
+    const cached = rpcStatusCache.get(targetUrl);
     if (
       cached &&
       cached.reachable === false &&
@@ -246,18 +275,18 @@ export async function getProviderWithFallback(
 
     let provider: ethers.JsonRpcProvider | null = null;
     try {
-      provider = new ethers.JsonRpcProvider(url);
+      provider = new ethers.JsonRpcProvider(targetUrl);
       await Promise.race([
         provider.getBlockNumber(),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error("RPC timeout")), RPC_TIMEOUT_MS)
         ),
       ]);
-      rpcStatusCache.set(url, { url, reachable: true, checkedAt: Date.now() });
+      rpcStatusCache.set(targetUrl, { url: targetUrl, reachable: true, checkedAt: Date.now() });
       return provider;
     } catch {
       provider?.destroy();
-      rpcStatusCache.set(url, { url, reachable: false, checkedAt: Date.now() });
+      rpcStatusCache.set(targetUrl, { url: targetUrl, reachable: false, checkedAt: Date.now() });
     }
   }
   return null;
@@ -272,10 +301,22 @@ export function buildRpcList(settings: {
   rpc_urls?: string[] | null;
 }): string[] {
   const urls: string[] = [];
-  if (settings.rpc_url) urls.push(settings.rpc_url);
+  if (settings.rpc_url) {
+    try {
+      urls.push(normalizeRpcUrl(settings.rpc_url));
+    } catch (error) {
+      console.warn("[rpc] Ignoring invalid primary RPC URL:", error);
+    }
+  }
   if (settings.rpc_urls && Array.isArray(settings.rpc_urls)) {
     for (const u of settings.rpc_urls) {
-      if (u && !urls.includes(u)) urls.push(u);
+      if (!u) continue;
+      try {
+        const normalized = normalizeRpcUrl(u);
+        if (!urls.includes(normalized)) urls.push(normalized);
+      } catch (error) {
+        console.warn("[rpc] Ignoring invalid fallback RPC URL:", error);
+      }
     }
   }
   return urls;

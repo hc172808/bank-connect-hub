@@ -34,6 +34,14 @@ function saveSettings(s: AppLockSettings) {
   }
 }
 
+export function clearAppLockRequirement() {
+  try {
+    localStorage.removeItem(LOCK_REQUIRED_KEY);
+  } catch {
+    // Authentication still clears when storage is unavailable.
+  }
+}
+
 export function useAppLockSettings() {
   const [settings, setSettings] = useState<AppLockSettings>(loadSettings);
 

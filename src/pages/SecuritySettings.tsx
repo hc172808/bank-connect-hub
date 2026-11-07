@@ -13,48 +13,98 @@ import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useAppLockSettings } from "@/hooks/useAppLock";
+import { SetAppLockPinDialog } from "@/components/SetAppLockPinDialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 const AppLockCard = () => {
   const { settings, update } = useAppLockSettings();
+  const [pinConfigured, setPinConfigured] = useState(false);
+  const [pinCheck, setPinCheck] = useState<"checking" | "ready" | "error">("checking");
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void supabase.rpc("has_app_lock_pin" as never, {} as never).then(({ data, error }) => {
+      if (!active) return;
+      if (error) {
+        setPinCheck("error");
+        return;
+      }
+      setPinConfigured(data === true);
+      setPinCheck("ready");
+    }).catch(() => {
+      if (active) setPinCheck("error");
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Timer className="h-5 w-5" /> App Lock</CardTitle>
-        <CardDescription>The app requires your 4 to 10 digit PIN whenever you return after leaving it.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-sm">App Lock is required</p>
-            <p className="text-xs text-muted-foreground">A PIN will be required on return and after inactivity.</p>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Timer className="h-5 w-5" /> App Lock</CardTitle>
+          <CardDescription>The app requires your App Lock passcode whenever you return.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-sm">App Lock is required</p>
+              <p className="text-xs text-muted-foreground">
+                {pinConfigured ? "Your App Lock passcode is set." : "Create a passcode to secure this app."}
+              </p>
+            </div>
+            <Badge variant={pinConfigured ? "default" : "secondary"}>
+              {pinCheck === "checking" ? "Checking" : pinConfigured ? "Passcode set" : "Setup required"}
+            </Badge>
           </div>
-          <Badge variant="secondary">Required</Badge>
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Lock after inactivity</Label>
-          <Select
-            value={String(settings.timeoutMinutes)}
-            onValueChange={(v) => update({ timeoutMinutes: parseInt(v) })}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => setPinDialogOpen(true)}
+            disabled={pinCheck !== "ready"}
           >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1">1 minute</SelectItem>
-              <SelectItem value="5">5 minutes</SelectItem>
-              <SelectItem value="15">15 minutes</SelectItem>
-              <SelectItem value="30">30 minutes</SelectItem>
-              <SelectItem value="60">1 hour</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground mt-1">
-            The app locks immediately when it is sent to the background. If you have not set a transaction PIN, you will be asked to create one the first time it locks.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
+            {pinConfigured ? "Change App Lock passcode" : "Create App Lock passcode"}
+          </Button>
+          {pinCheck === "error" && (
+            <p className="text-xs text-destructive">
+              Apply the latest Supabase SQL update to enable App Lock passcodes.
+            </p>
+          )}
+          {pinConfigured && (
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Lock after inactivity</Label>
+              <Select
+                value={String(settings.timeoutMinutes)}
+                onValueChange={(v) => update({ timeoutMinutes: parseInt(v) })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1 minute</SelectItem>
+                  <SelectItem value="5">5 minutes</SelectItem>
+                  <SelectItem value="15">15 minutes</SelectItem>
+                  <SelectItem value="30">30 minutes</SelectItem>
+                  <SelectItem value="60">1 hour</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <SetAppLockPinDialog
+        open={pinDialogOpen}
+        onOpenChange={setPinDialogOpen}
+        onPinSet={() => {
+          setPinConfigured(true);
+          setPinCheck("ready");
+        }}
+      />
+    </>
   );
 };
 

@@ -2,7 +2,7 @@
 - [New feature pages](feature-pages.md) — BudgetPlanner, SavingsGoals, Beneficiaries, VirtualCards all use localStorage (keyed by user.id); no DB schema changes needed
 - [TODO progress & strategy](todo-progress.md) — 233/239 done, 6 blocked (AI/NFC/OpenBanking); i18n complete; App Lock + Currency Converter added
 - [i18n system](i18n.md) — LanguageProvider in main.tsx wraps ThemeProvider; useT()/useLanguage() hooks; 5 locales (en/es/fr/pt/ar); RTL for Arabic; localStorage key vbank_language
-- [App Lock](applock.md) — useAppLock() in AppRoutes (App.tsx); AppLockScreen component; settings via useAppLockSettings(); localStorage vbank_applock_v1; PIN validated against profiles.transaction_pin SHA-256
+- [App Lock](applock.md) — mandatory lock uses a separate 4–10 character mixed passcode; apply its Supabase migration before enabling non-digit codes
 - [Chat systems](chat.md) — peer DMs use notifications; support chat uses private server-only tables and AI is limited to general answers with no actions.
 - [Replit migration](replit-migration.md) — Supabase kept (too deep to replace); lucide-react + date-fns had corrupted dist on import; secrets in Replit Secret store
 - [Private ledger](private-ledger.md) — customer payments use the authenticated database ledger; public RPC fallbacks are disabled; hash-chain migration must be applied to Supabase
@@ -26,5 +26,5 @@
 - [Security question authentication](security-question-auth.md) — hash answers server-side; prompt legacy users to set one after password verification before releasing sessions
 - [Supabase database connectivity](supabase-connection-ipv6.md) — use an IPv4-compatible pooler URL when direct Supabase PostgreSQL resolves to IPv6 only
 - [Vite preview HMR](vite-preview-hmr.md) — let Vite detect the preview websocket host/protocol; hardcoding TLS localhost broke hot reload
-- [RPC test connectivity](rpc-testing.md) — web balance reads use an authenticated proxy; bundled apps use native HTTP, with the test RPC kept read-only
+- [RPC test connectivity](rpc-testing.md) — bare Cloudflare RPC domains default to HTTPS without an implicit port; local node tests stay admin-only
 - [Staff remote logout](support-logout.md) — authorized staff can immediately revoke a user's device sessions, even when the user has no wallet PIN
