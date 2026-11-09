@@ -25,17 +25,20 @@ const AppLockCard = () => {
 
   useEffect(() => {
     let active = true;
-    void supabase.rpc("has_app_lock_pin" as never, {} as never).then(({ data, error }) => {
-      if (!active) return;
-      if (error) {
-        setPinCheck("error");
-        return;
-      }
-      setPinConfigured(data === true);
-      setPinCheck("ready");
-    }).catch(() => {
-      if (active) setPinCheck("error");
-    });
+    void supabase.rpc("has_app_lock_pin" as never, {} as never).then(
+      ({ data, error }) => {
+        if (!active) return;
+        if (error) {
+          setPinCheck("error");
+          return;
+        }
+        setPinConfigured(data === true);
+        setPinCheck("ready");
+      },
+      () => {
+        if (active) setPinCheck("error");
+      },
+    );
     return () => {
       active = false;
     };

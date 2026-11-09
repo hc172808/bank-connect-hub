@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,37 +58,44 @@ const Transactions = () => {
   const homeRoute = useDashboardHome();
   const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactionLoadError, setTransactionLoadError] = useState(false);
   const [blockchainTxs, setBlockchainTxs] = useState<BlockchainTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingBlockchain, setLoadingBlockchain] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [blockchainSettings, setBlockchainSettings] = useState<BlockchainSettings | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
+  const userId = user?.id ?? null;
 
-  useEffect(() => {
-    if (user) {
-      fetchTransactions();
-      fetchBlockchainSettings();
-      fetchWalletAddress();
+  const fetchTransactions = useCallback(async () => {
+    if (!userId) {
+      setLoading(false);
+      return;
     }
-  }, [user]);
 
-  const fetchTransactions = async () => {
-    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("*")
+        .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+        .order("created_at", { ascending: false });
 
-    const { data, error } = await supabase
-      .from("transactions")
-      .select("*")
-      .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
-      .order("created_at", { ascending: false });
-
-    if (!error && data) {
-      setTransactions(data);
+      if (error) {
+        console.error("Could not load internal transactions:", error);
+        setTransactionLoadError(true);
+      } else {
+        setTransactions(data || []);
+        setTransactionLoadError(false);
+      }
+    } catch (error) {
+      console.error("Could not load internal transactions:", error);
+      setTransactionLoadError(true);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [userId]);
 
-  const fetchBlockchainSettings = async () => {
+  const fetchBlockchainSettings = useCallback(async () => {
     const { data } = await supabase
       .from("blockchain_settings_public")
       .select("rpc_url, explorer_url, native_coin_symbol, is_active")
@@ -97,21 +104,38 @@ const Transactions = () => {
     if (data) {
       setBlockchainSettings(data);
     }
-  };
+  }, []);
 
-  const fetchWalletAddress = async () => {
-    if (!user) return;
+  const fetchWalletAddress = useCallback(async () => {
+    if (!userId) return;
 
     const { data } = await supabase
       .from("profiles")
       .select("wallet_address")
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
 
     if (data?.wallet_address) {
       setWalletAddress(data.wallet_address);
     }
-  };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const initialLoad = window.setTimeout(() => {
+      void fetchTransactions();
+      void fetchBlockchainSettings();
+      void fetchWalletAddress();
+    }, 0);
+    const refreshInterval = window.setInterval(() => {
+      void fetchTransactions();
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(refreshInterval);
+    };
+  }, [fetchBlockchainSettings, fetchTransactions, fetchWalletAddress, userId]);
 
   const fetchBlockchainTransactions = async () => {
     if (!walletAddress || !blockchainSettings?.rpc_url) return;
@@ -351,6 +375,14 @@ const Transactions = () => {
                 {loading ? (
                   <div className="text-center py-8 text-muted-foreground">
                     Loading transactions...
+                  </div>
+                ) : transactionLoadError ? (
+                  <div className="flex flex-col items-center gap-3 py-8 text-center text-muted-foreground">
+                    <p>Transactions could not be loaded. Check your connection and try again.</p>
+                    <Button variant="outline" size="sm" onClick={() => void fetchTransactions()}>
+                      <RefreshCw size={14} className="mr-2" />
+                      Retry
+                    </Button>
                   </div>
                 ) : filteredTransactions.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
