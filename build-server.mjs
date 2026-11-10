@@ -1706,6 +1706,280 @@ async function getSupportActor(req, admin) {
   }
 }
 
+async function canChatUsersMessage(admin, senderId, senderRole, recipientId, recipientRole) {
+  if (senderRole === "client" && recipientRole === "vendor") return true;
+  if (["vendor", "admin", "founder"].includes(senderRole) && recipientRole === "agent") return true;
+
+  const clientId =
+    senderRole === "client" && recipientRole === "agent"
+      ? senderId
+      : senderRole === "agent" && ["client", "vendor"].includes(recipientRole)
+        ? recipientId
+        : null;
+  const agentId =
+    senderRole === "client" && recipientRole === "agent"
+      ? recipientId
+      : senderRole === "agent" && ["client", "vendor"].includes(recipientRole)
+        ? senderId
+        : null;
+  if (!clientId || !agentId) return false;
+
+  // pending_deposits is the persisted client-to-agent relationship in this app.
+  const { data, error } = await admin
+    .from("pending_deposits")
+    .select("id")
+    .eq("user_id", clientId)
+    .eq("agent_id", agentId)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data);
+}
+
+async function getChatProfiles(admin, userIds) {
+  const ids = [...new Set(userIds)].filter(Boolean);
+  if (!ids.length) return [];
+
+  const [{ data: profiles, error: profilesError }, { data: roleRows, error: rolesError }] = await Promise.all([
+    admin.from("profiles").select("id, full_name, store_name").in("id", ids),
+    admin.from("user_roles").select("user_id, role").in("user_id", ids),
+  ]);
+  if (profilesError || rolesError) {
+    throw new Error(profilesError?.message || rolesError?.message);
+  }
+
+  const rolesByUserId = new Map();
+  for (const row of roleRows || []) {
+    const roles = rolesByUserId.get(row.user_id) || new Set();
+    roles.add(row.role);
+    rolesByUserId.set(row.user_id, roles);
+  }
+
+  return (profiles || []).map((profile) => {
+    const roles = rolesByUserId.get(profile.id) || new Set();
+    const role = ["founder", "admin", "agent", "vendor", "client"]
+      .find((candidate) => roles.has(candidate));
+    return {
+      id: profile.id,
+      full_name: profile.full_name,
+      store_name: profile.store_name,
+      role: role || "client",
+    };
+  });
+}
+
+async function listChatContacts(admin, userId, role) {
+  if (role === "client") {
+    const [{ data: assignments, error: assignmentsError }, { data: vendorRows, error: vendorsError }] = await Promise.all([
+      admin.from("pending_deposits")
+        .select("agent_id")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(100),
+      admin.from("user_roles")
+        .select("user_id")
+        .eq("role", "vendor")
+        .limit(30),
+    ]);
+    if (assignmentsError || vendorsError) {
+      throw new Error(assignmentsError?.message || vendorsError?.message);
+    }
+
+    const agentIds = [...new Set((assignments || []).map((row) => row.agent_id))];
+    const vendorIds = [...new Set((vendorRows || []).map((row) => row.user_id))];
+    const allowedRoles = new Map([
+      ...agentIds.map((id) => [id, "agent"]),
+      ...vendorIds.map((id) => [id, "vendor"]),
+    ]);
+    const profiles = await getChatProfiles(admin, [...allowedRoles.keys()]);
+    return profiles.filter((profile) => allowedRoles.get(profile.id) === profile.role);
+  }
+
+  if (role === "agent") {
+    const { data: assignments, error } = await admin
+      .from("pending_deposits")
+      .select("user_id")
+      .eq("agent_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (error) throw new Error(error.message);
+
+    const clientIds = [...new Set((assignments || []).map((row) => row.user_id))].slice(0, 50);
+    const profiles = await getChatProfiles(admin, clientIds);
+    return profiles.filter((profile) => ["client", "vendor"].includes(profile.role));
+  }
+
+  if (["vendor", "admin", "founder"].includes(role)) {
+    const { data: agentRows, error } = await admin
+      .from("user_roles")
+      .select("user_id")
+      .eq("role", "agent")
+      .limit(50);
+    if (error) throw new Error(error.message);
+    const profiles = await getChatProfiles(admin, (agentRows || []).map((row) => row.user_id));
+    return profiles.filter((profile) => profile.role === "agent");
+  }
+
+  return [];
+}
+
+app.get("/api/chat/contacts", async (req, res) => {
+  if (!adminOk()) {
+    return res.status(503).json({ error: "Messaging is temporarily unavailable." });
+  }
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    const contacts = await listChatContacts(admin, actor.user.id, actor.role);
+    res.json({ contacts });
+  } catch (error) {
+    console.error("[chat] contacts failed:", error.message);
+    res.status(503).json({ error: "Message contacts could not be loaded." });
+  }
+});
+
+app.get("/api/chat/contact/:peerId", async (req, res) => {
+  if (!adminOk()) {
+    return res.status(503).json({ error: "Messaging is temporarily unavailable." });
+  }
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await getSupportActor(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+    const peerId = String(req.params.peerId || "");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(peerId)) {
+      return res.status(400).json({ error: "Choose a valid message contact." });
+    }
+    if (peerId === actor.user.id) {
+      return res.status(400).json({ error: "You cannot message your own account." });
+    }
+
+    const peerRole = await getUserRole(admin, peerId);
+    if (!await canChatUsersMessage(admin, actor.user.id, actor.role, peerId, peerRole)) {
+      return res.status(403).json({ error: "You cannot message this account." });
+    }
+    const { data: profile, error } = await admin
+      .from("profiles")
+      .select("id, full_name, store_name")
+      .eq("id", peerId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!profile) return res.status(404).json({ error: "That message contact could not be found." });
+    res.json({
+      contact: {
+        ...profile,
+        role: peerRole,
+      },
+    });
+  } catch (error) {
+    console.error("[chat] contact lookup failed:", error.message);
+    res.status(503).json({ error: "The message contact could not be loaded." });
+  }
+});
+
+app.post("/api/chat/send", async (req, res) => {
+  if (!adminOk()) {
+    return res.status(503).json({ error: "Messaging is temporarily unavailable." });
+  }
+
+  try {
+    const admin = await getSupabaseAdminClient();
+    const actor = await requireBearerUser(req, admin);
+    if (actor.error) return res.status(actor.status).json({ error: actor.error });
+
+    const recipientId = typeof req.body?.recipientId === "string" ? req.body.recipientId.trim() : "";
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipientId)) {
+      return res.status(400).json({ error: "Choose a valid message recipient." });
+    }
+    if (!text || text.length > 4000) {
+      return res.status(400).json({ error: "Messages must contain 1–4000 characters." });
+    }
+    if (recipientId === actor.user.id) {
+      return res.status(400).json({ error: "You cannot message your own account." });
+    }
+
+    const [senderRole, recipientRole, senderProfileResult, recipientProfileResult] = await Promise.all([
+      getUserRole(admin, actor.user.id, actor.user),
+      getUserRole(admin, recipientId),
+      admin.from("profiles")
+        .select("full_name, store_name")
+        .eq("id", actor.user.id)
+        .maybeSingle(),
+      admin.from("profiles")
+        .select("full_name, store_name")
+        .eq("id", recipientId)
+        .maybeSingle(),
+    ]);
+    if (senderProfileResult.error || recipientProfileResult.error) {
+      throw new Error(senderProfileResult.error?.message || recipientProfileResult.error?.message);
+    }
+    if (!recipientProfileResult.data) {
+      return res.status(404).json({ error: "That message recipient could not be found." });
+    }
+
+    const senderProfile = senderProfileResult.data;
+    const recipientProfile = recipientProfileResult.data;
+    const isAllowedPeer = await canChatUsersMessage(
+      admin,
+      actor.user.id,
+      senderRole,
+      recipientId,
+      recipientRole,
+    );
+    if (!isAllowedPeer) {
+      return res.status(403).json({ error: "You cannot message this account." });
+    }
+
+    const senderName =
+      senderProfile?.store_name ||
+      senderProfile?.full_name ||
+      actor.user.user_metadata?.full_name ||
+      "User";
+    const recipientName =
+      recipientProfile.store_name ||
+      recipientProfile.full_name ||
+      "User";
+    const payload = JSON.stringify({
+      sender_id: actor.user.id,
+      recipient_id: recipientId,
+      text,
+      thread_id: [actor.user.id, recipientId].sort().join("_"),
+      sender_name: senderName,
+    });
+
+    // One insert statement keeps the recipient delivery and sender outbox copy together.
+    const { data: insertedRows, error: insertError } = await admin
+      .from("notifications")
+      .insert([
+        {
+          user_id: recipientId,
+          type: "chat_message",
+          title: senderName,
+          message: payload,
+          is_read: false,
+        },
+        {
+          user_id: actor.user.id,
+          type: "chat_outbox",
+          title: recipientName,
+          message: payload,
+          is_read: true,
+        },
+      ])
+      .select("id, user_id, type, title, message, is_read, created_at");
+    if (insertError) throw new Error(insertError.message);
+
+    const sentMessage = insertedRows?.find((row) => row.type === "chat_outbox");
+    if (!sentMessage) throw new Error("The sent message copy was not returned.");
+    res.status(201).json({ message: sentMessage });
+  } catch (error) {
+    console.error("[chat] send failed:", error.message);
+    res.status(503).json({ error: "Message could not be sent. Please try again." });
+  }
+});
+
 async function getOnlineSupportAgentIds(admin) {
   const cutoff = new Date(Date.now() - 60_000).toISOString();
   const [{ data: roleRows, error: roleError }, { data: presenceRows, error: presenceError }] = await Promise.all([

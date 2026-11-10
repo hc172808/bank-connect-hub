@@ -24,8 +24,39 @@ interface Message {
   is_mine: boolean;
 }
 
+interface NotificationRow {
+  id: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+  type: string;
+}
+
+interface ChatContact {
+  id: string;
+  full_name: string | null;
+  store_name: string | null;
+  role: string;
+}
+
 function makeThreadId(a: string, b: string) {
   return [a, b].sort().join("_");
+}
+
+function toMessage(row: NotificationRow, threadId: string): Message | null {
+  try {
+    const payload = JSON.parse(row.message) as MsgPayload;
+    if (payload.thread_id !== threadId || typeof payload.text !== "string") return null;
+    return {
+      id: row.id,
+      payload,
+      is_read: row.is_read,
+      created_at: row.created_at,
+      is_mine: row.type === "chat_outbox",
+    };
+  } catch {
+    return null;
+  }
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -33,6 +64,7 @@ const ROLE_LABEL: Record<string, string> = {
   vendor: "Vendor",
   client: "Client",
   admin: "Admin",
+  founder: "Founder",
 };
 
 const ChatThread = () => {
@@ -41,171 +73,194 @@ const ChatThread = () => {
   const { toast } = useToast();
 
   const [userId, setUserId] = useState("");
-  const [myName, setMyName] = useState("Me");
   const [peerName, setPeerName] = useState("");
   const [peerRole, setPeerRole] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [messageError, setMessageError] = useState("");
 
   const bottomRef = useRef<HTMLDivElement>(null);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const uidRef = useRef("");
-  const peerNameRef = useRef("");
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
   useEffect(() => {
-    if (!peerId) return;
-    init();
-    return () => {
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
-    };
-  }, [peerId]);
-
-  useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
-  const init = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { navigate("/auth"); return; }
-    setUserId(user.id);
-    uidRef.current = user.id;
-
-    const [myProfileRes, peerProfileRes, peerRoleRes] = await Promise.all([
-      supabase.from("profiles").select("full_name").eq("id", user.id).single(),
-      supabase.from("profiles").select("full_name, store_name").eq("id", peerId!).single(),
-      supabase.from("user_roles").select("role").eq("user_id", peerId!).single(),
-    ]);
-
-    const name = (myProfileRes.data as any)?.full_name || "Me";
-    setMyName(name);
-
-    const pn = (peerProfileRes.data as any)?.store_name || (peerProfileRes.data as any)?.full_name || "Unknown";
-    setPeerName(pn);
-    peerNameRef.current = pn;
-    setPeerRole((peerRoleRes.data as any)?.role || "");
-
-    const tid = makeThreadId(user.id, peerId!);
-    await fetchMessages(user.id, tid);
-    setLoading(false);
-
-    // Mark incoming messages as read
-    await supabase
-      .from("notifications")
-      .update({ is_read: true })
-      .eq("user_id", user.id)
-      .eq("type", "chat_message")
-      .like("message", `%"sender_id":"${peerId!}"%`);
-
-    // Realtime subscription
-    const ch = supabase
-      .channel(`chat_${tid}_${user.id}`)
-      .on(
-        "postgres_changes" as any,
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "notifications",
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload: any) => {
-          const row = payload.new;
-          if (!["chat_message", "chat_outbox"].includes(row.type)) return;
-          let p: MsgPayload | null = null;
-          try { p = JSON.parse(row.message); } catch { return; }
-          if (!p || p.thread_id !== tid) return;
-          const isMine = row.type === "chat_outbox";
-          const newMsg: Message = {
-            id: row.id,
-            payload: p,
-            is_read: row.is_read,
-            created_at: row.created_at,
-            is_mine: isMine,
-          };
-          setMessages(prev => {
-            if (prev.find(m => m.id === row.id)) return prev;
-            return [...prev, newMsg];
-          });
-          if (!isMine) {
-            supabase.from("notifications").update({ is_read: true }).eq("id", row.id).then(() => {});
-          }
-        }
-      )
-      .subscribe();
-    channelRef.current = ch;
-  };
-
-  const fetchMessages = async (uid: string, tid: string) => {
-    const { data } = await supabase
+  const fetchMessages = useCallback(async (uid: string, threadId: string) => {
+    const { data, error } = await supabase
       .from("notifications")
       .select("*")
       .eq("user_id", uid)
       .in("type", ["chat_message", "chat_outbox"])
+      .like("message", `%"thread_id":"${threadId}"%`)
       .order("created_at", { ascending: true });
+    if (error) throw error;
 
-    if (!data) return;
+    const fetched = ((data || []) as NotificationRow[])
+      .map(row => toMessage(row, threadId))
+      .filter((message): message is Message => message !== null);
+    setMessages(previous => {
+      const merged = new Map(previous.map(message => [message.id, message]));
+      fetched.forEach(message => merged.set(message.id, message));
+      return Array.from(merged.values()).sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+    });
+  }, []);
 
-    const msgs: Message[] = [];
-    for (const row of data as any[]) {
-      let p: MsgPayload | null = null;
-      try { p = JSON.parse(row.message); } catch { continue; }
-      if (!p || p.thread_id !== tid) continue;
-      msgs.push({
-        id: row.id,
-        payload: p,
-        is_read: row.is_read,
-        created_at: row.created_at,
-        is_mine: row.type === "chat_outbox",
+  useEffect(() => {
+    if (!peerId) return;
+    let active = true;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const initialize = async () => {
+      setLoading(true);
+      setMessageError("");
+      setMessages([]);
+      try {
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError) throw userError;
+        if (!user) {
+          navigate("/auth");
+          return;
+        }
+        if (!active) return;
+
+        setUserId(user.id);
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        if (!session) {
+          navigate("/auth");
+          return;
+        }
+        const contactResponse = await fetch(`/api/chat/contact/${encodeURIComponent(peerId)}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const contactResult = await contactResponse.json().catch(() => ({})) as {
+          contact?: ChatContact;
+          error?: string;
+        };
+        if (!contactResponse.ok || !contactResult.contact) {
+          throw new Error(contactResult.error || "This message contact could not be loaded.");
+        }
+        if (!active) return;
+
+        setPeerName(contactResult.contact.store_name || contactResult.contact.full_name || "Unknown");
+        setPeerRole(contactResult.contact.role);
+
+        const threadId = makeThreadId(user.id, peerId);
+        await fetchMessages(user.id, threadId);
+        if (!active) return;
+        setLoading(false);
+
+        const { error: readError } = await supabase
+          .from("notifications")
+          .update({ is_read: true })
+          .eq("user_id", user.id)
+          .eq("type", "chat_message")
+          .like("message", `%"thread_id":"${threadId}"%`);
+        if (readError) {
+          setMessageError("Messages loaded, but read status could not be updated.");
+        }
+
+        channel = supabase
+          .channel(`chat_${threadId}_${user.id}`)
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT" as const,
+              schema: "public",
+              table: "notifications",
+              filter: `user_id=eq.${user.id}`,
+            },
+            payload => {
+              const row = payload.new as NotificationRow;
+              if (!["chat_message", "chat_outbox"].includes(row.type)) return;
+              const message = toMessage(row, threadId);
+              if (!message) return;
+              setMessages(previous => {
+                if (previous.some(existing => existing.id === message.id)) return previous;
+                return [...previous, message];
+              });
+              if (row.type === "chat_message") {
+                void supabase
+                  .from("notifications")
+                  .update({ is_read: true })
+                  .eq("id", row.id);
+              }
+            },
+          )
+          .subscribe();
+      } catch {
+        if (active) {
+          setMessageError("Messages could not be loaded. Check your connection and try again.");
+          setLoading(false);
+        }
+      }
+    };
+
+    void initialize();
+    return () => {
+      active = false;
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [peerId, navigate, fetchMessages]);
+
+  // Re-fetch periodically so messages recover if the realtime connection drops.
+  useEffect(() => {
+    if (!userId || !peerId) return;
+    const threadId = makeThreadId(userId, peerId);
+    const timer = window.setInterval(() => {
+      void fetchMessages(userId, threadId).catch(() => {
+        setMessageError("Could not refresh messages. Check your connection.");
       });
-    }
-    setMessages(msgs);
-  };
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [userId, peerId, fetchMessages]);
 
   const send = async () => {
     const msg = text.trim();
     if (!msg || !userId || !peerId || sending) return;
     setSending(true);
-    setText("");
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session) throw new Error("Your session expired. Please sign in again.");
 
-    const tid = makeThreadId(userId, peerId);
-    const payload: MsgPayload = {
-      sender_id: userId,
-      recipient_id: peerId,
-      text: msg,
-      thread_id: tid,
-      sender_name: myName,
-    };
-    const payloadStr = JSON.stringify(payload);
+      const response = await fetch("/api/chat/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ recipientId: peerId, text: msg }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Message could not be sent.");
 
-    const [res1, res2] = await Promise.all([
-      // Deliver to recipient
-      supabase.from("notifications").insert({
-        user_id: peerId,
-        type: "chat_message",
-        title: myName,
-        message: payloadStr,
-        is_read: false,
-      }),
-      // Copy in sender outbox
-      supabase.from("notifications").insert({
-        user_id: userId,
-        type: "chat_outbox",
-        title: peerNameRef.current || peerName,
-        message: payloadStr,
-        is_read: true,
-      }),
-    ]);
-
-    if (res1.error || res2.error) {
-      toast({ title: "Failed to send message", description: "Please try again.", variant: "destructive" });
-      setText(msg);
+      const sentMessage = toMessage(result.message as NotificationRow, makeThreadId(userId, peerId));
+      if (!sentMessage) throw new Error("The message was sent, but could not be displayed.");
+      setMessages(previous => {
+        if (previous.some(existing => existing.id === sentMessage.id)) return previous;
+        return [...previous, sentMessage];
+      });
+      setText("");
+      setMessageError("");
+    } catch (error) {
+      toast({
+        title: "Failed to send message",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
     }
-    setSending(false);
+    finally {
+      setSending(false);
+    }
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
@@ -243,6 +298,11 @@ const ChatThread = () => {
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        {messageError && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-center text-xs text-destructive" role="alert">
+            {messageError}
+          </div>
+        )}
         {loading && (
           <div className="text-center text-sm text-muted-foreground py-12">Loading messages…</div>
         )}

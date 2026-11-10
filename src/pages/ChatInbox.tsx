@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,10 @@ interface PeerProfile {
   role?: string;
 }
 
+interface ChatContactsResponse {
+  contacts: PeerProfile[];
+}
+
 function formatTs(ts: string) {
   const d = new Date(ts);
   if (isToday(d)) return format(d, "HH:mm");
@@ -46,46 +50,27 @@ const ChatInbox = () => {
   const [showPeers, setShowPeers] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [userId, setUserId] = useState("");
 
-  useEffect(() => { init(); }, []);
-
-  const init = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { navigate("/auth"); return; }
-
-    const { data: roleData } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    const myRole = (roleData as any)?.role ?? "client";
-
-    await Promise.all([
-      fetchThreads(user.id),
-      fetchPeers(user.id, myRole),
-    ]);
-    setLoading(false);
-  };
-
-  const fetchThreads = async (uid: string) => {
-    const { data } = await supabase
+  const fetchThreads = useCallback(async (uid: string) => {
+    const { data, error } = await supabase
       .from("notifications")
       .select("*")
       .eq("user_id", uid)
       .in("type", ["chat_message", "chat_outbox"])
       .order("created_at", { ascending: false });
-
-    if (!data) return;
+    if (error) throw error;
 
     const threadMap = new Map<string, Thread>();
-    for (const row of data as any[]) {
+    for (const row of data) {
       let payload: MsgPayload | null = null;
       try { payload = JSON.parse(row.message); } catch { continue; }
-      if (!payload?.thread_id) continue;
+      if (!payload?.thread_id || typeof payload.text !== "string") continue;
 
       const isMine = row.type === "chat_outbox";
       const peerId = isMine ? payload.recipient_id : payload.sender_id;
-      const peerName = isMine ? row.title : (payload.sender_name || row.title);
+      const peerName = (isMine ? row.title : (payload.sender_name || row.title)) || "Unknown";
       const tid = payload.thread_id;
 
       if (!threadMap.has(tid)) {
@@ -104,68 +89,61 @@ const ChatInbox = () => {
     }
 
     setThreads(Array.from(threadMap.values()));
-  };
+  }, []);
 
-  const fetchPeers = async (uid: string, myRole: string) => {
-    const peerList: PeerProfile[] = [];
+  const fetchPeers = useCallback(async () => {
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    if (!session) throw new Error("Sign in to load your message contacts.");
 
-    if (myRole === "client") {
-      const { data: myProfile } = await supabase
-        .from("profiles")
-        .select("agent_id")
-        .eq("id", uid)
-        .single();
-
-      const agentId = (myProfile as any)?.agent_id;
-      if (agentId) {
-        const { data: agentProfile } = await supabase
-          .from("profiles")
-          .select("id, full_name, store_name")
-          .eq("id", agentId)
-          .single();
-        if (agentProfile) peerList.push({ ...(agentProfile as any), role: "agent" });
-      }
-
-      const { data: vendorRoles } = await supabase
-        .from("user_roles")
-        .select("user_id")
-        .eq("role", "vendor")
-        .limit(30);
-      if (vendorRoles?.length) {
-        const ids = (vendorRoles as any[]).map(r => r.user_id);
-        const { data: vendorProfiles } = await supabase
-          .from("profiles")
-          .select("id, full_name, store_name")
-          .in("id", ids);
-        if (vendorProfiles) {
-          (vendorProfiles as any[]).forEach(p => peerList.push({ ...p, role: "vendor" }));
-        }
-      }
-    } else if (myRole === "agent") {
-      const { data: clients } = await (supabase as any)
-        .from("profiles")
-        .select("id, full_name, store_name")
-        .eq("agent_id", uid)
-        .limit(50);
-      if (clients) (clients as any[]).forEach(c => peerList.push({ ...c, role: "client" }));
-    } else if (myRole === "vendor" || myRole === "admin") {
-      const { data: agentRoles } = await supabase
-        .from("user_roles")
-        .select("user_id")
-        .eq("role", "agent")
-        .limit(10);
-      if (agentRoles?.length) {
-        const ids = (agentRoles as any[]).map(r => r.user_id);
-        const { data: agentProfiles } = await supabase
-          .from("profiles")
-          .select("id, full_name, store_name")
-          .in("id", ids);
-        if (agentProfiles) (agentProfiles as any[]).forEach(p => peerList.push({ ...p, role: "agent" }));
-      }
+    const response = await fetch("/api/chat/contacts", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const result = await response.json().catch(() => ({})) as Partial<ChatContactsResponse> & { error?: string };
+    if (!response.ok || !Array.isArray(result.contacts)) {
+      throw new Error(result.error || "Message contacts could not be loaded.");
     }
+    setPeers(result.contacts);
+  }, []);
 
-    setPeers(peerList);
-  };
+  const loadInbox = useCallback(async () => {
+    setLoading(true);
+    setLoadError("");
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!user) {
+        navigate("/auth");
+        return;
+      }
+      setUserId(user.id);
+
+      await Promise.all([
+        fetchThreads(user.id),
+        fetchPeers(),
+      ]);
+    } catch {
+      setLoadError("Messages could not be loaded. Check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchPeers, fetchThreads, navigate]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadInbox(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadInbox]);
+
+  // Poll as a recovery path for missed realtime events and newly delivered messages.
+  useEffect(() => {
+    if (!userId) return;
+    const timer = window.setInterval(() => {
+      void fetchThreads(userId).catch(() => {
+        setLoadError("Conversations could not be refreshed. Check your connection.");
+      });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [userId, fetchThreads]);
 
   const filteredThreads = threads.filter(t =>
     t.peer_name.toLowerCase().includes(search.toLowerCase())
@@ -240,13 +218,22 @@ const ChatInbox = () => {
 
       {/* Thread list */}
       <div className="flex-1 overflow-y-auto">
+        {loadError && (
+          <div className="mx-4 mt-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-center text-xs text-destructive" role="alert">
+            <p>{loadError}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => void loadInbox()}>
+              Retry
+            </Button>
+          </div>
+        )}
+
         {loading && (
           <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
             Loading…
           </div>
         )}
 
-        {!loading && filteredThreads.length === 0 && (
+        {!loading && !loadError && filteredThreads.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 gap-4 text-center px-8">
             <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
               <MessageSquare size={28} className="text-primary" />
