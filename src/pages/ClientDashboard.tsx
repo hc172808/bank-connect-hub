@@ -38,7 +38,7 @@ import {
   Scan,
 } from "lucide-react";
 import { format, startOfMonth } from "date-fns";
-import { requestNotificationPermission, subscribeToTransactionNotifications, subscribeToChatNotifications } from "@/lib/pushNotifications";
+import { requestNotificationPermission, subscribeToTransactionNotifications } from "@/lib/pushNotifications";
 import { PiggyBank, CalendarClock, Target } from "lucide-react";
 import { fetchFeatureToggles } from "@/lib/featureToggles";
 import { fetchCurrentUserFeatureAccess } from "@/lib/userFeatureAccess";
@@ -166,9 +166,6 @@ const ClientDashboard = () => {
       if (granted) {
         subscribeToTransactionNotifications(user.id, (title, body) => {
           toast({ title, description: body });
-        });
-        subscribeToChatNotifications(user.id, (senderName, text) => {
-          toast({ title: `💬 ${senderName}`, description: text });
         });
       }
     });

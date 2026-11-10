@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { DashboardSwitcher } from "@/components/DashboardSwitcher";
-import { requestNotificationPermission, subscribeToTransactionNotifications, subscribeToChatNotifications } from "@/lib/pushNotifications";
+import { requestNotificationPermission, subscribeToTransactionNotifications } from "@/lib/pushNotifications";
 import { format, startOfDay, startOfMonth, subDays } from "date-fns";
 
 interface ProfileData { full_name: string; phone_number: string | null; }
@@ -275,9 +275,6 @@ const AgentDashboard = () => {
     const granted = await requestNotificationPermission();
     if (granted) {
       subscribeToTransactionNotifications(user.id);
-      subscribeToChatNotifications(user.id, (senderName, text) => {
-        toast({ title: `💬 ${senderName}`, description: text });
-      });
     }
   }, [navigate, toast]);
 

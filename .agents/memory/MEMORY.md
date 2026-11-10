@@ -3,7 +3,7 @@
 - [TODO progress & strategy](todo-progress.md) — 233/239 done, 6 blocked (AI/NFC/OpenBanking); i18n complete; App Lock + Currency Converter added
 - [i18n system](i18n.md) — LanguageProvider in main.tsx wraps ThemeProvider; useT()/useLanguage() hooks; 5 locales (en/es/fr/pt/ar); RTL for Arabic; localStorage key vbank_language
 - [App Lock](applock.md) — mandatory lock uses a separate 4–10 character mixed passcode; apply its Supabase migration before enabling non-digit codes
-- [Chat systems](chat.md) — peer DMs use notifications; support chat uses private server-only tables and AI is limited to general answers with no actions.
+- [Chat systems](chat.md) — peer DMs use server-verified rows and per-user alerts; support chat is server-only and AI has no account access.
 - [Replit migration](replit-migration.md) — Supabase kept (too deep to replace); lucide-react + date-fns had corrupted dist on import; secrets in Replit Secret store
 - [Private ledger](private-ledger.md) — customer payments use the authenticated database ledger; public RPC fallbacks are disabled; hash-chain migration must be applied to Supabase
 - [Local database stack](local-database-stack.md) — Replit Docker needs host-side PostgreSQL checks and IPv4-only pgAdmin binding

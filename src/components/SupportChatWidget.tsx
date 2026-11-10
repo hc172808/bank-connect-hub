@@ -46,7 +46,14 @@ interface QueueEnvelope {
   active: QueueSession[];
 }
 
-class SupportRequestError extends Error {}
+class SupportRequestError extends Error {
+  status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.status = status;
+  }
+}
 
 async function supportRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const { data, error } = await supabase.auth.getSession();
@@ -74,7 +81,7 @@ async function supportRequest<T>(path: string, method = "GET", body?: unknown): 
       : typeof record.error === "string"
         ? record.error
         : `Support chat could not complete the request (HTTP ${response.status}).`;
-    throw new SupportRequestError(message);
+    throw new SupportRequestError(message, response.status);
   }
   return payload as T;
 }
@@ -122,6 +129,11 @@ export function SupportChatWidget() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const messageEndRef = useRef<HTMLDivElement>(null);
+  const selectedAgentSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    selectedAgentSessionIdRef.current = selectedAgentSession?.id ?? null;
+  }, [selectedAgentSession?.id]);
 
   const loadCustomerConversation = useCallback(async () => {
     const result = await supportRequest<{ session: SupportSession | null; messages: SupportMessage[] }>("/api/support-chat/me");
@@ -149,10 +161,17 @@ export function SupportChatWidget() {
       supportRequest<QueueEnvelope>("/api/support-chat/queue"),
     ]);
     setAvailability(presence.available);
+    const active = (nextQueue.active ?? []).filter((item) => item.agent_id === user?.id);
     setQueue({
       waiting: nextQueue.waiting ?? [],
-      active: (nextQueue.active ?? []).filter((item) => item.agent_id === user?.id),
+      active,
     });
+    const selectedId = selectedAgentSessionIdRef.current;
+    if (selectedId && !active.some((item) => item.id === selectedId)) {
+      setSelectedAgentSession(null);
+      setMessages([]);
+      setAgentName(null);
+    }
   }, [user?.id]);
 
   const loadAgentConversation = useCallback(async (conversationId: string) => {
@@ -167,8 +186,6 @@ export function SupportChatWidget() {
   useEffect(() => {
     if (!canUseWidget || (!open && !isAgent)) return;
     let alive = true;
-    if (open) setLoading(true);
-    if (open) setError(null);
     const load = async () => {
       try {
         if (isAgent) await loadAgentQueue();
@@ -225,13 +242,22 @@ export function SupportChatWidget() {
         await loadAgentConversation(selectedAgentSession.id);
         if (alive) setError(null);
       } catch (requestError) {
-        if (alive) setError(requestError instanceof Error ? requestError.message : "This conversation could not be refreshed.");
+        if (!alive) return;
+        if (requestError instanceof SupportRequestError && [403, 404].includes(requestError.status ?? 0)) {
+          setSelectedAgentSession(null);
+          setMessages([]);
+          setAgentName(null);
+          setError("This conversation is no longer assigned to you. It has returned to the support queue.");
+          try { await loadAgentQueue(); } catch { /* Keep the assignment notice visible. */ }
+          return;
+        }
+        setError(requestError instanceof Error ? requestError.message : "This conversation could not be refreshed.");
       }
     };
     void refresh();
     const interval = window.setInterval(() => void refresh(), 4000);
     return () => { alive = false; window.clearInterval(interval); };
-  }, [open, isAgent, selectedAgentSession?.id, loadAgentConversation]);
+  }, [open, isAgent, selectedAgentSession?.id, loadAgentConversation, loadAgentQueue]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -252,6 +278,14 @@ export function SupportChatWidget() {
     if (isAgent) setSelectedAgentSession(result.session);
     else setSession(result.session);
     setMessages(result.messages ?? []);
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (nextOpen) {
+      setLoading(true);
+      setError(null);
+    }
   };
 
   const openConversation = async () => {
@@ -340,7 +374,7 @@ export function SupportChatWidget() {
   if (!canUseWidget) return null;
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <div className="fixed z-[90] right-4 bottom-4 sm:right-6 sm:bottom-6" data-testid="support-chat-widget">
         <DialogContent
           className="fixed left-0 top-auto bottom-0 z-[91] flex h-[min(680px,100dvh)] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-t-[24px] border border-[#d7e2e1] bg-[#f5f8f7] p-0 text-[#19343a] shadow-[0_20px_70px_rgba(13,38,43,.24)] sm:left-auto sm:right-6 sm:bottom-24 sm:h-[min(660px,calc(100dvh-7rem))] sm:w-[390px] sm:max-w-[calc(100vw-3rem)] sm:rounded-[22px] [&>button:last-child]:right-4 [&>button:last-child]:top-4 [&>button:last-child]:text-white/75 [&>button:last-child]:hover:text-white"

@@ -7,33 +7,48 @@ export const NotificationBell = () => {
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const fetchUnreadCount = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { count } = await supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .eq("is_read", false);
-
-    setUnreadCount(count || 0);
-  };
-
   useEffect(() => {
-    fetchUnreadCount();
+    let active = true;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let refreshTimer: number | null = null;
 
-    const channel = supabase
-      .channel("bell-notifications")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "notifications" },
-        () => fetchUnreadCount()
-      )
-      .subscribe();
+    const initialize = async () => {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (!active || authError || !user) return;
 
+      const refreshUnreadCount = async () => {
+        const { count, error } = await supabase
+          .from("notifications")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("is_read", false);
+        if (!active || error) return;
+        setUnreadCount(count ?? 0);
+      };
+
+      await refreshUnreadCount();
+      if (!active) return;
+      channel = supabase
+        .channel(`bell-notifications-${user.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "notifications",
+            filter: `user_id=eq.${user.id}`,
+          },
+          () => void refreshUnreadCount(),
+        )
+        .subscribe();
+      refreshTimer = window.setInterval(() => void refreshUnreadCount(), 5000);
+    };
+
+    void initialize();
     return () => {
-      supabase.removeChannel(channel);
+      active = false;
+      if (refreshTimer) window.clearInterval(refreshTimer);
+      if (channel) void supabase.removeChannel(channel);
     };
   }, []);
 

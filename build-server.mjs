@@ -2019,8 +2019,46 @@ async function getSupportChatMessages(admin, sessionId) {
   return (data || []).reverse();
 }
 
+const SUPPORT_CHAT_MODEL_CACHE_MS = 60_000;
+let supportChatModelCheckedAt = 0;
+let supportChatModelId = null;
+let supportChatModelCheck = null;
+
+async function getSupportChatModelId() {
+  if (Date.now() - supportChatModelCheckedAt < SUPPORT_CHAT_MODEL_CACHE_MS) {
+    return supportChatModelId;
+  }
+  if (supportChatModelCheck) return supportChatModelCheck;
+
+  supportChatModelCheck = (async () => {
+    try {
+      const { modelId } = await getSystemDoctorModel();
+      supportChatModelId = modelId;
+    } catch {
+      supportChatModelId = null;
+    }
+    supportChatModelCheckedAt = Date.now();
+    return supportChatModelId;
+  })();
+
+  try {
+    return await supportChatModelCheck;
+  } finally {
+    supportChatModelCheck = null;
+  }
+}
+
+function markSupportChatAIUnavailable() {
+  supportChatModelId = null;
+  supportChatModelCheckedAt = Date.now();
+  supportChatModelCheck = null;
+}
+
 async function callSupportChatAssistant(messages) {
-  const { connectors, modelId } = await getSystemDoctorModel();
+  const modelId = await getSupportChatModelId();
+  if (!modelId) throw new Error("Automated support is unavailable.");
+  const { ReplitConnectors } = await import("@replit/connectors-sdk");
+  const connectors = new ReplitConnectors();
   const response = await connectors.proxy("xai", "/v1/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2093,7 +2131,8 @@ app.post("/api/support-chat/open", async (req, res) => {
     if (existing) return res.json({ session: existing, messages: await getSupportChatMessages(admin, existing.id) });
 
     const agentIds = await getOnlineSupportAgentIds(admin);
-    const status = agentIds.length > 0 ? "waiting" : "ai";
+    const assistantModelId = agentIds.length === 0 ? await getSupportChatModelId() : null;
+    const status = agentIds.length > 0 || !assistantModelId ? "waiting" : "ai";
     const { data: session, error: insertError } = await admin
       .from("support_chat_sessions")
       .insert({ user_id: actor.user.id, status })
@@ -2104,7 +2143,9 @@ app.post("/api/support-chat/open", async (req, res) => {
       sessionId: session.id,
       senderRole: "system",
       body: status === "waiting"
-        ? "Your request is in the queue. An agent will join as soon as one is available."
+        ? agentIds.length > 0
+          ? "Your request is in the queue. An agent will join as soon as one is available."
+          : "Automated support is unavailable right now. Your request is saved for a human agent and will stay in the queue until one is available."
         : "No agents are online, so automated support is available. It can answer general questions but cannot view or change your account.",
     });
     res.status(201).json({ session, messages: await getSupportChatMessages(admin, session.id) });
@@ -2135,9 +2176,9 @@ app.get("/api/support-chat/me", async (req, res) => {
 
     const onlineAgentIds = await getOnlineSupportAgentIds(admin);
     const agentDisconnected = session.status === "active" && session.agent_id && !onlineAgentIds.includes(session.agent_id);
-    const noAgentForWaitingRequest = session.status === "waiting" && onlineAgentIds.length === 0;
-    if (agentDisconnected || noAgentForWaitingRequest) {
-      const nextStatus = onlineAgentIds.length > 0 ? "waiting" : "ai";
+    const assistantUnavailable = session.status === "ai" && !(await getSupportChatModelId());
+    if (agentDisconnected || assistantUnavailable) {
+      const nextStatus = "waiting";
       const { data: updated, error: updateError } = await admin
         .from("support_chat_sessions")
         .update({
@@ -2154,9 +2195,9 @@ app.get("/api/support-chat/me", async (req, res) => {
         await insertSupportChatMessage(admin, {
           sessionId: session.id,
           senderRole: "system",
-          body: nextStatus === "waiting"
+          body: agentDisconnected
             ? "Your previous agent is no longer online. Your conversation is back in the human-agent queue."
-            : "No agents are currently online. Automated support can answer general questions; request a human when one is available.",
+            : "Automated support is unavailable right now. Your conversation is saved in the human-agent queue.",
         });
         Object.assign(session, updated);
       }
@@ -2363,12 +2404,24 @@ app.post("/api/support-chat/:sessionId/messages", async (req, res) => {
           body: answer,
         });
       } catch {
+        markSupportChatAIUnavailable();
+        const { data: queuedSession, error: queueError } = await admin
+          .from("support_chat_sessions")
+          .update({ status: "waiting", updated_at: new Date().toISOString() })
+          .eq("id", session.id)
+          .eq("status", "ai")
+          .select("id")
+          .maybeSingle();
+        if (queueError) throw new Error(queueError.message);
         await insertSupportChatMessage(admin, {
           sessionId: session.id,
           senderRole: "system",
-          body: "Automated support is temporarily unavailable. You can request a human agent or try again later.",
+          body: "Automated support is unavailable right now. Your message has been saved in the queue for a human support agent.",
         });
-        return res.status(503).json({ error: "Automated support is unavailable right now. Your message was saved." });
+        if (!queuedSession) {
+          const current = await fetchSupportChatSession(admin, session.id);
+          if (!current) return res.status(404).json({ error: "Chat not found." });
+        }
       }
     }
     res.json({ session: await fetchSupportChatSession(admin, session.id), messages: await getSupportChatMessages(admin, session.id) });

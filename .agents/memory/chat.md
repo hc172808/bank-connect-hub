@@ -33,20 +33,35 @@ JSON payload shape:
 
 **Why:** Both queries (`user_id = me`) respect Supabase RLS — no need to read another user's rows.
 
+**Rule:** Browser clients cannot insert the recipient's notification row under the current RLS policy. Route peer sends through an authenticated server handler that verifies the peer relationship and inserts delivery plus outbox together.
+
+**Why:** Direct inserts are restricted to rows owned by the signed-in user; broadening the shared notifications insert policy would expose unrelated notification types.
+
+**How to apply:** Keep sender identity server-derived and authorize each supported role pair before using the service client.
+
 ## Thread ID
 `[senderId, recipientId].sort().join("_")` — symmetric, same for both parties.
 
 ## Realtime
 `supabase.channel(...).on("postgres_changes", { filter: "user_id=eq.<me>" }, ...)` — subscribe to own notification inserts, filter by thread_id in handler.
 
+## Message alerts and notification privacy
+**Rule:** Keep in-app chat alerts active independently of browser notification permission. Browser notifications are an optional extra; notification queries and realtime listeners must always be scoped to the signed-in `user_id`, including on staff accounts. Exclude `chat_outbox` rows from the user's notification feed and decode incoming chat payloads before display.
+
+**Why:** Browser permission must not disable in-app alerts, and staff RLS can expose other users' notifications unless each client query and subscription explicitly limits rows to the current user.
+
+**How to apply:** Mount the chat alert listener at the app level, filter notification reads/subscriptions by the current user, and link chat notification entries to the sender's thread.
+
 ## Routes
 - `/chat` → `ChatInbox.tsx` — conversation list
 - `/chat/:peerId` → `ChatThread.tsx` — full chat window
 
 ## Peer discovery
-- Clients → their `profiles.agent_id` (assigned agent) + user_roles role=vendor
-- Agents → profiles where `agent_id = me` (their clients)
-- Vendors/Admin → user_roles role=agent
+Client-agent relationships come from `pending_deposits.agent_id/user_id`; `profiles` has no `agent_id` column. Clients can also message vendors; agents can message linked clients/vendors; vendors, admins, and founders can message agents. Contact names and roles are served through authenticated server routes because browser RLS does not expose other users' profiles or roles.
+
+**Why:** The persistent client-agent link is recorded in deposits, while profile and role rows are private to ordinary browser users.
+
+**How to apply:** Use `pending_deposits` for agent/client authorization and keep contact lookup scoped to the same role relationships as message sending.
 
 ## Entry points
 - Menu.tsx "Messages" item

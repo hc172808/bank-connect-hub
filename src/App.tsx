@@ -24,6 +24,7 @@ import { DashboardSwitcher } from "./components/DashboardSwitcher";
 import { canUseBankingView } from "./lib/dashboardViews";
 import { IncidentBanner } from "./components/IncidentBanner";
 import { SupportChatWidget } from "./components/SupportChatWidget";
+import { useChatMessageAlerts } from "./hooks/useChatMessageAlerts";
 import { toast as sonnerToast } from "sonner";
 import { buildSnapshot, snapshotToText } from "@/lib/bootDiagnostics";
 import { ScrollToTop } from "./components/ScrollToTop";
@@ -786,6 +787,7 @@ const App = () => (
         >
           <ForceUpdateGate>
             <ScrollToTop />
+            <ChatMessageAlertListener />
             <GlobalOverlays />
             <SupportChatWidget />
             <Suspense fallback={<FullScreenLoader />}>
@@ -799,5 +801,10 @@ const App = () => (
     </QueryClientProvider>
   </ErrorBoundary>
 );
+
+const ChatMessageAlertListener = () => {
+  useChatMessageAlerts();
+  return null;
+};
 
 export default App;
