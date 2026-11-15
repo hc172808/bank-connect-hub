@@ -6027,8 +6027,11 @@ app.post("/api/blockchain/balance", async (req, res) => {
     }
     if (!settings) return res.status(503).json({ ok: false, error: "No active blockchain network is configured." });
 
-    const testBackupUrl = "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc?network=mainnet";
-    const legacyTestBackupUrl = "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc";
+    const testBackupUrl = "https://app.netlifegy.com/api/rpc";
+    const legacyTestBackupUrls = new Set([
+      "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc",
+      "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc?network=mainnet",
+    ]);
     const configuredUrls = [
       settings.rpc_url,
       ...(Array.isArray(settings.rpc_urls) ? settings.rpc_urls : []),
@@ -6037,7 +6040,7 @@ app.post("/api/blockchain/balance", async (req, res) => {
       .filter((url) => typeof url === "string")
       .map((url) => {
         const trimmed = url.trim();
-        return trimmed === legacyTestBackupUrl ? testBackupUrl : trimmed;
+        return legacyTestBackupUrls.has(trimmed) ? testBackupUrl : trimmed;
       })
       .filter((url) => Boolean(url) && url !== testBackupUrl))]
       .slice(0, 2);

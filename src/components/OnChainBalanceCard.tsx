@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import {
   buildRpcList,
-  LEGACY_WALLET_TEST_RPC_URL,
+  LEGACY_WALLET_TEST_RPC_URLS,
   WALLET_TEST_RPC_URL,
 } from "@/lib/rpcFallback";
 
@@ -116,7 +116,7 @@ export function OnChainBalanceCard({
               : null,
           });
           const rpcUrls = configuredRpcUrls
-            .filter((url) => url !== WALLET_TEST_RPC_URL && url !== LEGACY_WALLET_TEST_RPC_URL)
+            .filter((url) => url !== WALLET_TEST_RPC_URL && !LEGACY_WALLET_TEST_RPC_URLS.includes(url))
             .slice(0, 2);
           rpcUrls.push(WALLET_TEST_RPC_URL);
           if (rpcUrls.length === 0) throw new Error("No blockchain RPC URL is configured.");

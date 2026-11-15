@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Save, Link2, Coins, Globe, Hash, Wallet, Key, Percent, Plus, Trash2, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
-  LEGACY_WALLET_TEST_RPC_URL,
+  LEGACY_WALLET_TEST_RPC_URLS,
   testAllRpcs,
   testRpc,
   WALLET_TEST_RPC_URL,
@@ -98,7 +98,7 @@ export default function BlockchainSettings() {
       const rpcUrlsRaw = data.rpc_urls as unknown;
       const savedRpcUrls = Array.isArray(rpcUrlsRaw)
         ? [...new Set((rpcUrlsRaw as string[]).map((url) =>
-            url === LEGACY_WALLET_TEST_RPC_URL ? WALLET_TEST_RPC_URL : url
+            LEGACY_WALLET_TEST_RPC_URLS.includes(url) ? WALLET_TEST_RPC_URL : url
           ))]
         : [];
       setSettings({

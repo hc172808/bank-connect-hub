@@ -4,10 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { normalizeRpcUrl } from "@/lib/rpcUrl";
 
 const RPC_TIMEOUT_MS = 8000;
-export const LEGACY_WALLET_TEST_RPC_URL =
-  "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc";
-export const WALLET_TEST_RPC_URL =
-  "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc?network=mainnet";
+export const LEGACY_WALLET_TEST_RPC_URLS = [
+  "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc",
+  "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc?network=mainnet",
+];
+export const WALLET_TEST_RPC_URL = "https://app.netlifegy.com/api/rpc";
 
 // ── Node config cache — fetched from build-server, refreshed every 60 s ──────
 interface NodeConfig {
