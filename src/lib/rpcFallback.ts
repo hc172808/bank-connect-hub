@@ -4,8 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { normalizeRpcUrl } from "@/lib/rpcUrl";
 
 const RPC_TIMEOUT_MS = 8000;
-export const WALLET_TEST_RPC_URL =
+export const LEGACY_WALLET_TEST_RPC_URL =
   "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc";
+export const WALLET_TEST_RPC_URL =
+  "https://4101e16e-3c6d-4d5f-b78a-fa71542e1810-00-prouxl2paq33.riker.replit.dev/api/rpc?network=mainnet";
 
 // ── Node config cache — fetched from build-server, refreshed every 60 s ──────
 interface NodeConfig {
@@ -211,9 +213,10 @@ export async function testRpc(url: string): Promise<RpcTestResult> {
     }
     const chainId = BigInt(rpcBody.result).toString();
     return { url: targetUrl, reachable: true, chainId, latencyMs: Date.now() - start, httpStatus: status };
-  } catch (err: any) {
-    const msg: string = err?.message || String(err);
-    const isTimeout = err?.name === "AbortError" || msg.toLowerCase().includes("timeout");
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isTimeout = (err instanceof Error && err.name === "AbortError")
+      || msg.toLowerCase().includes("timeout");
     return {
       url: targetUrl,
       reachable: false,

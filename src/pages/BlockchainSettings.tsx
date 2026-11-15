@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,7 +9,13 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Save, Link2, Coins, Globe, Hash, Wallet, Key, Percent, Plus, Trash2, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { testAllRpcs, testRpc, WALLET_TEST_RPC_URL, type RpcTestResult } from "@/lib/rpcFallback";
+import {
+  LEGACY_WALLET_TEST_RPC_URL,
+  testAllRpcs,
+  testRpc,
+  WALLET_TEST_RPC_URL,
+  type RpcTestResult,
+} from "@/lib/rpcFallback";
 
 interface BlockchainSettingsData {
   id: string;
@@ -76,16 +82,7 @@ export default function BlockchainSettings() {
     gas_fee_gyd: 0.01,
   });
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (role !== "admin" && role !== "founder") {
-      navigate("/admin");
-      return;
-    }
-    fetchSettings();
-  }, [role, authLoading]);
-
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("blockchain_settings")
@@ -99,7 +96,11 @@ export default function BlockchainSettings() {
     }
     if (data) {
       const rpcUrlsRaw = data.rpc_urls as unknown;
-      const savedRpcUrls = Array.isArray(rpcUrlsRaw) ? (rpcUrlsRaw as string[]) : [];
+      const savedRpcUrls = Array.isArray(rpcUrlsRaw)
+        ? [...new Set((rpcUrlsRaw as string[]).map((url) =>
+            url === LEGACY_WALLET_TEST_RPC_URL ? WALLET_TEST_RPC_URL : url
+          ))]
+        : [];
       setSettings({
         id: data.id,
         rpc_url: data.rpc_url || "https://rpc.netlifegy.com",
@@ -118,7 +119,19 @@ export default function BlockchainSettings() {
       });
     }
     setLoading(false);
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (role !== "admin" && role !== "founder") {
+      navigate("/admin");
+      return;
+    }
+    const startup = window.setTimeout(() => {
+      void fetchSettings();
+    }, 0);
+    return () => window.clearTimeout(startup);
+  }, [role, authLoading, fetchSettings, navigate]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,7 +140,7 @@ export default function BlockchainSettings() {
 
     const payload = {
       rpc_url: settings.rpc_url || null,
-      rpc_urls: settings.rpc_urls as any,
+      rpc_urls: settings.rpc_urls,
       chain_id: settings.chain_id || null,
       native_coin_symbol: settings.native_coin_symbol,
       native_coin_name: settings.native_coin_name,

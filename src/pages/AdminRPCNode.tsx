@@ -26,8 +26,8 @@ async function callRPC(method: string, params: unknown[] = []) {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
     });
     return await res.json();
-  } catch (err: any) {
-    return { error: { message: err.message } };
+  } catch (err: unknown) {
+    return { error: { message: err instanceof Error ? err.message : String(err) } };
   }
 }
 
@@ -61,6 +61,7 @@ const AdminRPCNode = () => {
   const [status, setStatus] = useState<DockerStatus>("loading");
   const [dockerAvail, setDockerAvail] = useState(false);
   const [containerName, setContainerName] = useState("litenode");
+  const [upstreamRpc, setUpstreamRpc] = useState("");
   const [dockerMsg, setDockerMsg] = useState("");
   const [stats, setStats] = useState<{ cpu?: string; mem?: string; net?: string } | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -80,6 +81,15 @@ const AdminRPCNode = () => {
       setStatus(data.status as DockerStatus);
       if (data.container) setContainerName(data.container);
       if (data.message) setDockerMsg(data.message);
+      try {
+        const configResponse = await fetch("/api/nodes/config");
+        if (configResponse.ok) {
+          const config = await configResponse.json();
+          setUpstreamRpc(typeof config.UPSTREAM_RPC === "string" ? config.UPSTREAM_RPC : "");
+        }
+      } catch {
+        // Keep the last known configuration and retry on the next refresh.
+      }
       if (data.docker && data.status === "running") {
         const s = await apiFetch("stats");
         setStats(s.stats || null);
@@ -92,9 +102,16 @@ const AdminRPCNode = () => {
   }, []);
 
   useEffect(() => {
-    refresh();
-    pollRef.current = setInterval(refresh, 6000);
-    return () => clearInterval(pollRef.current);
+    const initialRefresh = window.setTimeout(() => {
+      void refresh();
+    }, 0);
+    pollRef.current = setInterval(() => {
+      void refresh();
+    }, 6000);
+    return () => {
+      window.clearTimeout(initialRefresh);
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -115,8 +132,8 @@ const AdminRPCNode = () => {
         await refresh();
         if (logsOpen) await loadLogs();
       }
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -276,7 +293,7 @@ const AdminRPCNode = () => {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {[
-                { label: "Upstream RPC",  value: "GYDS RPC (rpc.netlifegy.com:8545)" },
+                { label: "Upstream RPC",  value: upstreamRpc || "Not configured" },
                 { label: "Chain",         value: "GYDS Chain (Chain ID 198282)" },
                 { label: "Symbol",        value: "GYDS · 18 decimals" },
                 { label: "Container port", value: ":8545 (internal)" },

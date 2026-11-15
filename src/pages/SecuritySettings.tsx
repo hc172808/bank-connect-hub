@@ -12,7 +12,7 @@ import { ArrowLeft, Shield, Smartphone, ShieldCheck, ShieldOff, Bell, BellOff, L
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
-import { useAppLockSettings } from "@/hooks/useAppLock";
+import { APP_LOCK_TIMEOUT_OPTIONS, useAppLockSettings } from "@/hooks/useAppLock";
 import { SetAppLockPinDialog } from "@/components/SetAppLockPinDialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -49,7 +49,7 @@ const AppLockCard = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Timer className="h-5 w-5" /> App Lock</CardTitle>
-          <CardDescription>The app requires your App Lock passcode whenever you return.</CardDescription>
+          <CardDescription>Choose how long the app can be inactive before it asks for your passcode again.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
@@ -88,13 +88,14 @@ const AppLockCard = () => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">1 minute</SelectItem>
-                  <SelectItem value="5">5 minutes</SelectItem>
-                  <SelectItem value="15">15 minutes</SelectItem>
-                  <SelectItem value="30">30 minutes</SelectItem>
-                  <SelectItem value="60">1 hour</SelectItem>
+                  {APP_LOCK_TIMEOUT_OPTIONS.map(({ minutes, label }) => (
+                    <SelectItem key={minutes} value={String(minutes)}>{label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Briefly switching away will not lock the app; it locks after this much inactivity.
+              </p>
             </div>
           )}
         </CardContent>
