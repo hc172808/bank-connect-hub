@@ -8,3 +8,9 @@ WhatsApp verification is intentionally human-reviewed: users send a pre-filled s
 **Why:** A click-to-WhatsApp flow does not prove delivery or identity by itself, and browser-only confirmation was not suitable for an admin-reviewed banking workflow.
 
 **How to apply:** Keep the official number read-only for users, never request passwords or PINs in WhatsApp, and apply the WhatsApp verification migration before enabling request review in a Supabase project. Login WhatsApp OTP is a separate opt-in setting (`whatsapp_login_verification_enabled`) and must remain off when delivery is unavailable.
+
+The login page's "Chat with an agent" action uses the in-app, human-only guest support queue. Keep that separate from WhatsApp verification and login OTP.
+
+**Why:** Users asking for sign-in help should not be sent out of the app to start a support conversation.
+
+**How to apply:** Preserve WhatsApp only for explicitly enabled verification or OTP flows; route login support to the in-app guest chat.

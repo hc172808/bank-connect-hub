@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, Fingerprint, Store, Users, ScanFace, MessageCircle, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Fingerprint, Store, Users, ScanFace, ShieldCheck } from "lucide-react";
 import { CountryPhoneInput } from "@/components/CountryPhoneInput";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { buildWhatsAppLink, fetchWhatsAppSettings } from "@/lib/whatsapp";
+import { fetchWhatsAppSettings } from "@/lib/whatsapp";
+import { LoginSupportChat } from "@/components/LoginSupportChat";
 import {
   isBiometricAvailable,
   authenticateWithBiometric,
@@ -79,7 +80,6 @@ const Auth = () => {
   const [securityChallengeQuestion, setSecurityChallengeQuestion] = useState(initialSecurityChallenge?.question || "");
   const [securityAnswerInput, setSecurityAnswerInput] = useState("");
   const [securitySetupQuestion, setSecuritySetupQuestion] = useState("");
-  const [supportWhatsapp, setSupportWhatsapp] = useState("");
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const approvalPollInFlight = useRef(false);
   const navigate = useNavigate();
@@ -87,13 +87,6 @@ const Auth = () => {
 
   useEffect(() => {
     isBiometricAvailable().then(setBiometricAvailable);
-    fetch("/api/config")
-      .then((response) => response.json())
-      .then((config: { whatsappNumber?: string }) => setSupportWhatsapp(config.whatsappNumber || ""))
-      .catch(() => {});
-    fetchWhatsAppSettings()
-      .then((settings) => setSupportWhatsapp(settings.supportNumber))
-      .catch(() => {});
   }, []);
 
   const setPendingApproval = (token: string) => {
@@ -835,20 +828,7 @@ const Auth = () => {
                   {mode === "signin" ? "Register Now" : "Sign In"}
                 </Button>
                 {mode === "signin" && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="w-full gap-2 text-primary"
-                    onClick={() => {
-                      if (!supportWhatsapp) {
-                        toast({ variant: "destructive", title: "Agent chat is not configured", description: "Ask an administrator to configure the WhatsApp support number." });
-                        return;
-                      }
-                      window.open(buildWhatsAppLink(supportWhatsapp, "Hello, I need help signing in to NETLIFE CASH."), "_blank", "noopener,noreferrer");
-                    }}
-                  >
-                    <MessageCircle size={18} /> Chat with an agent
-                  </Button>
+                  <LoginSupportChat />
                 )}
               </div>
             )}

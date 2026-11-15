@@ -525,7 +525,7 @@ export function SupportChatWidget() {
                     {activeSession.status === "ai" && !isAgent && (
                       <div className="mb-4 rounded-2xl border border-[#c9ddda] bg-[#e9f2f0] p-3.5" data-testid="support-ai-limit">
                         <div className="flex items-center gap-2 text-[#32615d]"><Bot size={15} /><p className="text-xs font-semibold">Virtual Bank assistant</p></div>
-                        <p className="mt-1.5 text-xs leading-relaxed text-[#526e6b]">The assistant answers general questions only. It cannot access or change your account, balances, cards, or transactions. Never send a PIN, password, or verification code.</p>
+                        <p className="mt-1.5 text-xs leading-relaxed text-[#526e6b]">The assistant answers general questions only and cannot access your account. Your message may be processed by the AI provider selected by the administrators. Do not send account details, a password, PIN, or verification code.</p>
                         <button
                           type="button"
                           onClick={() => void requestHuman()}

@@ -2019,51 +2019,341 @@ async function getSupportChatMessages(admin, sessionId) {
   return (data || []).reverse();
 }
 
-const SUPPORT_CHAT_MODEL_CACHE_MS = 60_000;
-let supportChatModelCheckedAt = 0;
-let supportChatModelId = null;
-let supportChatModelCheck = null;
+const AI_PROVIDER_CONFIG_ID = "default";
+const AI_PROVIDER_DEFINITIONS = {
+  openai: {
+    keyColumn: "openai_key_ciphertext",
+    modelColumn: "openai_model",
+    apiBase: "https://api.openai.com",
+    modelsPath: "/v1/models",
+    defaultModel: "gpt-4.1-mini",
+  },
+  xai: {
+    keyColumn: "xai_key_ciphertext",
+    modelColumn: "xai_model",
+    apiBase: "https://api.x.ai",
+    modelsPath: "/v1/language-models",
+    defaultModel: "grok-4.7",
+  },
+};
 
-async function getSupportChatModelId() {
-  if (Date.now() - supportChatModelCheckedAt < SUPPORT_CHAT_MODEL_CACHE_MS) {
-    return supportChatModelId;
+function getAIProviderDefinition(provider) {
+  return Object.hasOwn(AI_PROVIDER_DEFINITIONS, provider)
+    ? AI_PROVIDER_DEFINITIONS[provider]
+    : null;
+}
+
+function getAIProviderEncryptionKey() {
+  const secret = String(process.env.AI_PROVIDER_ENCRYPTION_KEY || "").trim();
+  if (secret.length < 32) {
+    throw new Error("The AI provider encryption secret is not configured.");
   }
-  if (supportChatModelCheck) return supportChatModelCheck;
+  return crypto.scryptSync(secret, "netlife-cash-ai-provider-config-v1", 32);
+}
 
-  supportChatModelCheck = (async () => {
-    try {
-      const { modelId } = await getSystemDoctorModel();
-      supportChatModelId = modelId;
-    } catch {
-      supportChatModelId = null;
+function encryptAIProviderKey(apiKey) {
+  const nonce = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", getAIProviderEncryptionKey(), nonce);
+  const ciphertext = Buffer.concat([cipher.update(apiKey, "utf8"), cipher.final()]);
+  return [
+    "v1",
+    nonce.toString("base64url"),
+    cipher.getAuthTag().toString("base64url"),
+    ciphertext.toString("base64url"),
+  ].join(".");
+}
+
+function decryptAIProviderKey(value) {
+  const [version, nonceValue, tagValue, ciphertextValue] = String(value || "").split(".");
+  if (version !== "v1" || !nonceValue || !tagValue || !ciphertextValue) {
+    throw new Error("The saved AI provider key cannot be decrypted.");
+  }
+  const decipher = crypto.createDecipheriv(
+    "aes-256-gcm",
+    getAIProviderEncryptionKey(),
+    Buffer.from(nonceValue, "base64url"),
+  );
+  decipher.setAuthTag(Buffer.from(tagValue, "base64url"));
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextValue, "base64url")),
+    decipher.final(),
+  ]).toString("utf8");
+}
+
+async function getAIProviderAdminContext(req, res) {
+  if (!adminOk()) {
+    res.status(503).json({ error: "AI provider settings are not configured on the server." });
+    return null;
+  }
+  const admin = await getSupabaseAdminClient();
+  const actor = await requireFeatureAdmin(req, admin);
+  if (actor.status) {
+    res.status(actor.status).json({ error: actor.error });
+    return null;
+  }
+  return { admin, actor };
+}
+
+async function readAIProviderConfig(admin) {
+  const { data, error } = await admin
+    .from("ai_provider_config")
+    .select("*")
+    .eq("id", AI_PROVIDER_CONFIG_ID)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+function getPublicAIProviderSettings(row) {
+  return {
+    activeProvider: row?.active_provider || null,
+    encryptionConfigured: String(process.env.AI_PROVIDER_ENCRYPTION_KEY || "").trim().length >= 32,
+    providers: {
+      openai: {
+        configured: Boolean(row?.openai_key_ciphertext),
+        model: row?.openai_model || AI_PROVIDER_DEFINITIONS.openai.defaultModel,
+      },
+      xai: {
+        configured: Boolean(row?.xai_key_ciphertext),
+        model: row?.xai_model || AI_PROVIDER_DEFINITIONS.xai.defaultModel,
+      },
+    },
+  };
+}
+
+async function listAIProviderModels(provider, apiKey) {
+  const definition = getAIProviderDefinition(provider);
+  if (!definition) throw new Error("Unsupported AI provider.");
+  const response = await fetch(`${definition.apiBase}${definition.modelsPath}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error("The AI provider rejected the saved key.");
+  const result = await response.json();
+  const entries = provider === "openai" ? result?.data : result?.models;
+  if (!Array.isArray(entries)) throw new Error("The AI provider returned an invalid model list.");
+  return [...new Set(entries
+    .map((entry) => entry?.id)
+    .filter((id) => typeof id === "string" && id.length > 0)
+    .filter((id) => provider !== "openai" || /^(gpt-|o\d|chatgpt)/i.test(id)))];
+}
+
+app.get("/api/admin/ai/providers", async (req, res) => {
+  try {
+    const context = await getAIProviderAdminContext(req, res);
+    if (!context) return;
+    const row = await readAIProviderConfig(context.admin);
+    res.json(getPublicAIProviderSettings(row));
+  } catch (error) {
+    console.error("[ai-provider] settings read failed:", error.message);
+    res.status(503).json({ error: "AI provider settings are unavailable. Apply the AI provider migration and try again." });
+  }
+});
+
+app.put("/api/admin/ai/providers/:provider", async (req, res) => {
+  try {
+    const context = await getAIProviderAdminContext(req, res);
+    if (!context) return;
+    const { admin, actor } = context;
+    const provider = req.params.provider;
+    const definition = getAIProviderDefinition(provider);
+    if (!definition) return res.status(400).json({ error: "Choose OpenAI or xAI." });
+
+    const row = await readAIProviderConfig(admin);
+    const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+    const model = typeof req.body?.model === "string"
+      ? req.body.model.trim()
+      : row?.[definition.modelColumn] || definition.defaultModel;
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(model)) {
+      return res.status(400).json({ error: "Enter a valid model ID." });
     }
-    supportChatModelCheckedAt = Date.now();
-    return supportChatModelId;
+    if (apiKey && (apiKey.length < 20 || apiKey.length > 1000 || /\s/.test(apiKey))) {
+      return res.status(400).json({ error: "The API key format is invalid." });
+    }
+    const encryptedKey = apiKey
+      ? encryptAIProviderKey(apiKey)
+      : row?.[definition.keyColumn] || null;
+    if (!encryptedKey) return res.status(400).json({ error: "Enter an API key before saving this provider." });
+
+    const values = {
+      id: AI_PROVIDER_CONFIG_ID,
+      active_provider: row?.active_provider || null,
+      openai_key_ciphertext: row?.openai_key_ciphertext || null,
+      openai_model: row?.openai_model || AI_PROVIDER_DEFINITIONS.openai.defaultModel,
+      xai_key_ciphertext: row?.xai_key_ciphertext || null,
+      xai_model: row?.xai_model || AI_PROVIDER_DEFINITIONS.xai.defaultModel,
+      updated_at: new Date().toISOString(),
+      updated_by: actor.user.id,
+      [definition.keyColumn]: encryptedKey,
+      [definition.modelColumn]: model,
+    };
+    const { data, error } = await admin
+      .from("ai_provider_config")
+      .upsert(values, { onConflict: "id" })
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    invalidateSupportChatAIConfig();
+    res.json(getPublicAIProviderSettings(data));
+  } catch (error) {
+    const message = error.message === "The AI provider encryption secret is not configured."
+      ? "Add AI_PROVIDER_ENCRYPTION_KEY in Replit Secrets before saving provider keys."
+      : "The AI provider key could not be saved.";
+    console.error("[ai-provider] key save failed:", error.message);
+    res.status(503).json({ error: message });
+  }
+});
+
+app.get("/api/admin/ai/providers/:provider/models", async (req, res) => {
+  try {
+    const context = await getAIProviderAdminContext(req, res);
+    if (!context) return;
+    const provider = req.params.provider;
+    const definition = getAIProviderDefinition(provider);
+    if (!definition) return res.status(400).json({ error: "Choose OpenAI or xAI." });
+    const row = await readAIProviderConfig(context.admin);
+    if (!row?.[definition.keyColumn]) {
+      return res.status(409).json({ error: "Save this provider's API key first." });
+    }
+    const models = await listAIProviderModels(provider, decryptAIProviderKey(row[definition.keyColumn]));
+    res.json({ models: models.slice(0, 300) });
+  } catch (error) {
+    console.error("[ai-provider] model list failed:", error.message);
+    res.status(502).json({ error: "The saved API key could not load models. Check the key and provider billing." });
+  }
+});
+
+app.post("/api/admin/ai/providers/:provider/activate", async (req, res) => {
+  try {
+    const context = await getAIProviderAdminContext(req, res);
+    if (!context) return;
+    const { admin, actor } = context;
+    const provider = req.params.provider;
+    const definition = getAIProviderDefinition(provider);
+    if (!definition) return res.status(400).json({ error: "Choose OpenAI or xAI." });
+    const row = await readAIProviderConfig(admin);
+    if (!row?.[definition.keyColumn]) {
+      return res.status(409).json({ error: "Save this provider's API key first." });
+    }
+    const model = typeof req.body?.model === "string" ? req.body.model.trim() : row[definition.modelColumn];
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(model || "")) {
+      return res.status(400).json({ error: "Choose a valid model ID." });
+    }
+    const models = await listAIProviderModels(provider, decryptAIProviderKey(row[definition.keyColumn]));
+    if (!models.includes(model)) return res.status(400).json({ error: "Choose a model available to this API key." });
+    const { data, error } = await admin
+      .from("ai_provider_config")
+      .update({
+        active_provider: provider,
+        [definition.modelColumn]: model,
+        updated_at: new Date().toISOString(),
+        updated_by: actor.user.id,
+      })
+      .eq("id", AI_PROVIDER_CONFIG_ID)
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    invalidateSupportChatAIConfig();
+    res.json(getPublicAIProviderSettings(data));
+  } catch (error) {
+    console.error("[ai-provider] activation failed:", error.message);
+    res.status(502).json({ error: "The provider could not be selected. Verify its key and model." });
+  }
+});
+
+app.delete("/api/admin/ai/providers/:provider", async (req, res) => {
+  try {
+    const context = await getAIProviderAdminContext(req, res);
+    if (!context) return;
+    const { admin, actor } = context;
+    const provider = req.params.provider;
+    const definition = getAIProviderDefinition(provider);
+    if (!definition) return res.status(400).json({ error: "Choose OpenAI or xAI." });
+    const row = await readAIProviderConfig(admin);
+    if (!row) return res.json(getPublicAIProviderSettings(null));
+    const { data, error } = await admin
+      .from("ai_provider_config")
+      .update({
+        [definition.keyColumn]: null,
+        [definition.modelColumn]: definition.defaultModel,
+        active_provider: row.active_provider === provider ? null : row.active_provider,
+        updated_at: new Date().toISOString(),
+        updated_by: actor.user.id,
+      })
+      .eq("id", AI_PROVIDER_CONFIG_ID)
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    invalidateSupportChatAIConfig();
+    res.json(getPublicAIProviderSettings(data));
+  } catch (error) {
+    console.error("[ai-provider] key removal failed:", error.message);
+    res.status(503).json({ error: "The provider key could not be removed." });
+  }
+});
+
+const SUPPORT_CHAT_AI_CACHE_MS = 60_000;
+let supportChatAIConfigCheckedAt = 0;
+let supportChatAIConfigCache = null;
+let supportChatAIConfigCheck = null;
+
+async function getSupportChatAIConfig(admin = null) {
+  if (Date.now() - supportChatAIConfigCheckedAt < SUPPORT_CHAT_AI_CACHE_MS) {
+    return supportChatAIConfigCache;
+  }
+  if (supportChatAIConfigCheck) return supportChatAIConfigCheck;
+
+  supportChatAIConfigCheck = (async () => {
+    try {
+      const serverAdmin = admin || await getSupabaseAdminClient();
+      const row = await readAIProviderConfig(serverAdmin);
+      const provider = row?.active_provider;
+      const definition = getAIProviderDefinition(provider);
+      if (!definition || !row?.[definition.keyColumn]) return null;
+      const apiKey = decryptAIProviderKey(row[definition.keyColumn]);
+      const model = row[definition.modelColumn];
+      if (!model || !(await listAIProviderModels(provider, apiKey)).includes(model)) return null;
+      return { provider, apiKey, model };
+    } catch {
+      return null;
+    }
   })();
 
   try {
-    return await supportChatModelCheck;
+    supportChatAIConfigCache = await supportChatAIConfigCheck;
+    supportChatAIConfigCheckedAt = Date.now();
+    return supportChatAIConfigCache;
   } finally {
-    supportChatModelCheck = null;
+    supportChatAIConfigCheck = null;
   }
 }
 
 function markSupportChatAIUnavailable() {
-  supportChatModelId = null;
-  supportChatModelCheckedAt = Date.now();
-  supportChatModelCheck = null;
+  supportChatAIConfigCache = null;
+  supportChatAIConfigCheckedAt = Date.now();
+  supportChatAIConfigCheck = null;
+}
+
+function invalidateSupportChatAIConfig() {
+  supportChatAIConfigCache = null;
+  supportChatAIConfigCheckedAt = 0;
+  supportChatAIConfigCheck = null;
 }
 
 async function callSupportChatAssistant(messages) {
-  const modelId = await getSupportChatModelId();
-  if (!modelId) throw new Error("Automated support is unavailable.");
-  const { ReplitConnectors } = await import("@replit/connectors-sdk");
-  const connectors = new ReplitConnectors();
-  const response = await connectors.proxy("xai", "/v1/responses", {
+  const config = await getSupportChatAIConfig();
+  if (!config) throw new Error("Automated support is unavailable.");
+  const definition = getAIProviderDefinition(config.provider);
+  const response = await fetch(`${definition.apiBase}/v1/responses`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    signal: AbortSignal.timeout(25_000),
     body: JSON.stringify({
-      model: modelId,
+      model: config.model,
       input: [
         {
           role: "system",
@@ -2103,12 +2393,208 @@ async function fetchSupportChatSession(admin, sessionId) {
 
 async function addSupportProfileNames(admin, sessions, idKey) {
   const profileIds = [...new Set(sessions.map((session) => session[idKey]).filter(Boolean))];
-  if (profileIds.length === 0) return sessions.map((session) => ({ ...session, display_name: "Customer" }));
+  if (profileIds.length === 0) {
+    return sessions.map((session) => ({
+      ...session,
+      display_name: session.guest_display_name || "Login help guest",
+    }));
+  }
   const { data, error } = await admin.from("profiles").select("id, full_name, store_name").in("id", profileIds);
   if (error) throw new Error(error.message);
   const names = new Map((data || []).map((profile) => [profile.id, profile.store_name || profile.full_name || "Customer"]));
-  return sessions.map((session) => ({ ...session, display_name: names.get(session[idKey]) || "Customer" }));
+  return sessions.map((session) => ({
+    ...session,
+    display_name: names.get(session[idKey])
+      || session.guest_display_name
+      || (session.user_id ? "Customer" : "Login help guest"),
+  }));
 }
+
+const GUEST_SUPPORT_COOKIE = "support_guest_token";
+const guestSupportRateBuckets = new Map();
+
+function allowGuestSupportRequest(req, scope, limit, windowMs) {
+  const remoteAddress = String(req.ip || req.socket?.remoteAddress || "unknown");
+  const key = `${scope}:${remoteAddress}`;
+  const now = Date.now();
+  const current = guestSupportRateBuckets.get(key);
+  if (!current || current.resetAt <= now) {
+    guestSupportRateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    if (guestSupportRateBuckets.size > 10000) {
+      for (const [bucketKey, bucket] of guestSupportRateBuckets) {
+        if (bucket.resetAt <= now) guestSupportRateBuckets.delete(bucketKey);
+      }
+    }
+    return true;
+  }
+  if (current.count >= limit) return false;
+  current.count += 1;
+  return true;
+}
+
+function getGuestSupportToken(req) {
+  const cookieHeader = String(req.headers.cookie || "");
+  for (const part of cookieHeader.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator < 0 || part.slice(0, separator).trim() !== GUEST_SUPPORT_COOKIE) continue;
+    try {
+      return decodeURIComponent(part.slice(separator + 1).trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function hashGuestSupportToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function setGuestSupportCookie(req, res, token) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  const secure = req.secure || forwardedProto === "https" || process.env.NODE_ENV === "production";
+  res.append(
+    "Set-Cookie",
+    `${GUEST_SUPPORT_COOKIE}=${encodeURIComponent(token)}; Path=/api/support-chat/guest; HttpOnly; SameSite=Strict; Max-Age=86400${secure ? "; Secure" : ""}`,
+  );
+}
+
+async function loadGuestSupportSession(admin, req, sessionId) {
+  const token = getGuestSupportToken(req);
+  if (!token || token.length < 32) return { status: 401, error: "Login support session expired. Please open a new chat." };
+  const { data, error } = await admin
+    .from("support_chat_sessions")
+    .select("id, user_id, guest_token_hash, guest_display_name, agent_id, status, created_at, updated_at, last_message_at")
+    .eq("id", sessionId)
+    .eq("guest_token_hash", hashGuestSupportToken(token))
+    .is("user_id", null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return { status: 404, error: "Login support chat was not found." };
+  const { guest_token_hash: _guestTokenHash, ...session } = data;
+  return { session };
+}
+
+app.post("/api/support-chat/guest/open", async (req, res) => {
+  if (!allowGuestSupportRequest(req, "open", 20, 10 * 60_000)) {
+    return res.status(429).json({ error: "Too many login-support requests. Please wait before opening another chat." });
+  }
+  try {
+    const admin = await getSupabaseAdminClient();
+    const existingToken = getGuestSupportToken(req);
+    if (existingToken && existingToken.length >= 32) {
+      const { data: existing, error: existingError } = await admin
+        .from("support_chat_sessions")
+        .select("id, user_id, guest_display_name, agent_id, status, created_at, updated_at, last_message_at")
+        .eq("guest_token_hash", hashGuestSupportToken(existingToken))
+        .is("user_id", null)
+        .neq("status", "closed")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingError) throw new Error(existingError.message);
+      if (existing) {
+        return res.json({ session: existing, messages: await getSupportChatMessages(admin, existing.id) });
+      }
+    }
+
+    const token = crypto.randomBytes(32).toString("base64url");
+    const { data: session, error: insertError } = await admin
+      .from("support_chat_sessions")
+      .insert({
+        user_id: null,
+        guest_token_hash: hashGuestSupportToken(token),
+        guest_display_name: "Login help guest",
+        status: "waiting",
+      })
+      .select("id, user_id, guest_display_name, agent_id, status, created_at, updated_at, last_message_at")
+      .single();
+    if (insertError) throw new Error(insertError.message);
+    await insertSupportChatMessage(admin, {
+      sessionId: session.id,
+      senderRole: "system",
+      body: "Your login-help request is in the human support queue. Never send your password, PIN, or one-time verification code in chat.",
+    });
+    setGuestSupportCookie(req, res, token);
+    res.status(201).json({ session, messages: await getSupportChatMessages(admin, session.id) });
+  } catch (error) {
+    console.error("[support-chat] guest open failed:", error.message);
+    res.status(503).json({ error: "In-app login support is temporarily unavailable. Please try again later." });
+  }
+});
+
+app.get("/api/support-chat/guest/:sessionId", async (req, res) => {
+  if (!allowGuestSupportRequest(req, "read", 30, 60_000)) {
+    return res.status(429).json({ error: "Too many login-support refreshes. Please wait a moment." });
+  }
+  try {
+    const admin = await getSupabaseAdminClient();
+    const access = await loadGuestSupportSession(admin, req, req.params.sessionId);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+    let session = access.session;
+    if (session.status === "active" && session.agent_id
+      && !(await getOnlineSupportAgentIds(admin)).includes(session.agent_id)) {
+      const { data: returned, error } = await admin
+        .from("support_chat_sessions")
+        .update({ status: "waiting", agent_id: null, updated_at: new Date().toISOString() })
+        .eq("id", session.id)
+        .eq("status", "active")
+        .select("id, user_id, guest_display_name, agent_id, status, created_at, updated_at, last_message_at")
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (returned) {
+        session = returned;
+        await insertSupportChatMessage(admin, {
+          sessionId: session.id,
+          senderRole: "system",
+          body: "Your previous agent is no longer online. Your chat has returned to the human support queue.",
+        });
+      }
+    }
+    res.json({ session, messages: await getSupportChatMessages(admin, session.id) });
+  } catch (error) {
+    console.error("[support-chat] guest conversation read failed:", error.message);
+    res.status(503).json({ error: "Login support messages could not be loaded." });
+  }
+});
+
+app.post("/api/support-chat/guest/:sessionId/messages", async (req, res) => {
+  if (!allowGuestSupportRequest(req, "message-ip", 60, 60_000)) {
+    return res.status(429).json({ error: "Too many login-support messages. Please wait a moment." });
+  }
+  try {
+    const admin = await getSupabaseAdminClient();
+    const access = await loadGuestSupportSession(admin, req, req.params.sessionId);
+    if (access.error) return res.status(access.status).json({ error: access.error });
+    const session = access.session;
+    const token = getGuestSupportToken(req);
+    if (!allowGuestSupportRequest(req, `message:${hashGuestSupportToken(token)}`, 15, 60_000)) {
+      return res.status(429).json({ error: "You are sending messages too quickly. Please wait a moment." });
+    }
+    const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+    if (!body || body.length > 2000) {
+      return res.status(400).json({ error: "Message must contain 1 to 2,000 characters." });
+    }
+    if (session.status === "closed") {
+      return res.status(409).json({ error: "This support conversation is closed." });
+    }
+    await insertSupportChatMessage(admin, {
+      sessionId: session.id,
+      senderRole: "user",
+      body,
+    });
+    res.status(201).json({
+      session: await fetchSupportChatSession(admin, session.id),
+      messages: await getSupportChatMessages(admin, session.id),
+    });
+  } catch (error) {
+    console.error("[support-chat] guest message send failed:", error.message);
+    res.status(503).json({ error: "Your login-support message could not be sent." });
+  }
+});
 
 app.post("/api/support-chat/open", async (req, res) => {
   try {
@@ -2131,8 +2617,8 @@ app.post("/api/support-chat/open", async (req, res) => {
     if (existing) return res.json({ session: existing, messages: await getSupportChatMessages(admin, existing.id) });
 
     const agentIds = await getOnlineSupportAgentIds(admin);
-    const assistantModelId = agentIds.length === 0 ? await getSupportChatModelId() : null;
-    const status = agentIds.length > 0 || !assistantModelId ? "waiting" : "ai";
+    const assistantConfig = agentIds.length === 0 ? await getSupportChatAIConfig(admin) : null;
+    const status = agentIds.length > 0 || !assistantConfig ? "waiting" : "ai";
     const { data: session, error: insertError } = await admin
       .from("support_chat_sessions")
       .insert({ user_id: actor.user.id, status })
@@ -2146,7 +2632,7 @@ app.post("/api/support-chat/open", async (req, res) => {
         ? agentIds.length > 0
           ? "Your request is in the queue. An agent will join as soon as one is available."
           : "Automated support is unavailable right now. Your request is saved for a human agent and will stay in the queue until one is available."
-        : "No agents are online, so automated support is available. It can answer general questions but cannot view or change your account.",
+        : "No agents are online, so automated support is available for general questions. Your message may be processed by the AI provider selected by the administrators. Do not send account details, passwords, PINs, or verification codes.",
     });
     res.status(201).json({ session, messages: await getSupportChatMessages(admin, session.id) });
   } catch (error) {
@@ -2176,7 +2662,7 @@ app.get("/api/support-chat/me", async (req, res) => {
 
     const onlineAgentIds = await getOnlineSupportAgentIds(admin);
     const agentDisconnected = session.status === "active" && session.agent_id && !onlineAgentIds.includes(session.agent_id);
-    const assistantUnavailable = session.status === "ai" && !(await getSupportChatModelId());
+    const assistantUnavailable = session.status === "ai" && !(await getSupportChatAIConfig(admin));
     if (agentDisconnected || assistantUnavailable) {
       const nextStatus = "waiting";
       const { data: updated, error: updateError } = await admin

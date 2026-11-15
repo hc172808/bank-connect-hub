@@ -9,6 +9,8 @@ Chat is built on top of the existing `notifications` table — no schema migrati
 Support chat is a separate, database-backed support queue. Its sessions, messages,
 and agent availability are read and written only by authenticated server routes
 using the service-role client; browser clients must not query these tables directly.
+The login page can create a human-only guest session; its browser receives an
+HttpOnly cookie while the database stores only the token hash.
 
 **Rule:** Automated support has no tools and may answer general product questions
 only. It must not inspect or change accounts, balances, transactions, or permissions.
@@ -20,6 +22,7 @@ changes and operational comments for human staff with admin-granted permissions.
 
 **How to apply:** Keep AI prompts free of account data, do not expose mutation tools
 to the model, and enforce customer ownership and agent assignment in server routes.
+Login-help guests must stay in the human queue and never enter the automated AI path.
 
 ## Message storage
 When user A sends to user B, two rows are inserted:
